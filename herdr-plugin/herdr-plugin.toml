@@ -1,0 +1,18 @@
+id = "cairn"
+name = "cairn"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Où en est chaque chantier : l'espace cairn reste dans la barre latérale, un clic l'ouvre"
+platforms = ["linux", "macos"]
+
+# Au démarrage de herdr : crée l'espace « cairn » s'il manque et y lance cairn,
+# sans changer le focus. C'est le bouton de la barre latérale.
+[[startup]]
+command = ["sh", "run.sh", "ensure"]
+
+# Bascule entre cairn et l'espace d'où tu viens (lié à une touche dans config.toml).
+[[actions]]
+id = "toggle"
+title = "Afficher / masquer cairn"
+contexts = ["workspace"]
+command = ["sh", "run.sh", "open"]
