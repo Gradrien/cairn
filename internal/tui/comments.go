@@ -10,8 +10,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"cairn/internal/images"
 	"cairn/internal/progress"
@@ -220,11 +222,11 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 		}
 		for _, l := range body {
 			img := 0
-			if mm := prthread.ImageRe.FindStringSubmatch(ansi.Strip(l)); mm != nil {
+			if mm := prthread.ImageRe.FindStringSubmatch(xansi.Strip(l)); mm != nil {
 				img, _ = strconv.Atoi(mm[1])
 				// glamour splits "[image N]" into several styled runs: restyle
 				// the line from plain text so the marker reads as one link.
-				l = prthread.ImageRe.ReplaceAllStringFunc(strings.TrimRight(ansi.Strip(l), " "), func(s string) string {
+				l = prthread.ImageRe.ReplaceAllStringFunc(strings.TrimRight(xansi.Strip(l), " "), func(s string) string {
 					n, _ := strconv.Atoi(prthread.ImageRe.FindStringSubmatch(s)[1])
 					if t.Broken[n] {
 						return sErr.Render(fmt.Sprintf("[img %d : lien cassé %s]", n, t.Images[n-1]))
@@ -235,7 +237,7 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 					img = 0
 				}
 			} else if e.Bot {
-				l = sMuted.Render(ansi.Strip(l))
+				l = sMuted.Render(xansi.Strip(l))
 			}
 			add(img, l)
 		}
@@ -270,10 +272,10 @@ func (m Model) commentsView() string {
 		lines = lines[:bodyH]
 	}
 	for i, l := range lines {
-		lines[i] = ansi.Truncate(l, m.width, "…")
+		lines[i] = xansi.Truncate(l, m.width, "…")
 	}
 	body := lipgloss.NewStyle().Width(m.width).Height(bodyH).MaxHeight(bodyH).Render(strings.Join(lines, "\n"))
-	return ansi.Truncate(head, m.width, "…") + "\n" + m.viewFlash() + "\n" + body + "\n" + m.viewFooter()
+	return xansi.Truncate(head, m.width, "…") + "\n" + m.viewFlash() + "\n" + body + "\n" + m.viewFooter()
 }
 
 func (m Model) commentsButtons() []button {
@@ -372,6 +374,31 @@ var (
 	mdCache     = map[string][]string{}
 )
 
+// mdStyle is Dracula without the raw-looking bits: headings lose their "##",
+// task boxes become cairn's ✓/○, and URLs fade behind their text.
+func mdStyle() ansi.StyleConfig {
+	cfg := styles.DraculaStyleConfig
+	str := func(v string) *string { return &v }
+	yes := true
+	heading := func(b ansi.StyleBlock, color string) ansi.StyleBlock {
+		b.Prefix, b.Suffix = "", ""
+		b.Color, b.Bold = str(color), &yes
+		return b
+	}
+	cfg.H1 = heading(cfg.H1, "#ff79c6")
+	cfg.H1.BackgroundColor = nil
+	cfg.H1.Underline = &yes
+	cfg.H2 = heading(cfg.H2, "#bd93f9")
+	cfg.H2.Underline = &yes
+	cfg.H3 = heading(cfg.H3, "#bd93f9")
+	cfg.H4 = heading(cfg.H4, "#8be9fd")
+	cfg.H5 = heading(cfg.H5, "#8be9fd")
+	cfg.H6 = heading(cfg.H6, "#6272a4")
+	cfg.Task.Ticked, cfg.Task.Unticked = "✓ ", "○ "
+	cfg.Link.Color, cfg.Link.Underline = str("#6272a4"), nil
+	return cfg
+}
+
 // renderMarkdown renders a comment as styled terminal lines, wrapped to w.
 // Rendering is cached: the view redraws on every mouse move.
 func renderMarkdown(body string, w int) []string {
@@ -384,7 +411,7 @@ func renderMarkdown(body string, w int) []string {
 	r, ok := mdRenderers[w]
 	if !ok {
 		var err error
-		r, err = glamour.NewTermRenderer(glamour.WithStandardStyle("dracula"), glamour.WithWordWrap(max(20, w-4)))
+		r, err = glamour.NewTermRenderer(glamour.WithStyles(mdStyle()), glamour.WithWordWrap(max(20, w-4)))
 		if err != nil {
 			return wrap(body, w-2, "  ")
 		}
@@ -395,10 +422,10 @@ func renderMarkdown(body string, w int) []string {
 		return wrap(body, w-2, "  ")
 	}
 	lines := strings.Split(strings.ReplaceAll(out, "\r", ""), "\n")
-	for len(lines) > 0 && strings.TrimSpace(ansi.Strip(lines[0])) == "" {
+	for len(lines) > 0 && strings.TrimSpace(xansi.Strip(lines[0])) == "" {
 		lines = lines[1:]
 	}
-	for len(lines) > 0 && strings.TrimSpace(ansi.Strip(lines[len(lines)-1])) == "" {
+	for len(lines) > 0 && strings.TrimSpace(xansi.Strip(lines[len(lines)-1])) == "" {
 		lines = lines[:len(lines)-1]
 	}
 	mdCache[key] = lines
