@@ -53,6 +53,30 @@ Les pièces jointes GitHub privées passent par le token `gh`, les liens signés
 Tout est mis en cache dans `~/.cairn/cache/images`. Les captures citées sous `## Preuves` d'un plan sont cliquables de
 la même façon.
 
+## Boucler avec les agents
+
+- **Retour de review → agent** : dans la vue Commentaires, `[→ agent]` en bout d'en-tête envoie un commentaire (review,
+  inline avec son `fichier:ligne`, bot) à l'agent du chantier. L'agent l'ajoute comme tâche, corrige en local, puis
+  demande le push.
+- **Corriger la CI** : quand un check échoue, le bouton `f` (ou le lien dans le détail) récupère les logs des étapes
+  en échec (`gh run view --log-failed`) dans `~/.cairn/cache/ci/` et les passe à l'agent.
+- **Rattacher un agent** : un agent « hors chantier » (par exemple dans le dépôt principal) se rattache d'un clic à un
+  chantier. cairn le renomme d'après le ticket, ce qui le place aussi au bon endroit dans herdr.
+
+## Suivi
+
+- **Prêt à merger** : pour une PR ouverte, cairn vérifie les tâches, les effets de bord, la CI, la review, les conflits et
+  le statut brouillon. La liste affiche `✓ prêt` ou `✗ CI`.
+- **Historique** : chaque changement de phase et chaque décision (plan validé, push autorisé, retour envoyé…) est noté
+  dans `~/.cairn/chantiers/<TICKET>.log`. La ligne Phase indique depuis quand le chantier est dans sa phase actuelle.
+- **Notifications herdr** quand un chantier attend ta décision, quand la CI casse, quand une review demande des
+  changements ou approuve, et quand un chantier est livré. Seule l'instance qui tourne dans l'espace `cairn` notifie.
+  Les PR ouvertes sont relues toutes les 2 minutes.
+- **Sprintosaur suit** : le ticket passe en In Progress quand le plan est lancé ou que le chantier entre en Build.
+  Les passages en Pull Request puis en Done restent automatiques, via les PR liées.
+- **Ranger** (`x`, deux clics) : une fois le chantier livré, cairn supprime son worktree et son espace herdr et archive
+  son plan dans `~/.cairn/archive/`. Il refuse s'il reste des changements non commités.
+
 ## Souris et clavier
 
 Tout se fait à la souris :

@@ -179,8 +179,11 @@ func (m Model) threadImages(start int) (tea.Model, tea.Cmd) {
 	return m, openImages(srcs, caps, images.Source{Owner: t.Owner, Repo: t.Repo, Ref: t.HeadRef}, newStart)
 }
 
+// sendLabel ends each comment's header: a click forwards it to the agent.
+const sendLabel = "[→ agent]"
+
 // commentsLayout renders the conversation; targets give the image (1-based)
-// a line opens, 0 for none.
+// a line opens, 0 for none, and -(i+1) for the header of entry i.
 func (m Model) commentsLayout(w int) ([]string, []int) {
 	var lines []string
 	var targets []int
@@ -199,7 +202,7 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 		add(0, sMuted.Render("Chargement de la conversation…"))
 		return lines, targets
 	}
-	for _, e := range t.Entries {
+	for i, e := range t.Entries {
 		head := sBold.Render(e.Author)
 		if e.Bot {
 			head = sMuted.Render(e.Author + " (bot)")
@@ -214,7 +217,12 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 		if e.Kind == "inline" {
 			kind = sMuted.Render("inline ") + lipgloss.NewStyle().Foreground(working).Render(fmt.Sprintf("%s:%d", e.Path, e.Line))
 		}
-		add(0, head+sMuted.Render(" · ")+kind+sMuted.Render(" · "+progress.Ago(e.At)))
+		header := head + sMuted.Render(" · ") + kind + sMuted.Render(" · "+progress.Ago(e.At))
+		if e.Kind == "description" {
+			add(0, header)
+		} else {
+			add(-(i + 1), header+"  "+sKey.Render(sendLabel))
+		}
 		body := renderMarkdown(e.Body, w)
 		if e.Bot && !m.showBots && len(body) > 8 {
 			hidden := len(body) - 8
@@ -363,6 +371,13 @@ func (m Model) commentsMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 		row := ev.Y - 2 + min(m.cscroll, max(0, len(lines)-bodyH))
 		if row < len(targets) && targets[row] > 0 {
 			return m.threadImages(targets[row] - 1)
+		}
+		if row < len(targets) && targets[row] < 0 {
+			plain := []rune(xansi.Strip(lines[row]))
+			at := len([]rune(strings.Split(string(plain), sendLabel)[0]))
+			if ev.X >= at && ev.X < at+len([]rune(sendLabel)) {
+				return m.sendComment(-targets[row] - 1)
+			}
 		}
 	}
 	return m, nil

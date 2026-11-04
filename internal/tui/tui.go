@@ -20,6 +20,7 @@ import (
 	"cairn/internal/herdr"
 	"cairn/internal/home"
 	"cairn/internal/images"
+	"cairn/internal/journal"
 	"cairn/internal/progress"
 	"cairn/internal/prthread"
 	"cairn/internal/sprintosaur"
@@ -80,6 +81,9 @@ type Model struct {
 	detailOf string // chantier the detail pane shows, to reset its scroll
 	scroll   int    // detail pane scroll offset
 
+	watch   *watchState
+	confirm string // action waiting for a second click, e.g. "tidy:YAK-1"
+
 	// The comments view ("" is the main screen).
 	view      string
 	thread    *prthread.Thread
@@ -96,7 +100,7 @@ type Model struct {
 }
 
 func New(cfg config.Config) Model {
-	m := Model{cfg: cfg, inside: home.Inside(), hoverItem: -1, hoverBtn: -1,
+	m := Model{cfg: cfg, inside: home.Inside(), hoverItem: -1, hoverBtn: -1, watch: newWatch(),
 		gits: map[string]progress.Git{}, prs: map[string]progress.PR{}, readAt: map[string]time.Time{}, reading: map[string]bool{}, tokens: map[string]string{}, extra: map[string]sprintosaur.Issue{}}
 	m.sp, m.spErr = sprintosaur.New(cfg.SprintosaurCredentials)
 	return m
@@ -197,7 +201,7 @@ func (m *Model) rebuild() tea.Cmd {
 	if n := m.items(); m.cursor >= n {
 		m.cursor = max(0, n-1)
 	}
-	return m.pushTokens()
+	return tea.Batch(m.pushTokens(), m.observe())
 }
 
 func (m *Model) pushTokens() tea.Cmd {
@@ -284,10 +288,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if pm.git != nil {
 			m.gits[pm.key] = *pm.git
 		}
+		var cmd tea.Cmd
 		if pm.pr != nil {
-			m.prs[pm.key] = *pm.pr
+			cmd = m.notePR(pm.key, *pm.pr)
 		}
-		return m, nil
+		return m, cmd
 	}
 	next, cmd := m.update(msg)
 	nm := next.(Model)
@@ -337,6 +342,14 @@ func (m *Model) readProgress() tea.Cmd {
 
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case prsMsg:
+		var cmds []tea.Cmd
+		for key, pr := range msg {
+			cmds = append(cmds, m.notePR(key, pr))
+		}
+		return m, tea.Batch(append(cmds, every(prsEvery, tickPRs{}))...)
+	case tickPRs:
+		return m, m.pollPRs()
 	case threadMsg:
 		if msg.key == m.threadKey {
 			m.thread, m.threadErr = msg.thread, msg.err
@@ -367,7 +380,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.issues, m.extra = msg.issues, msg.extra
 		}
-		return m, tea.Batch(m.rebuild(), every(issuesEvery, tickIssues{}))
+		cmd := m.rebuild()
+		if !m.watch.polling && msg.err == nil {
+			m.watch.polling = true
+			cmd = tea.Batch(cmd, m.pollPRs())
+		}
+		return m, tea.Batch(cmd, every(issuesEvery, tickIssues{}))
 
 	case tickLocal:
 		return m, tea.Batch(m.loadLocal(), tea.EnableMouseAllMotion)
@@ -408,6 +426,9 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.commentsKey(k)
 	}
 	m.flash = ""
+	if k.String() != "x" {
+		m.confirm = ""
+	}
 	switch k.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -442,6 +463,10 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "c":
 		return m.openComments()
+	case "f":
+		return m.fixCI()
+	case "x":
+		return m.tidy()
 	case "p":
 		return m.plan()
 	case "v":
@@ -548,6 +573,10 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return doneMsg{text: "→ " + arg, err: herdr.FocusAgent(arg)} }
 	case "comments":
 		return m.openComments()
+	case "fixci":
+		return m.fixCI()
+	case "attach":
+		return m.attach(arg)
 	case "img":
 		files := m.proofImages()
 		start := 0
@@ -634,7 +663,7 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 		m.say(c.Key+" a déjà son worktree : enter pour y aller.", nil)
 		return m, nil
 	}
-	cfg, issue, agents := m.cfg, *c.Issue, m.snap.Agents
+	cfg, issue, agents, sp := m.cfg, *c.Issue, m.snap.Agents, m.sp
 	key := strings.ToUpper(issue.ID)
 	lower := strings.ToLower(key)
 	_, num, _ := strings.Cut(lower, "-")
@@ -661,7 +690,12 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 			return doneMsg{err: fmt.Errorf("worktree prêt, mais l'agent n'a pas démarré : %w", err), refresh: true}
 		}
 		err = herdr.Prompt(name, chantier.PlanPrompt(key, issue.Title, statePath))
-		return doneMsg{text: key + " : l'agent " + name + " écrit le plan.", err: err, refresh: true}
+		text := key + " : l'agent " + name + " écrit le plan."
+		if sp != nil && (issue.Status == "Backlog" || issue.Status == "Todo") && sp.SetStatus(key, "In Progress") == nil {
+			text += " Ticket passé en In Progress."
+		}
+		_ = journal.Append(config.ChantiersDir(), key, "plan lancé ("+name+")")
+		return doneMsg{text: text, err: err, refresh: true}
 	}
 }
 
@@ -681,6 +715,7 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 		m.say("", err)
 		return m, nil
 	}
+	_ = journal.Append(config.ChantiersDir(), c.Key, "push autorisé")
 	text := "Push autorisé pour " + c.Key + " (un seul push)."
 	cmd := m.rebuild()
 	if len(c.Agents) > 0 {
@@ -712,6 +747,7 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 	if s.Phase == "plan" {
 		s.Set("phase", "build")
 		prompt = chantier.BuildPrompt(s.Path)
+		_ = journal.Append(config.ChantiersDir(), c.Key, "plan validé")
 		text = "Plan validé : " + c.Key + " passe en Build."
 	}
 	if err := s.Save(); err != nil {
@@ -852,6 +888,11 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 		}
 		if pr := c.OpenPR(); pr != nil {
 			info += sMuted.Render(fmt.Sprintf(" · PR #%d", pr.Number))
+			if p, ok := m.prs[c.Key]; ok && p.Checks.Failed > 0 {
+				info += sErr.Render(" ✗ CI")
+			} else if _, ready := m.readiness(c); ready {
+				info += sGood.Render(" ✓ prêt")
+			}
 		}
 		if i == m.cursor {
 			curLine = len(lines)
@@ -957,6 +998,13 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 			lbl("Dossier")+trunc(tilde(a.Dir()), w-label),
 			lbl("Pane")+a.PaneID, "",
 			sMuted.Render("Cet agent ne travaille sur aucun ticket connu."))
+		if len(m.chantiers) > 0 {
+			add("", sHeader.Render("Rattacher à un chantier")+sMuted.Render("  (clic : l'agent prend le nom du ticket)"))
+			for _, c := range m.chantiers {
+				add("  " + sImg.Render("› "+c.Key) + " " + trunc(c.Title(), w-len(c.Key)-6))
+				targets[len(targets)-1] = "attach:" + c.Key
+			}
+		}
 		return b, targets
 	}
 	c := m.selected()
@@ -998,7 +1046,8 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 	if c.Phase == chantier.ToPlan {
 		add(lbl("Phase") + "À planifier : bouton " + sKey.Render("Planifier") + " pour lancer un agent")
 	} else {
-		add(lbl("Phase") + strings.Join(flow, sMuted.Render(" → ")))
+		start := journal.PhaseSince(m.watch.history[c.Key])
+		add(lbl("Phase") + strings.Join(flow, sMuted.Render(" → ")) + sMuted.Render("  "+since(start)))
 	}
 	var activity []string
 	if s != nil && !s.UpdatedAt.IsZero() {
@@ -1115,6 +1164,23 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 			add("  " + prLine(info))
 			if len(info.Checks.FailedNames) > 0 {
 				add("  " + sErr.Render("✗ ") + trunc(strings.Join(info.Checks.FailedNames, ", "), w-6))
+				add("  " + sImg.Render("› Corriger la CI") + sMuted.Render("  (clic ou f : les logs en échec partent à l'agent)"))
+				targets[len(targets)-1] = "fixci"
+			}
+			if checks, ready := m.readiness(c); len(checks) > 0 {
+				var parts []string
+				for _, k := range checks {
+					if k.ok {
+						parts = append(parts, sGood.Render("✓ "+k.label))
+					} else {
+						parts = append(parts, sMuted.Render("○ "+k.label))
+					}
+				}
+				verdict := sMuted.Render("pas encore prêt à merger")
+				if ready {
+					verdict = sGood.Bold(true).Render("prêt à merger")
+				}
+				add("  "+verdict, "  "+strings.Join(parts, sMuted.Render(" · ")))
 			}
 		} else if ok {
 			add("  " + pr.State + sMuted.Render(" · "+info.Err))
@@ -1123,6 +1189,11 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 		}
 		add("  " + sImg.Render("› Commentaires et images") + sMuted.Render("  (clic ou c)"))
 		targets[len(targets)-1] = "comments"
+	}
+
+	if events := m.watch.history[c.Key]; len(events) > 0 {
+		section("Historique")
+		add(historyLines(events, 6)...)
 	}
 
 	if len(c.Agents) > 0 {
@@ -1227,7 +1298,7 @@ func (m Model) mainButtons() []button {
 	if m.inside {
 		back = "Retour à herdr"
 	}
-	return []button{
+	bs := []button{
 		{"enter", "Aller à l'agent", other || (c != nil && (len(c.Agents) > 0 || len(c.Workspaces) > 0))},
 		{"d", "Diff", hasWT},
 		{"p", "Planifier", c != nil && c.Issue != nil && (!hasWT || c.Main)},
@@ -1235,9 +1306,21 @@ func (m Model) mainButtons() []button {
 		{"a", "Autoriser le push", c != nil && c.State != nil && !c.State.PushAllowed()},
 		{"c", "Commentaires", c != nil && c.Issue != nil && len(c.Issue.PullRequests) > 0},
 		{"o", "Ticket", c != nil && c.Issue != nil},
-		{"r", "Rafraîchir", true},
-		{"q", back, true},
 	}
+	// Situational buttons only show when they apply.
+	if c != nil {
+		if pr, ok := m.prs[c.Key]; ok && pr.Checks.Failed > 0 && c.OpenPR() != nil {
+			bs = append(bs, button{"f", "Corriger la CI", true})
+		}
+		if c.Phase == chantier.Shipped && hasWT && !c.Main {
+			label := "Ranger"
+			if m.confirm == "tidy:"+c.Key {
+				label = "Confirmer : ranger"
+			}
+			bs = append(bs, button{"x", label, true})
+		}
+	}
+	return append(bs, button{"r", "Rafraîchir", true}, button{"q", back, true})
 }
 
 var (

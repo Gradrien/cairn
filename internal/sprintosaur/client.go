@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -89,6 +90,30 @@ func (c *Client) get(path string, q url.Values, out any) error {
 		return fmt.Errorf("sprintosaur %s : HTTP %d", path, resp.StatusCode)
 	}
 	return json.Unmarshal(body, out)
+}
+
+// SetStatus moves an issue to a status ("In Progress", …).
+func (c *Client) SetStatus(key, status string) error {
+	q := url.Values{}
+	if c.share != "" {
+		q.Set("__sp_pk", c.share)
+	}
+	body := strings.NewReader(`{"status":` + strconv.Quote(status) + `}`)
+	req, err := http.NewRequest(http.MethodPatch, c.api+"/issues/"+url.PathEscape(key)+"?"+q.Encode(), body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("sprintosaur %s : HTTP %d", key, resp.StatusCode)
+	}
+	return nil
 }
 
 // CurrentIssues lists the assignee's open issues in the running cycle.

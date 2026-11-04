@@ -297,3 +297,23 @@ func RunInPane(paneID, command string) error {
 	_, err := run("pane", "run", paneID, command)
 	return err
 }
+
+// Notify shows a herdr notification (in-app toast or system, per herdr's config).
+func Notify(title, body string) error {
+	_, err := run("notification", "show", title, "--body", body, "--sound", "request")
+	return err
+}
+
+// RenameAgent names the agent in a pane; cairn uses the ticket key, which is
+// how it ties an agent of the main checkout to its chantier.
+func RenameAgent(paneID, name string) error {
+	_, err := run("agent", "rename", paneID, name)
+	return err
+}
+
+// RemoveWorktree removes a linked worktree together with its herdr workspace.
+// It refuses dirty worktrees (no --force).
+func RemoveWorktree(workspaceID string) error {
+	_, err := run("worktree", "remove", "--workspace", workspaceID)
+	return err
+}
