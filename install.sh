@@ -59,6 +59,12 @@ else:
     print("✓ hook Claude Code « cairn guard » déjà présent")
 PY
 
+# A cairn already open in herdr keeps running the old binary: restart it.
+if command -v herdr >/dev/null && pkill -fx '(.*/)?cairn' 2>/dev/null; then
+  sleep 0.5
+  "$cairn_bin" ensure && echo "✓ cairn relancé dans herdr avec la nouvelle version"
+fi
+
 if [[ "${1:-}" == "--herdr" ]]; then
   cfg="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
   cp "$cfg" "$cfg.bak-cairn"
