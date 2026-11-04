@@ -34,6 +34,8 @@ type watchState struct {
 	prevReview  map[string]string
 	seen        map[string]bool // chantier observed once: no notification on startup
 	prSeen      map[string]bool
+	keep        map[string]string    // shipped chantiers left as is, and why
+	cleanedAt   map[string]time.Time // last cleanup attempt
 	polling     bool
 	lang        string // language of prevWaiting: a toggle is not a new wait
 	// ready: Sprintosaur issues are loaded. Before that, a chantier with a PR
@@ -46,6 +48,7 @@ func newWatch() *watchState {
 	return &watchState{
 		history: map[string][]journal.Event{}, prevWaiting: map[string]string{}, prevCI: map[string]int{},
 		prevReview: map[string]string{}, seen: map[string]bool{}, prSeen: map[string]bool{},
+		keep: map[string]string{}, cleanedAt: map[string]time.Time{},
 	}
 }
 
@@ -78,6 +81,12 @@ func (m *Model) observe() tea.Cmd {
 			}
 			m.watch.history[key] = events
 		}
+		// Shipped: clean it up (one cairn does it, the one in its workspace),
+		// retrying now and then if something kept it.
+		if c.Phase == chantier.Shipped && m.inside && time.Since(m.watch.cleanedAt[key]) > 2*time.Minute {
+			m.watch.cleanedAt[key] = time.Now()
+			cmds = append(cmds, m.cleanup(c))
+		}
 		w := c.Waiting()
 		if m.watch.seen[key] && m.inside && sameLang && w != "" && m.watch.prevWaiting[key] != w {
 			cmds = append(cmds, notify("cairn · "+key+i18n.T(" attend ta décision", " is waiting for you"), w))
@@ -94,7 +103,7 @@ func (m *Model) onPhase(c *chantier.Chantier, phase string) tea.Cmd {
 	case chantier.Build.String():
 		return m.ticketInProgress(c)
 	case chantier.Shipped.String():
-		return notify("cairn · "+c.Key+i18n.T(" livré", " shipped"), c.Title()+i18n.T(" — tu peux le ranger.", " — you can put it away."))
+		return notify("cairn · "+c.Key+i18n.T(" livré", " shipped"), c.Title())
 	}
 	return nil
 }

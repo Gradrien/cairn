@@ -10,9 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"
 
-	"cairn/internal/config"
 	"cairn/internal/i18n"
-	"cairn/internal/journal"
 	"cairn/internal/sprintosaur"
 )
 
@@ -171,7 +169,6 @@ func (m Model) startTicket(is sprintosaur.Issue) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.extra[key] = is
-	_ = journal.SetClosed(config.ChantiersDir(), key, false)
 	rebuild := m.rebuild()
 	for i, c := range m.chantiers {
 		if c.Key == key {

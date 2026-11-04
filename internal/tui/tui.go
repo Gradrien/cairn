@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -83,11 +82,10 @@ type Model struct {
 	detailOf string // chantier the detail pane shows, to reset its scroll
 	scroll   int    // detail pane scroll offset
 
-	watch      *watchState
-	confirm    string          // action waiting for a second click, e.g. "tidy:YAK-1"
-	closed     map[string]bool // chantiers put away by hand
-	showClosed bool            // list them anyway
-	pick       *pickState      // the "new ticket" view
+	watch       *watchState
+	shipped     int        // shipped chantiers left out of the list
+	showShipped bool       // list them anyway
+	pick        *pickState // the "new ticket" view
 
 	// The comments view ("" is the main screen).
 	view      string
@@ -195,9 +193,27 @@ func (m *Model) rebuild() tea.Cmd {
 	m.chantiers, m.others = chantier.Gather(chantier.Input{
 		Team: m.cfg.Team, Repo: m.cfg.Repo, ChantiersDir: config.ChantiersDir(),
 		Issues: m.issues, ExtraIssues: m.extra, Worktrees: m.worktrees, Snapshot: m.snap,
-		Closed: m.hidden(), GitHubPRs: m.githubPRs(),
+		GitHubPRs: m.githubPRs(),
 	})
-	sort.SliceStable(m.chantiers, func(i, j int) bool { return !m.isClosed(m.chantiers[i]) && m.isClosed(m.chantiers[j]) })
+	// A shipped chantier leaves the list (cairn cleans it up), unless
+	// something keeps it: it then stays in view with the reason.
+	m.shipped = 0
+	kept := m.chantiers[:0]
+	var done []*chantier.Chantier
+	for _, c := range m.chantiers {
+		switch {
+		case !m.isShipped(c):
+			kept = append(kept, c)
+		case m.showShipped:
+			done = append(done, c)
+		default:
+			m.shipped++
+		}
+	}
+	m.chantiers = append(kept, done...)
+	if m.showShipped {
+		m.shipped = len(done)
+	}
 	if selKey != "" {
 		for i, c := range m.chantiers {
 			if c.Key == selKey {
@@ -390,6 +406,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.rebuild(), every(localEvery, tickLocal{}))
 
+	case cleanedMsg:
+		m.watch.keep[msg.key] = msg.keep
+		if msg.err != nil || msg.text != "" {
+			m.say(msg.text, msg.err)
+		}
+		cmd := m.rebuild()
+		return m, cmd
 	case pickListMsg:
 		if m.pick != nil {
 			m.pick.loading = false
@@ -461,9 +484,6 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.pickKeyPress(k)
 	}
 	m.flash = ""
-	if k.String() != "x" {
-		m.confirm = ""
-	}
 	switch k.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -515,8 +535,6 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openComments()
 	case "f":
 		return m.fixCI()
-	case "x":
-		return m.tidy()
 	case "p":
 		return m.plan()
 	case "v":
@@ -578,8 +596,8 @@ func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	case row >= 0 && row < bodyH && inList:
 		_, owners := m.listLayout(listWidth, bodyH)
-		if row < len(owners) && owners[row] == closedItem {
-			m.showClosed = !m.showClosed
+		if row < len(owners) && owners[row] == shippedItem {
+			m.showShipped = !m.showShipped
 			cmd := m.rebuild()
 			return m, cmd
 		}
@@ -749,7 +767,6 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 				return doneMsg{err: err}
 			}
 		}
-		_ = journal.SetClosed(config.ChantiersDir(), key, false)
 		name := herdr.FreeName(lower, agents)
 		if err := herdr.StartAgent(name, cfg.AgentKind, pane); err != nil {
 			return doneMsg{err: fmt.Errorf(i18n.T("worktree prêt, mais l'agent n'a pas démarré : %w", "worktree ready, but the agent did not start: %w"), err), refresh: true}
@@ -935,23 +952,23 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 	toggled := false
 	toggle := func() {
 		toggled = true
-		if len(m.closed) == 0 {
+		if m.shipped == 0 {
 			return
 		}
-		label := fmt.Sprintf(i18n.T("› %d rangé(s) : afficher", "› %d put away: show"), len(m.closed))
-		if m.showClosed {
-			label = i18n.T("› masquer les rangés", "› hide put away")
+		label := fmt.Sprintf(i18n.T("› %d livré(s) : afficher", "› %d shipped: show"), m.shipped)
+		if m.showShipped {
+			label = i18n.T("› masquer les livrés", "› hide shipped")
 		}
 		l := sMuted.Render(label)
-		if m.hoverItem == closedItem {
+		if m.hoverItem == shippedItem {
 			l = sHover.Width(w).Render(label)
 		}
 		lines = append(lines, "", l)
-		owners = append(owners, -1, closedItem)
+		owners = append(owners, -1, shippedItem)
 	}
 	waitingHdr, restHdr := false, false
 	for i, c := range m.chantiers {
-		if m.isClosed(c) && !toggled {
+		if m.isShipped(c) && !toggled {
 			toggle()
 		}
 		if !toggled && c.Waiting() != "" && !waitingHdr {
@@ -971,8 +988,8 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 		}
 		l1 := mark + " " + sBold.Render(c.Key) + " " + trunc(c.Title(), w-len(c.Key)-3)
 		info := phaseStyle(c.Phase).Render(c.Phase.Label())
-		if m.isClosed(c) {
-			info += sMuted.Render(i18n.T(" · rangé", " · put away"))
+		if why := m.watch.keep[c.Key]; why != "" && c.Phase == chantier.Shipped {
+			info += sWarn.Render(" · " + why)
 		}
 		if c.State != nil && len(c.State.Tasks) > 0 {
 			info += sMuted.Render(fmt.Sprintf(" %d/%d", c.State.DoneCount(), len(c.State.Tasks)))
@@ -1036,20 +1053,14 @@ func (m Model) githubPRs() map[string]string {
 	return out
 }
 
-// hidden reads the put-away chantiers and returns those to leave out of the list.
-func (m *Model) hidden() map[string]bool {
-	m.closed = journal.Closed(config.ChantiersDir())
-	if m.showClosed {
-		return nil
-	}
-	return m.closed
+// isShipped reports a shipped chantier with nothing left to look at: it
+// leaves the list. One cairn could not clean up stays, with the reason.
+func (m Model) isShipped(c *chantier.Chantier) bool {
+	return c.Phase == chantier.Shipped && m.watch.keep[c.Key] == ""
 }
 
-// isClosed reports a put-away chantier shown anyway.
-func (m Model) isClosed(c *chantier.Chantier) bool { return m.closed[c.Key] && c.State == nil }
-
-// closedItem is the list row that shows or hides the put-away chantiers.
-const closedItem = -2
+// shippedItem is the list row that shows or hides the shipped chantiers.
+const shippedItem = -2
 
 func (m Model) viewList(w, h int) string {
 	lines, _ := m.listLayout(w, h)
@@ -1465,17 +1476,6 @@ func (m Model) mainButtons() []button {
 		if pr, ok := m.prs[c.Key]; ok && pr.Checks.Failed > 0 && c.OpenPR() != nil {
 			bs = append(bs, button{"f", i18n.T("Corriger la CI", "Fix CI"), true})
 		}
-		label := i18n.T("Ranger", "Put away")
-		if m.closed[c.Key] && c.State == nil {
-			label = i18n.T("Ressortir", "Bring back")
-		}
-		switch m.confirm {
-		case "tidy:" + c.Key:
-			label = i18n.T("Confirmer : ranger", "Confirm: put away")
-		case "force:" + c.Key:
-			label = i18n.T("Supprimer quand même", "Delete anyway")
-		}
-		bs = append(bs, button{"x", label, true})
 	}
 	return append(bs, button{"l", i18n.T("English", "Français"), true}, button{"r", i18n.T("Rafraîchir", "Refresh"), true}, button{"q", back, true})
 }

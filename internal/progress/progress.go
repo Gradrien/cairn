@@ -32,6 +32,7 @@ type Checks struct {
 
 type PR struct {
 	URL            string
+	HeadOid        string // last commit of the PR
 	State          string // OPEN, MERGED, CLOSED
 	Draft          bool
 	ReviewDecision string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, ""
@@ -79,13 +80,14 @@ func ReadGit(dir, base string) Git {
 // ReadPR asks gh about a pull request URL.
 func ReadPR(url string) PR {
 	out, err := exec.Command("gh", "pr", "view", url, "--json",
-		"state,isDraft,reviewDecision,mergeable,statusCheckRollup,comments").Output()
+		"state,isDraft,reviewDecision,mergeable,statusCheckRollup,comments,headRefOid").Output()
 	if err != nil {
 		return PR{Err: i18n.T("gh indisponible", "gh unavailable")}
 	}
 	var raw struct {
 		State          string `json:"state"`
 		IsDraft        bool   `json:"isDraft"`
+		HeadOid        string `json:"headRefOid"`
 		ReviewDecision string `json:"reviewDecision"`
 		Mergeable      string `json:"mergeable"`
 		Comments       []any  `json:"comments"`
@@ -100,7 +102,7 @@ func ReadPR(url string) PR {
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return PR{Err: err.Error()}
 	}
-	pr := PR{URL: url, State: raw.State, Draft: raw.IsDraft, ReviewDecision: raw.ReviewDecision,
+	pr := PR{URL: url, HeadOid: raw.HeadOid, State: raw.State, Draft: raw.IsDraft, ReviewDecision: raw.ReviewDecision,
 		Mergeable: raw.Mergeable, Comments: len(raw.Comments)}
 	for _, c := range raw.Checks {
 		result := c.Conclusion

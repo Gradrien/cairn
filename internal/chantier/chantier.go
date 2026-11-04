@@ -164,7 +164,6 @@ type Input struct {
 	ExtraIssues  map[string]sprintosaur.Issue
 	Worktrees    []herdr.Worktree
 	Snapshot     herdr.Snapshot
-	Closed       map[string]bool // put away by hand: hidden unless a plan file exists again
 	// GitHubPRs is the state GitHub reports for a PR URL (OPEN, MERGED,
 	// CLOSED). It wins over Sprintosaur's copy, which can lag behind.
 	GitHubPRs map[string]string
@@ -214,9 +213,6 @@ func Gather(in Input) ([]*Chantier, []herdr.Agent) {
 		}
 		if s, err := state.Load(state.PathFor(in.ChantiersDir, key)); err == nil {
 			c.State = s
-		}
-		if in.Closed[key] && c.State == nil {
-			delete(byKey, key)
 		}
 	}
 

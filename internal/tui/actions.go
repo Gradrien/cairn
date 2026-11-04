@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -117,102 +118,79 @@ func (m Model) attach(key string) (tea.Model, tea.Cmd) {
 	}
 }
 
-// tidy puts a chantier away, whatever its phase: its linked worktree and
-// herdr workspace are removed, its plan and journal archived, and cairn stops
-// listing it. The main checkout is never touched. A first click explains, a
-// second confirms; uncommitted changes need a third click to be thrown away.
-func (m Model) tidy() (tea.Model, tea.Cmd) {
-	c := m.selected()
-	if c == nil {
-		return m, nil
-	}
+type cleanedMsg struct {
+	key  string
+	keep string // why the chantier was left as is, "" once cleaned
+	text string
+	err  error
+}
+
+// cleanup is what happens to a shipped chantier: its linked worktree and
+// herdr workspace (agents included) are removed and its plan archived. It
+// only runs when nothing can be lost: no uncommitted change, no commit
+// missing from GitHub, no agent at work. The main checkout is never touched.
+func (m Model) cleanup(c *chantier.Chantier) tea.Cmd {
 	key, wt := c.Key, c.Worktree
-	if m.closed[key] && c.State == nil {
-		_ = journal.SetClosed(config.ChantiersDir(), key, false)
-		m.say(key+i18n.T(" est de retour dans la liste.", " is back in the list."), nil)
-		cmd := m.rebuild()
-		return m, cmd
-	}
 	linked := wt != "" && !c.Main
-	dirty := linked && isDirty(wt)
-	switch m.confirm {
-	case "tidy:" + key:
-		if dirty {
-			m.confirm = "force:" + key
-			m.say(tilde(wt)+i18n.T(" a des changements non commités. Clique encore pour supprimer quand même : ils seront perdus.", " has uncommitted changes. Click again to delete anyway: they will be lost."), nil)
-			return m, nil
+	for _, a := range c.Agents {
+		if a.Status == "working" {
+			return func() tea.Msg {
+				return cleanedMsg{key: key, keep: i18n.T("un agent y travaille", "an agent is working")}
+			}
 		}
-	case "force:" + key:
-	default:
-		m.confirm = "tidy:" + key
-		m.say(i18n.T("Clique encore pour confirmer : ", "Click again to confirm: ")+tidyPlan(c, linked, m.prs[key].ReviewDecision), nil)
-		return m, nil
 	}
-	force := m.confirm == "force:"+key
-	m.confirm = ""
 	var ws string
 	for _, w := range m.worktrees {
 		if linked && filepath.Clean(w.Path) == filepath.Clean(wt) {
 			ws = w.OpenWorkspaceID
 		}
 	}
-	m.busy = fmt.Sprintf(i18n.T("Rangement de %s…", "Putting %s away…"), key)
-	return m, func() tea.Msg {
+	head := m.prs[key].HeadOid
+	return func() tea.Msg {
 		if linked {
+			if isDirty(wt) {
+				return cleanedMsg{key: key, keep: i18n.T("changements non commités", "uncommitted changes")}
+			}
+			if unpushed(wt, head) {
+				return cleanedMsg{key: key, keep: i18n.T("commits absents de GitHub", "commits not on GitHub")}
+			}
 			var err error
 			if ws != "" {
-				err = herdr.RemoveWorktree(ws, force)
+				err = herdr.RemoveWorktree(ws, false)
 			} else {
-				args := []string{"-C", wt, "worktree", "remove", wt}
-				if force {
-					args = append(args, "--force")
-				}
-				err = exec.Command("git", args...).Run()
+				err = exec.Command("git", "-C", wt, "worktree", "remove", wt).Run()
 			}
 			if err != nil {
-				return doneMsg{err: err, refresh: true}
+				return cleanedMsg{key: key, keep: i18n.T("nettoyage impossible", "cleanup failed"), err: err}
 			}
 		}
 		dir := config.ChantiersDir()
-		_ = journal.Append(dir, key, "rangé")
-		if err := journal.Archive(dir, key); err != nil {
-			return doneMsg{err: err, refresh: true}
+		if _, err := os.Stat(state.PathFor(dir, key)); err == nil || linked {
+			_ = journal.Append(dir, key, "rangé")
+			if err := journal.Archive(dir, key); err != nil {
+				return cleanedMsg{key: key, err: err}
+			}
 		}
-		if err := journal.SetClosed(dir, key, true); err != nil {
-			return doneMsg{err: err, refresh: true}
-		}
-		text := key + i18n.T(" rangé : plan archivé dans ~/.cairn/archive", " put away: plan archived in ~/.cairn/archive")
+		text := ""
 		if linked {
-			text += i18n.T(", worktree supprimé", ", worktree deleted")
+			text = key + i18n.T(" livré : worktree et espace herdr supprimés, plan archivé.", " shipped: worktree and herdr workspace removed, plan archived.")
 		}
-		return doneMsg{text: text + i18n.T(". Planifier le ticket le fait revenir.", ". Planning the ticket brings it back."), refresh: true}
+		return cleanedMsg{key: key, text: text}
 	}
+}
+
+// unpushed reports commits of the worktree that GitHub does not have: none
+// when HEAD is the merged PR's last commit (its branch may be deleted since),
+// else none when every commit is on a remote branch.
+func unpushed(dir, prHead string) bool {
+	if out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output(); err == nil && prHead != "" && strings.TrimSpace(string(out)) == prHead {
+		return false
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-list", "--count", "HEAD", "--not", "--remotes").Output()
+	return err != nil || strings.TrimSpace(string(out)) != "0"
 }
 
 func isDirty(dir string) bool {
 	out, _ := exec.Command("git", "-C", dir, "status", "--porcelain").Output()
 	return len(strings.TrimSpace(string(out))) > 0
-}
-
-// tidyPlan says what putting a chantier away will do, and what is unusual.
-func tidyPlan(c *chantier.Chantier, linked bool, review string) string {
-	var what []string
-	if linked {
-		what = append(what, fmt.Sprintf(i18n.T("supprime %s et son espace herdr", "deletes %s and its herdr workspace"), tilde(c.Worktree)))
-	} else if c.Main {
-		what = append(what, i18n.T("laisse le dépôt principal tel quel (la branche reste checkoutée)", "leaves the main checkout as is (the branch stays checked out)"))
-	}
-	what = append(what, i18n.T("archive le plan", "archives the plan"), i18n.T("le retire de la liste", "removes it from the list"))
-	msg := strings.Join(what, ", ") + "."
-	if c.Phase != chantier.Shipped {
-		msg += i18n.T(" Il n'est pas livré", " It is not shipped")
-		if c.OpenPR() != nil {
-			msg += i18n.T(" : sa PR reste ouverte sur GitHub", ": its PR stays open on GitHub")
-			if review == "CHANGES_REQUESTED" {
-				msg += i18n.T(" avec des changements demandés", " with changes requested")
-			}
-		}
-		msg += "."
-	}
-	return msg
 }
