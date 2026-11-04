@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"
 
+	"cairn/internal/i18n"
 	"cairn/internal/images"
 	"cairn/internal/progress"
 	"cairn/internal/prthread"
@@ -53,7 +54,7 @@ func (m Model) prURLOf() (string, int) {
 func (m Model) openComments() (tea.Model, tea.Cmd) {
 	url, _ := m.prURLOf()
 	if url == "" {
-		m.say("Pas de PR pour ce chantier.", nil)
+		m.say(i18n.T("Pas de PR pour ce chantier.", "No PR for this ticket."), nil)
 		return m, nil
 	}
 	key := m.selected().Key
@@ -126,11 +127,11 @@ func openImages(srcs, captions []string, from images.Source, start int) tea.Cmd 
 			okCaps = append(okCaps, captions[i])
 		}
 		if len(okFiles) == 0 {
-			return imagesMsg{err: fmt.Errorf("aucune image téléchargée (%v)", errs[0])}
+			return imagesMsg{err: fmt.Errorf(i18n.T("aucune image téléchargée (%v)", "no image downloaded (%v)"), errs[0])}
 		}
 		msg := imagesMsg{files: okFiles, captions: okCaps, start: newStart}
 		if failed > 0 {
-			msg.err = fmt.Errorf("%d image(s) inaccessibles", failed)
+			msg.err = fmt.Errorf(i18n.T("%d image(s) inaccessibles", "%d image(s) unreachable"), failed)
 		}
 		return msg
 	}
@@ -150,7 +151,7 @@ func (m Model) showImages(msg imagesMsg) tea.Cmd {
 func (m Model) threadImages(start int) (tea.Model, tea.Cmd) {
 	t := m.thread
 	if t == nil || len(t.Images) == 0 {
-		m.say("Pas d'image dans cette PR.", nil)
+		m.say(i18n.T("Pas d'image dans cette PR.", "No image in this PR."), nil)
 		return m, nil
 	}
 	var srcs, caps []string
@@ -172,15 +173,19 @@ func (m Model) threadImages(start int) (tea.Model, tea.Cmd) {
 		}
 	}
 	if len(srcs) == 0 {
-		m.say("Toutes les images de cette PR sont des liens cassés.", nil)
+		m.say(i18n.T("Toutes les images de cette PR sont des liens cassés.", "Every image of this PR is a broken link."), nil)
 		return m, nil
 	}
-	m.busy = fmt.Sprintf("Téléchargement de %d image(s)…", len(srcs))
+	m.busy = fmt.Sprintf(i18n.T("Téléchargement de %d image(s)…", "Downloading %d image(s)…"), len(srcs))
 	return m, openImages(srcs, caps, images.Source{Owner: t.Owner, Repo: t.Repo, Ref: t.HeadRef}, newStart)
 }
 
 // sendLabel ends each comment's header: a click forwards it to the agent.
+// It reads the same in both languages, so the hit test can rely on it.
 const sendLabel = "[→ agent]"
+
+// backLabel is the comments view's top-left link back to the main screen.
+func backLabel() string { return i18n.T("← Retour", "← Back") }
 
 // commentsLayout renders the conversation; targets give the image (1-based)
 // a line opens, 0 for none, and -(i+1) for the header of entry i.
@@ -199,7 +204,7 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 	}
 	t := m.thread
 	if t == nil {
-		add(0, sMuted.Render("Chargement de la conversation…"))
+		add(0, sMuted.Render(i18n.T("Chargement de la conversation…", "Loading the conversation…")))
 		return lines, targets
 	}
 	for i, e := range t.Entries {
@@ -210,9 +215,9 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 		kind := e.Kind
 		switch e.State {
 		case "APPROVED":
-			kind = sGood.Render("review approuvée")
+			kind = sGood.Render(i18n.T("review approuvée", "review approved"))
 		case "CHANGES_REQUESTED":
-			kind = sErr.Render("changements demandés")
+			kind = sErr.Render(i18n.T("changements demandés", "changes requested"))
 		}
 		if e.Kind == "inline" {
 			kind = sMuted.Render("inline ") + lipgloss.NewStyle().Foreground(working).Render(fmt.Sprintf("%s:%d", e.Path, e.Line))
@@ -226,7 +231,7 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 		body := renderMarkdown(e.Body, w)
 		if e.Bot && !m.showBots && len(body) > 8 {
 			hidden := len(body) - 8
-			body = append(body[:8], sMuted.Render(fmt.Sprintf("  … %d lignes de bot masquées (bouton Bots)", hidden)))
+			body = append(body[:8], sMuted.Render(fmt.Sprintf(i18n.T("  … %d lignes de bot masquées (bouton Bots)", "  … %d bot lines hidden (Bots button)"), hidden)))
 		}
 		for _, l := range body {
 			img := 0
@@ -237,7 +242,7 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 				l = prthread.ImageRe.ReplaceAllStringFunc(strings.TrimRight(xansi.Strip(l), " "), func(s string) string {
 					n, _ := strconv.Atoi(prthread.ImageRe.FindStringSubmatch(s)[1])
 					if t.Broken[n] {
-						return sErr.Render(fmt.Sprintf("[img %d : lien cassé %s]", n, t.Images[n-1]))
+						return sErr.Render(fmt.Sprintf(i18n.T("[img %d : lien cassé %s]", "[img %d: broken link %s]"), n, t.Images[n-1]))
 					}
 					return sImg.Render(fmt.Sprintf("[img %d]", n))
 				})
@@ -256,7 +261,7 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 
 func (m Model) commentsView() string {
 	_, num := m.prURLOf()
-	head := sKey.Render("← Retour") + "   " + sTitle.Render(fmt.Sprintf("PR #%d", num))
+	head := sKey.Render(backLabel()) + "   " + sTitle.Render(fmt.Sprintf("PR #%d", num))
 	if c := m.selected(); c != nil {
 		head += sMuted.Render(" · " + c.Key + " · " + trunc(c.Title(), max(10, m.width/2)))
 	}
@@ -267,9 +272,9 @@ func (m Model) commentsView() string {
 				n++
 			}
 		}
-		head += sMuted.Render(fmt.Sprintf(" · %d commentaires · %d images", n, len(t.Images)-len(t.Broken)))
+		head += sMuted.Render(fmt.Sprintf(i18n.T(" · %d commentaires · %d images", " · %d comments · %d images"), n, len(t.Images)-len(t.Broken)))
 		if len(t.Broken) > 0 {
-			head += sErr.Render(fmt.Sprintf(" · %d liens d'image cassés", len(t.Broken)))
+			head += sErr.Render(fmt.Sprintf(i18n.T(" · %d liens d'image cassés", " · %d broken image links"), len(t.Broken)))
 		}
 	}
 	bodyH := m.bodyHeight()
@@ -293,14 +298,14 @@ func (m Model) commentsButtons() []button {
 	}
 	bots := "Bots"
 	if m.showBots {
-		bots = "Masquer bots"
+		bots = i18n.T("Masquer bots", "Hide bots")
 	}
 	return []button{
-		{"esc", "Retour", true},
+		{"esc", i18n.T("Retour", "Back"), true},
 		{"i", fmt.Sprintf("Images (%d)", n), n > 0},
 		{"b", bots, m.thread != nil},
-		{"o", "Ouvrir sur GitHub", true},
-		{"r", "Recharger", true},
+		{"o", i18n.T("Ouvrir sur GitHub", "Open on GitHub"), true},
+		{"r", i18n.T("Recharger", "Reload"), true},
 	}
 }
 
@@ -357,7 +362,7 @@ func (m Model) commentsMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	bodyH := m.bodyHeight()
 	switch {
-	case ev.Y == 0 && ev.X < 9:
+	case ev.Y == 0 && ev.X < lipgloss.Width(backLabel())+1:
 		m.view = ""
 	case ev.Y == 2+bodyH:
 		_, ranges := m.footerLayout()

@@ -95,3 +95,36 @@ func Archive(dir, key string) error {
 	}
 	return nil
 }
+
+// closedPath lists the chantiers put away by hand, one key per line: cairn
+// stops listing them until a new plan is started for them.
+func closedPath(dir string) string { return filepath.Join(filepath.Dir(dir), "closed") }
+
+// Closed returns the keys put away (dir is the chantiers directory).
+func Closed(dir string) map[string]bool {
+	out := map[string]bool{}
+	data, _ := os.ReadFile(closedPath(dir))
+	for _, l := range strings.Fields(string(data)) {
+		out[strings.ToUpper(l)] = true
+	}
+	return out
+}
+
+// SetClosed adds or removes a key from the closed list.
+func SetClosed(dir, key string, closed bool) error {
+	keys := Closed(dir)
+	key = strings.ToUpper(key)
+	if keys[key] == closed {
+		return nil
+	}
+	if closed {
+		keys[key] = true
+	} else {
+		delete(keys, key)
+	}
+	var b strings.Builder
+	for k := range keys {
+		b.WriteString(k + "\n")
+	}
+	return os.WriteFile(closedPath(dir), []byte(b.String()), 0o644)
+}

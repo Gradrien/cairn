@@ -13,6 +13,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"cairn/internal/herdr"
+	"cairn/internal/i18n"
 	"cairn/internal/sprintosaur"
 	"cairn/internal/state"
 )
@@ -29,7 +30,19 @@ const (
 
 var phaseNames = map[Phase]string{ToPlan: "À planifier", Plan: "Plan", Build: "Build", Review: "Review", Shipped: "Livré"}
 
+// String is the stable (French) name, written to the journal: never translate it.
 func (p Phase) String() string { return phaseNames[p] }
+
+// Label is the name shown on screen, in the interface language.
+func (p Phase) Label() string {
+	switch p {
+	case ToPlan:
+		return i18n.T("À planifier", "To plan")
+	case Shipped:
+		return i18n.T("Livré", "Shipped")
+	}
+	return phaseNames[p]
+}
 
 // Flow is the phase line shown in the detail view.
 var Flow = []Phase{Plan, Build, Review, Shipped}
@@ -60,7 +73,7 @@ func (c *Chantier) Waiting() string {
 	}
 	for _, a := range c.Agents {
 		if a.Status == "blocked" {
-			return a.Label() + " attend une réponse"
+			return a.Label() + i18n.T(" attend une réponse", " is waiting for an answer")
 		}
 	}
 	return ""
@@ -84,7 +97,7 @@ func (c *Chantier) Token() string {
 	if w := c.Waiting(); w != "" {
 		return "⚠ " + w
 	}
-	s := c.Key + " · " + c.Phase.String()
+	s := c.Key + " · " + c.Phase.Label()
 	if c.State != nil && len(c.State.Tasks) > 0 {
 		s += fmt.Sprintf(" %d/%d", c.State.DoneCount(), len(c.State.Tasks))
 	}
@@ -137,6 +150,7 @@ type Input struct {
 	ExtraIssues  map[string]sprintosaur.Issue
 	Worktrees    []herdr.Worktree
 	Snapshot     herdr.Snapshot
+	Closed       map[string]bool // put away by hand: hidden unless a plan file exists again
 }
 
 // Gather returns the chantiers, most urgent first, and the agents that belong to none.
@@ -180,6 +194,9 @@ func Gather(in Input) ([]*Chantier, []herdr.Agent) {
 		}
 		if s, err := state.Load(state.PathFor(in.ChantiersDir, key)); err == nil {
 			c.State = s
+		}
+		if in.Closed[key] && c.State == nil {
+			delete(byKey, key)
 		}
 	}
 
@@ -278,18 +295,27 @@ func Slug(title string, max int) string {
 
 // PlanPrompt is what a new chantier's agent is asked first.
 func PlanPrompt(key, title, statePath string) string {
-	return fmt.Sprintf("Planifie le ticket %s « %s » avec le workflow cairn (skill cairn). "+
+	return fmt.Sprintf(i18n.T("Planifie le ticket %s « %s » avec le workflow cairn (skill cairn). "+
 		"Lis le ticket et ses commentaires via le skill sprintosaur, explore le code, puis écris le plan dans %s, "+
 		"à la taille du ticket. Recense les effets de bord : tout ce que le changement peut casser ou modifier ailleurs "+
 		"(autres appelants et écrans, autres apps du monorepo, données existantes, permissions, migrations, notifications, "+
 		"performances), avec pour chacun une tâche qui le vérifie. Termine par `attente: Valider le plan` et arrête-toi : ne code rien avant ma validation.",
+		"Plan ticket %s \"%s\" with the cairn workflow (cairn skill). "+
+			"Read the ticket and its comments with the sprintosaur skill, explore the code, then write the plan in %s, "+
+			"sized to the ticket. List the side effects: everything the change can break or alter elsewhere "+
+			"(other callers and screens, other apps of the monorepo, existing data, permissions, migrations, notifications, "+
+			"performance), each with a task that checks it. Finish with `attente: Valider le plan` and stop: write no code before I approve."),
 		key, title, statePath)
 }
 
 // BuildPrompt is sent when the plan is approved.
 func BuildPrompt(statePath string) string {
-	return fmt.Sprintf("Plan validé. Passe %s en `phase: build` et implémente-le : passe chaque tâche en [~] quand tu la "+
+	return fmt.Sprintf(i18n.T("Plan validé. Passe %s en `phase: build` et implémente-le : passe chaque tâche en [~] quand tu la "+
 		"commences et en [x] quand elle est finie, et note les preuves de test sous « ## Preuves ». Ne pousse rien et n'ouvre "+
 		"pas de PR toi-même : quand tout est prêt, mets `attente: Prêt à pousser` avec en une ligne ce qui partira, et "+
-		"arrête-toi. L'humain relit et autorise le push dans cairn.", statePath)
+		"arrête-toi. L'humain relit et autorise le push dans cairn.",
+		"Plan approved. Set %s to `phase: build` and implement it: mark each task [~] when you "+
+			"start it and [x] when it is done, and write the test proofs under \"## Preuves\". Do not push and do not open "+
+			"a PR yourself: when everything is ready, set `attente: Prêt à pousser` followed by one line on what will ship, and "+
+			"stop. The human reviews and allows the push in cairn."), statePath)
 }

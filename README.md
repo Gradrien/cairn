@@ -80,7 +80,10 @@ on a chantier's branch until you allow it. Unfinished work stays off the CI pipe
 - **Notifications.** herdr notifies you when a chantier is waiting for you, when the CI breaks, when a review requests
   changes or approves, and when a chantier ships.
 - **Sprintosaur follows.** A ticket moves to *In Progress* when its plan starts. *Pull Request* and *Done* follow the linked PRs.
-- **Tidy up.** Once a chantier has shipped, `Ranger` ("tidy up") removes its worktree and workspace and archives its plan.
+- **Put away.** `Ranger` ("put away") closes a chantier whenever you want, shipped or not: it removes its worktree and
+  workspace, archives its plan and takes it off the list. A branch checked out in the main repo is left alone, and
+  uncommitted changes take one more click. Put-away chantiers stay one click away (`› N rangé(s)`), and planning the
+  ticket again brings it back.
 
 ---
 
@@ -152,8 +155,9 @@ review from the PR view.
 | `a` | Autoriser le push | allow the agent's next push or PR |
 | `c` | Commentaires | PR conversation and images |
 | `f` | Corriger la CI | send the failing CI logs to the agent (shown when CI fails) |
-| `x` | Ranger | remove a shipped chantier's worktree and archive its plan (two clicks) |
+| `x` | Ranger | put the chantier away: worktree, workspace, plan (two clicks, three with uncommitted changes) |
 | `o` | Ticket | open the ticket in Sprintosaur |
+| `l` | English / Français | switch the interface language |
 | `r` | Rafraîchir | refresh |
 | `q` | Quitter | back to the previous herdr workspace |
 
@@ -179,6 +183,7 @@ can be overridden:
 | `agent_kind` | `claude` |
 | `sprintosaur_credentials` | `~/.claude/skills/sprintosaur/credentials.env` (or `SPRINTOSAUR_API` / `SPRINTOSAUR_TOKEN`) |
 | `sprintosaur_web` | Sprintosaur's issue URL |
+| `lang` | `fr` (or `en`; the `l` button sets it) |
 
 If `repo` is wrong, cairn says so on startup and points to the file.
 
@@ -200,4 +205,5 @@ If `repo` is wrong, cairn says so on startup and points to the file.
 
 </details>
 
-The interface is in French, like the team.
+The interface speaks **French and English**: the `English` / `Français` button (`l`) switches it live and remembers
+your choice (`"lang"` in the config). The screenshots above are in French.

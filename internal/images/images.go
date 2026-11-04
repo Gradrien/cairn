@@ -28,6 +28,7 @@ import (
 	"golang.org/x/term"
 
 	"cairn/internal/config"
+	"cairn/internal/i18n"
 )
 
 // Source says where relative image paths live: a repo at a ref.
@@ -116,7 +117,7 @@ func pngBytes(file string) ([]byte, image.Point, error) {
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return nil, image.Point{}, fmt.Errorf("format d'image non reconnu")
+		return nil, image.Point{}, fmt.Errorf("%s", i18n.T("format d'image non reconnu", "unknown image format"))
 	}
 	size := image.Pt(cfg.Width, cfg.Height)
 	if format == "png" {
@@ -190,13 +191,13 @@ func Show(files []string, captions []string, start int) error {
 		caption := fmt.Sprintf(" %d/%d  %s", i+1, len(files), captions[i])
 		data, px, err := pngBytes(files[i])
 		if err != nil {
-			fmt.Fprintf(out, "\r\n  Impossible d'afficher cette image : %v\r\n", err)
+			fmt.Fprintf(out, i18n.T("\r\n  Impossible d'afficher cette image : %v\r\n", "\r\n  Cannot show this image: %v\r\n"), err)
 		} else {
 			c, r := fit(px, cols-2, rows-3, cellW, cellH)
 			fmt.Fprintf(out, "%s[2;%dH", esc, 1+(cols-c)/2)
 			kittyPlace(out, data, c, r)
 		}
-		help := "  ← → image   o ouvrir dans Aperçu   q fermer"
+		help := i18n.T("  ← → image   o ouvrir dans Aperçu   q fermer", "  ← → image   o open in Preview   q close")
 		fmt.Fprintf(out, "%s[%d;1H%s[7m%s%s[0m%s", esc, rows, esc, padRight(caption, cols-len([]rune(help))), esc, help)
 
 		n, err := os.Stdin.Read(buf)

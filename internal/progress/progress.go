@@ -4,11 +4,14 @@ package progress
 
 import (
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"cairn/internal/i18n"
 )
 
 type Git struct {
@@ -49,7 +52,7 @@ func ReadGit(dir, base string) Git {
 	if out, err := git(dir, "rev-list", "--count", base+"..HEAD"); err == nil {
 		g.Ahead, _ = strconv.Atoi(out)
 	} else {
-		g.Err = "base " + base + " introuvable"
+		g.Err = fmt.Sprintf(i18n.T("base %s introuvable", "base %s not found"), base)
 	}
 	if out, err := git(dir, "diff", "--shortstat", base+"...HEAD"); err == nil {
 		if m := statRe.FindStringSubmatch(out); m != nil {
@@ -77,7 +80,7 @@ func ReadPR(url string) PR {
 	out, err := exec.Command("gh", "pr", "view", url, "--json",
 		"state,isDraft,reviewDecision,mergeable,statusCheckRollup,comments").Output()
 	if err != nil {
-		return PR{Err: "gh indisponible"}
+		return PR{Err: i18n.T("gh indisponible", "gh unavailable")}
 	}
 	var raw struct {
 		State          string `json:"state"`
@@ -124,20 +127,33 @@ func ReadPR(url string) PR {
 	return pr
 }
 
-// Ago is a short French "il y a …".
+// Ago is a short "il y a 2 h" / "2 h ago".
 func Ago(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := Elapsed(t)
+	if d == "" {
+		return i18n.T("à l'instant", "just now")
+	}
+	return fmt.Sprintf(i18n.T("il y a %s", "%s ago"), d)
+}
+
+// Elapsed is the bare time since t: "5 min", "2 h", "3 j" / "3 d"; "" under a
+// minute (or for a zero time).
+func Elapsed(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:
-		return "à l'instant"
+		return ""
 	case d < time.Hour:
-		return "il y a " + strconv.Itoa(int(d.Minutes())) + " min"
+		return strconv.Itoa(int(d.Minutes())) + " min"
 	case d < 24*time.Hour:
-		return "il y a " + strconv.Itoa(int(d.Hours())) + " h"
+		return strconv.Itoa(int(d.Hours())) + " h"
 	default:
-		return "il y a " + strconv.Itoa(int(d.Hours()/24)) + " j"
+		return strconv.Itoa(int(d.Hours()/24)) + i18n.T(" j", " d")
 	}
 }

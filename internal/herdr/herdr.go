@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"cairn/internal/i18n"
 )
 
 type Agent struct {
@@ -110,7 +112,7 @@ func run(args ...string) ([]byte, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return nil, fmt.Errorf("herdr %s : %s", args[0]+" "+args[1], msg)
+		return nil, fmt.Errorf(i18n.T("herdr %s : %s", "herdr %s: %s"), args[0]+" "+args[1], msg)
 	}
 	return stdout.Bytes(), nil
 }
@@ -188,7 +190,7 @@ func CreateWorktree(repo, branch, base, path, label string) (workspaceID, paneID
 		return "", "", err
 	}
 	if res.Result.RootPane.ID == "" {
-		return res.Result.Workspace.ID, "", fmt.Errorf("herdr worktree create : pas de pane dans la réponse")
+		return res.Result.Workspace.ID, "", fmt.Errorf("%s", i18n.T("herdr worktree create : pas de pane dans la réponse", "herdr worktree create: no pane in the response"))
 	}
 	return res.Result.Workspace.ID, res.Result.RootPane.ID, nil
 }
@@ -262,7 +264,7 @@ func FirstPane(workspaceID string) (string, error) {
 		return "", err
 	}
 	if len(res.Result.Panes) == 0 {
-		return "", fmt.Errorf("herdr : l'espace %s n'a pas de pane", workspaceID)
+		return "", fmt.Errorf(i18n.T("herdr : l'espace %s n'a pas de pane", "herdr: workspace %s has no pane"), workspaceID)
 	}
 	return res.Result.Panes[0].ID, nil
 }
@@ -312,8 +314,12 @@ func RenameAgent(paneID, name string) error {
 }
 
 // RemoveWorktree removes a linked worktree together with its herdr workspace.
-// It refuses dirty worktrees (no --force).
-func RemoveWorktree(workspaceID string) error {
-	_, err := run("worktree", "remove", "--workspace", workspaceID)
+// Without force, herdr refuses a worktree with uncommitted changes.
+func RemoveWorktree(workspaceID string, force bool) error {
+	args := []string{"worktree", "remove", "--workspace", workspaceID}
+	if force {
+		args = append(args, "--force")
+	}
+	_, err := run(args...)
 	return err
 }

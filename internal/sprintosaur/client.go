@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"cairn/internal/i18n"
 )
 
 type PullRequest struct {
@@ -60,9 +62,9 @@ func New(credentialsPath string) (*Client, error) {
 	}
 	if c.api == "" || c.token == "" {
 		if ferr != nil {
-			return nil, fmt.Errorf("identifiants Sprintosaur introuvables (%s, ou variables SPRINTOSAUR_API et SPRINTOSAUR_TOKEN)", credentialsPath)
+			return nil, fmt.Errorf(i18n.T("identifiants Sprintosaur introuvables (%s, ou variables SPRINTOSAUR_API et SPRINTOSAUR_TOKEN)", "Sprintosaur credentials not found (%s, or variables SPRINTOSAUR_API and SPRINTOSAUR_TOKEN)"), credentialsPath)
 		}
-		return nil, fmt.Errorf("identifiants Sprintosaur incomplets dans %s", credentialsPath)
+		return nil, fmt.Errorf(i18n.T("identifiants Sprintosaur incomplets dans %s", "incomplete Sprintosaur credentials in %s"), credentialsPath)
 	}
 	return c, nil
 }
@@ -99,7 +101,7 @@ func (c *Client) get(path string, q url.Values, out any) error {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("sprintosaur %s : HTTP %d", path, resp.StatusCode)
+		return fmt.Errorf(i18n.T("sprintosaur %s : HTTP %d", "sprintosaur %s: HTTP %d"), path, resp.StatusCode)
 	}
 	return json.Unmarshal(body, out)
 }
@@ -123,7 +125,7 @@ func (c *Client) SetStatus(key, status string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("sprintosaur %s : HTTP %d", key, resp.StatusCode)
+		return fmt.Errorf(i18n.T("sprintosaur %s : HTTP %d", "sprintosaur %s: HTTP %d"), key, resp.StatusCode)
 	}
 	return nil
 }

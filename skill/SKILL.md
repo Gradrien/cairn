@@ -43,6 +43,8 @@ cairn affiche tout ce fichier :
 - sous `## Questions`, les questions sans `[x]` sont affichées comme **ouvertes** ;
 - `## Effets de bord` est suivi à part (« 2/3 vérifiés ») ;
 - sous `## Preuves`, chaque élément de liste est une preuve.
+- Les clés et titres restent en français même si tu écris le plan en anglais. cairn accepte aussi `waiting:`,
+  `## Side effects` et `## Proofs`.
 
 L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directement dans git et GitHub : ne le recopie pas.
 

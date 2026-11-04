@@ -47,8 +47,8 @@ type State struct {
 var (
 	taskRe  = regexp.MustCompile(`^\s*[-*] \[([ xX~-])\]\s+(.*)$`)
 	itemRe  = regexp.MustCompile(`^\s*[-*]\s+(.*)$`)
-	proofHd = regexp.MustCompile(`(?i)^#{1,6}\s+preuves?\b`)
-	sideHd  = regexp.MustCompile(`(?i)^#{1,6}\s+effets? de bord`)
+	proofHd = regexp.MustCompile(`(?i)^#{1,6}\s+(preuves?|proofs?)\b`)
+	sideHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(effets? de bord|side[ -]effects?)`)
 	questHd = regexp.MustCompile(`(?i)^#{1,6}\s+questions?`)
 	headRe  = regexp.MustCompile(`^#{1,6}\s`)
 	h2Re    = regexp.MustCompile(`^#{2,6}\s`)
@@ -95,7 +95,7 @@ func Parse(path, text string) *State {
 			s.Ticket = v
 		case "phase":
 			s.Phase = strings.ToLower(v)
-		case "attente":
+		case "attente", "waiting":
 			s.Waiting = v
 		case "push":
 			s.Push = v
@@ -181,7 +181,8 @@ func (s *State) Set(key, value string) {
 	found := false
 	for _, l := range s.front {
 		k, _, ok := strings.Cut(l, ":")
-		if ok && strings.EqualFold(strings.TrimSpace(k), key) {
+		k = strings.TrimSpace(k)
+		if ok && (strings.EqualFold(k, key) || key == "attente" && strings.EqualFold(k, "waiting")) {
 			found = true
 			if value != "" {
 				out = append(out, key+": "+value)
@@ -210,7 +211,7 @@ func (s *State) String() string {
 
 // PushAllowed reports whether a human allowed the next push.
 func (s *State) PushAllowed() bool {
-	return strings.EqualFold(s.Push, "autorisé") || strings.EqualFold(s.Push, "autorise")
+	return strings.EqualFold(s.Push, "autorisé") || strings.EqualFold(s.Push, "autorise") || strings.EqualFold(s.Push, "allowed")
 }
 
 func (s *State) Save() error { return os.WriteFile(s.Path, []byte(s.String()), 0o644) }

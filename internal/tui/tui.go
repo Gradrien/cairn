@@ -19,6 +19,7 @@ import (
 	"cairn/internal/config"
 	"cairn/internal/herdr"
 	"cairn/internal/home"
+	"cairn/internal/i18n"
 	"cairn/internal/images"
 	"cairn/internal/journal"
 	"cairn/internal/progress"
@@ -81,8 +82,10 @@ type Model struct {
 	detailOf string // chantier the detail pane shows, to reset its scroll
 	scroll   int    // detail pane scroll offset
 
-	watch   *watchState
-	confirm string // action waiting for a second click, e.g. "tidy:YAK-1"
+	watch      *watchState
+	confirm    string          // action waiting for a second click, e.g. "tidy:YAK-1"
+	closed     map[string]bool // chantiers put away by hand
+	showClosed bool            // list them anyway
 
 	// The comments view ("" is the main screen).
 	view      string
@@ -190,6 +193,7 @@ func (m *Model) rebuild() tea.Cmd {
 	m.chantiers, m.others = chantier.Gather(chantier.Input{
 		Team: m.cfg.Team, Repo: m.cfg.Repo, ChantiersDir: config.ChantiersDir(),
 		Issues: m.issues, ExtraIssues: m.extra, Worktrees: m.worktrees, Snapshot: m.snap,
+		Closed: m.hidden(),
 	})
 	if selKey != "" {
 		for i, c := range m.chantiers {
@@ -230,11 +234,11 @@ func TokensFor(list []*chantier.Chantier, snap herdr.Snapshot) map[string]string
 		}
 		switch {
 		case waiting == 1:
-			out[ws.ID] = "⚠ 1 attend ta décision"
+			out[ws.ID] = i18n.T("⚠ 1 attend ta décision", "⚠ 1 waiting for you")
 		case waiting > 1:
-			out[ws.ID] = fmt.Sprintf("⚠ %d attendent ta décision", waiting)
+			out[ws.ID] = fmt.Sprintf(i18n.T("⚠ %d attendent ta décision", "⚠ %d waiting for you"), waiting)
 		default:
-			out[ws.ID] = fmt.Sprintf("%d chantiers", len(list))
+			out[ws.ID] = fmt.Sprintf(i18n.T("%d chantiers", "%d tickets"), len(list))
 		}
 	}
 	for _, c := range list {
@@ -436,7 +440,9 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "esc":
 		if m.inside {
 			// cairn stays alive in its workspace; q just hands herdr back.
-			return m, func() tea.Msg { return doneMsg{text: "← retour à herdr", err: home.Back()} }
+			return m, func() tea.Msg {
+				return doneMsg{text: i18n.T("← retour à herdr", "← back to herdr"), err: home.Back()}
+			}
 		}
 		return m, tea.Quit
 	case "up", "k":
@@ -447,11 +453,20 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < m.items()-1 {
 			m.cursor++
 		}
+	case "l":
+		lang := "en"
+		if i18n.English() {
+			lang = "fr"
+		}
+		i18n.Set(lang)
+		m.say(i18n.T("Interface en français.", "Interface in English."), config.SetLang(lang))
+		cmd := m.rebuild()
+		return m, cmd
 	case "r":
 		if c := m.selected(); c != nil {
 			delete(m.readAt, c.Key)
 		}
-		m.say("Rafraîchi.", nil)
+		m.say(i18n.T("Rafraîchi.", "Refreshed."), nil)
 		return m, tea.Batch(m.loadLocal(), m.loadIssues())
 	case "enter":
 		return m, m.goTo()
@@ -460,7 +475,9 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "o":
 		if c := m.selected(); c != nil && c.Issue != nil {
 			url := m.cfg.SprintosaurWeb + c.Key
-			return m, func() tea.Msg { return doneMsg{text: "Ticket ouvert.", err: exec.Command("open", url).Run()} }
+			return m, func() tea.Msg {
+				return doneMsg{text: i18n.T("Ticket ouvert.", "Ticket opened."), err: exec.Command("open", url).Run()}
+			}
 		}
 	case "c":
 		return m.openComments()
@@ -526,6 +543,11 @@ func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	case row >= 0 && row < bodyH && inList:
 		_, owners := m.listLayout(listWidth, bodyH)
+		if row < len(owners) && owners[row] == closedItem {
+			m.showClosed = !m.showClosed
+			cmd := m.rebuild()
+			return m, cmd
+		}
 		if row < len(owners) && owners[row] >= 0 {
 			if owners[row] == m.cursor {
 				m.flash = ""
@@ -588,9 +610,9 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 		}
 		caps := make([]string, len(files))
 		for i, f := range files {
-			caps[i] = "preuve · " + tilde(f)
+			caps[i] = i18n.T("preuve · ", "proof · ") + tilde(f)
 		}
-		m.busy = "Ouverture des captures…"
+		m.busy = i18n.T("Ouverture des captures…", "Opening screenshots…")
 		return m, openImages(files, caps, images.Source{}, start)
 	}
 	return m, nil
@@ -636,16 +658,22 @@ func (m Model) goTo() tea.Cmd {
 		ws := c.Workspaces[0]
 		return func() tea.Msg { return doneMsg{text: "→ " + c.Key, err: herdr.FocusWorkspace(ws)} }
 	}
-	return func() tea.Msg { return doneMsg{text: c.Key + " n'a pas encore d'espace herdr : p pour le lancer."} }
+	return func() tea.Msg {
+		return doneMsg{text: c.Key + i18n.T(" n'a pas encore d'espace herdr : p pour le lancer.", " has no herdr workspace yet: p to start it.")}
+	}
 }
 
 func (m Model) browsediff() tea.Cmd {
 	c := m.selected()
 	if c == nil || c.Worktree == "" {
-		return func() tea.Msg { return doneMsg{text: "Pas de worktree pour ce chantier."} }
+		return func() tea.Msg {
+			return doneMsg{text: i18n.T("Pas de worktree pour ce chantier.", "No worktree for this ticket.")}
+		}
 	}
 	if _, err := exec.LookPath("browsediff"); err != nil {
-		return func() tea.Msg { return doneMsg{err: fmt.Errorf("browsediff n'est pas installé")} }
+		return func() tea.Msg {
+			return doneMsg{err: fmt.Errorf("%s", i18n.T("browsediff n'est pas installé", "browsediff is not installed"))}
+		}
 	}
 	cmd := exec.Command("browsediff", m.cfg.Base+"...HEAD")
 	cmd.Dir = c.Worktree
@@ -658,10 +686,10 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 	case c == nil:
 		return m, nil
 	case c.Issue == nil:
-		m.say("Ticket introuvable dans Sprintosaur.", nil)
+		m.say(i18n.T("Ticket introuvable dans Sprintosaur.", "Ticket not found in Sprintosaur."), nil)
 		return m, nil
 	case c.Worktree != "" && !c.Main:
-		m.say(c.Key+" a déjà son worktree : enter pour y aller.", nil)
+		m.say(c.Key+i18n.T(" a déjà son worktree : enter pour y aller.", " already has its worktree: enter to go there."), nil)
 		return m, nil
 	}
 	cfg, issue, agents, sp := m.cfg, *c.Issue, m.snap.Agents, m.sp
@@ -671,10 +699,10 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 	branch := cfg.BranchPrefix + lower + "-" + chantier.Slug(issue.Title, 50)
 	path := filepath.Join(cfg.WorktreeParent, filepath.Base(cfg.Repo)+"-"+num)
 	statePath := state.PathFor(config.ChantiersDir(), key)
-	m.busy = "Lancement de " + key + "…"
+	m.busy = fmt.Sprintf(i18n.T("Lancement de %s…", "Starting %s…"), key)
 	return m, func() tea.Msg {
 		if _, err := os.Stat(path); err == nil {
-			return doneMsg{err: fmt.Errorf("%s existe déjà", path)}
+			return doneMsg{err: fmt.Errorf(i18n.T("%s existe déjà", "%s already exists"), path)}
 		}
 		_ = exec.Command("git", "-C", cfg.Repo, "fetch", "--quiet", "origin").Run()
 		_, pane, err := herdr.CreateWorktree(cfg.Repo, branch, cfg.Base, path, key)
@@ -686,14 +714,15 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 				return doneMsg{err: err}
 			}
 		}
+		_ = journal.SetClosed(config.ChantiersDir(), key, false)
 		name := herdr.FreeName(lower, agents)
 		if err := herdr.StartAgent(name, cfg.AgentKind, pane); err != nil {
-			return doneMsg{err: fmt.Errorf("worktree prêt, mais l'agent n'a pas démarré : %w", err), refresh: true}
+			return doneMsg{err: fmt.Errorf(i18n.T("worktree prêt, mais l'agent n'a pas démarré : %w", "worktree ready, but the agent did not start: %w"), err), refresh: true}
 		}
 		err = herdr.Prompt(name, chantier.PlanPrompt(key, issue.Title, statePath))
-		text := key + " : l'agent " + name + " écrit le plan."
+		text := fmt.Sprintf(i18n.T("%s : l'agent %s écrit le plan.", "%s: agent %s is writing the plan."), key, name)
 		if sp != nil && (issue.Status == "Backlog" || issue.Status == "Todo") && sp.SetStatus(key, "In Progress") == nil {
-			text += " Ticket passé en In Progress."
+			text += i18n.T(" Ticket passé en In Progress.", " Ticket moved to In Progress.")
 		}
 		_ = journal.Append(config.ChantiersDir(), key, "plan lancé ("+name+")")
 		return doneMsg{text: text, err: err, refresh: true}
@@ -704,7 +733,7 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 func (m Model) allowPush() (tea.Model, tea.Cmd) {
 	c := m.selected()
 	if c == nil || c.State == nil {
-		m.say("Ce chantier n'a pas de plan cairn : ses push ne sont pas bloqués.", nil)
+		m.say(i18n.T("Ce chantier n'a pas de plan cairn : ses push ne sont pas bloqués.", "This ticket has no cairn plan: its pushes are not blocked."), nil)
 		return m, nil
 	}
 	s := c.State
@@ -717,13 +746,17 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	_ = journal.Append(config.ChantiersDir(), c.Key, "push autorisé")
-	text := "Push autorisé pour " + c.Key + " (un seul push)."
+	text := fmt.Sprintf(i18n.T("Push autorisé pour %s (un seul push).", "Push allowed for %s (one push only)."), c.Key)
 	cmd := m.rebuild()
 	if len(c.Agents) > 0 {
 		pane := c.Agents[0].PaneID
-		prompt := "Push autorisé dans cairn pour " + c.Key + " : pousse maintenant, et ouvre la PR si elle n'existe pas encore " +
-			"(puis lie-la au ticket). L'autorisation vaut pour un seul push : pour les changements suivants, redemande avec `attente: Prêt à pousser`."
-		cmd = tea.Batch(cmd, func() tea.Msg { return doneMsg{text: text + " Agent relancé.", err: herdr.Prompt(pane, prompt)} })
+		prompt := fmt.Sprintf(i18n.T("Push autorisé dans cairn pour %s : pousse maintenant, et ouvre la PR si elle n'existe pas encore "+
+			"(puis lie-la au ticket). L'autorisation vaut pour un seul push : pour les changements suivants, redemande avec `attente: Prêt à pousser`.",
+			"Push allowed in cairn for %s: push now, and open the PR if it does not exist yet "+
+				"(then link it to the ticket). The allowance covers one push only: for further changes, ask again with `attente: Prêt à pousser`."), c.Key)
+		cmd = tea.Batch(cmd, func() tea.Msg {
+			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(pane, prompt)}
+		})
 	}
 	m.say(text, nil)
 	return m, cmd
@@ -737,19 +770,19 @@ func isPushWait(w string) bool {
 func (m Model) validate() (tea.Model, tea.Cmd) {
 	c := m.selected()
 	if c == nil || c.State == nil || c.State.Waiting == "" {
-		m.say("Rien à valider ici.", nil)
+		m.say(i18n.T("Rien à valider ici.", "Nothing to approve here."), nil)
 		return m, nil
 	}
 	s := c.State
 	waiting := s.Waiting
 	s.Set("attente", "")
-	text := "Validé : " + waiting
+	text := i18n.T("Validé : ", "Approved: ") + waiting
 	var prompt string
 	if s.Phase == "plan" {
 		s.Set("phase", "build")
 		prompt = chantier.BuildPrompt(s.Path)
 		_ = journal.Append(config.ChantiersDir(), c.Key, "plan validé")
-		text = "Plan validé : " + c.Key + " passe en Build."
+		text = fmt.Sprintf(i18n.T("Plan validé : %s passe en Build.", "Plan approved: %s moves to Build."), c.Key)
 	}
 	if err := s.Save(); err != nil {
 		m.say("", err)
@@ -763,7 +796,9 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 	m.say(text, nil)
 	cmd := m.rebuild()
 	if prompt != "" && agent != "" {
-		cmd = tea.Batch(cmd, func() tea.Msg { return doneMsg{text: text + " Agent relancé.", err: herdr.Prompt(agent, prompt)} })
+		cmd = tea.Batch(cmd, func() tea.Msg {
+			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(agent, prompt)}
+		})
 	}
 	return m, cmd
 }
@@ -816,9 +851,9 @@ func (m Model) View() string {
 	}
 	switch {
 	case m.localErr != nil:
-		header += "  " + sErr.Render(trunc("herdr : "+m.localErr.Error(), m.width/2))
+		header += "  " + sErr.Render(trunc(i18n.T("herdr : ", "herdr: ")+m.localErr.Error(), m.width/2))
 	case m.spErr != nil:
-		header += "  " + sErr.Render(trunc("Sprintosaur : "+m.spErr.Error(), m.width/2))
+		header += "  " + sErr.Render(trunc(i18n.T("Sprintosaur : ", "Sprintosaur: ")+m.spErr.Error(), m.width/2))
 	}
 	bodyH := m.bodyHeight()
 	left := m.viewList(listWidth, bodyH)
@@ -856,19 +891,19 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 		}
 	}
 	if len(m.chantiers) == 0 {
-		add(-1, sMuted.Render(trunc("Chargement…", w)))
+		add(-1, sMuted.Render(trunc(i18n.T("Chargement…", "Loading…"), w)))
 	}
 	waitingHdr, restHdr := false, false
 	for i, c := range m.chantiers {
 		if c.Waiting() != "" && !waitingHdr {
-			add(-1, sWarn.Render("Attend ta décision"))
+			add(-1, sWarn.Render(i18n.T("Attend ta décision", "Waiting for you")))
 			waitingHdr = true
 		}
 		if c.Waiting() == "" && !restHdr {
 			if waitingHdr {
 				add(-1, "")
 			}
-			add(-1, sHeader.Render("Chantiers"))
+			add(-1, sHeader.Render(i18n.T("Chantiers", "Tickets")))
 			restHdr = true
 		}
 		mark := " "
@@ -876,7 +911,10 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 			mark = sWarn.Render("⚠")
 		}
 		l1 := mark + " " + sBold.Render(c.Key) + " " + trunc(c.Title(), w-len(c.Key)-3)
-		info := phaseStyle(c.Phase).Render(c.Phase.String())
+		info := phaseStyle(c.Phase).Render(c.Phase.Label())
+		if m.closed[c.Key] && c.State == nil {
+			info += sMuted.Render(i18n.T(" · rangé", " · put away"))
+		}
 		if c.State != nil && len(c.State.Tasks) > 0 {
 			info += sMuted.Render(fmt.Sprintf(" %d/%d", c.State.DoneCount(), len(c.State.Tasks)))
 		}
@@ -892,7 +930,7 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 			if p, ok := m.prs[c.Key]; ok && p.Checks.Failed > 0 {
 				info += sErr.Render(" ✗ CI")
 			} else if _, ready := m.readiness(c); ready {
-				info += sGood.Render(" ✓ prêt")
+				info += sGood.Render(i18n.T(" ✓ prêt", " ✓ ready"))
 			}
 		}
 		if i == m.cursor {
@@ -901,7 +939,7 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 		add(i, l1, "    "+info)
 	}
 	if len(m.others) > 0 {
-		add(-1, "", sHeader.Render("Hors chantier"))
+		add(-1, "", sHeader.Render(i18n.T("Hors chantier", "Not on a ticket")))
 		for j, a := range m.others {
 			l := agentIcon(a.Status) + " " + trunc(a.Title, w-3)
 			if a.Title == "" {
@@ -912,6 +950,18 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 			}
 			add(len(m.chantiers)+j, l)
 		}
+	}
+	if n := len(m.closed); n > 0 {
+		label := fmt.Sprintf(i18n.T("› %d rangé(s) : afficher", "› %d put away: show"), n)
+		if m.showClosed {
+			label = i18n.T("› masquer les rangés", "› hide put away")
+		}
+		l := sMuted.Render(label)
+		if m.hoverItem == closedItem {
+			l = sHover.Width(w).Render(label)
+		}
+		lines = append(lines, "", l)
+		owners = append(owners, -1, closedItem)
 	}
 	// Keep the cursor in view.
 	start := 0
@@ -924,6 +974,18 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 	}
 	return lines, owners
 }
+
+// hidden reads the put-away chantiers and returns those to leave out of the list.
+func (m *Model) hidden() map[string]bool {
+	m.closed = journal.Closed(config.ChantiersDir())
+	if m.showClosed {
+		return nil
+	}
+	return m.closed
+}
+
+// closedItem is the list row that shows or hides the put-away chantiers.
+const closedItem = -2
 
 func (m Model) viewList(w, h int) string {
 	lines, _ := m.listLayout(w, h)
@@ -938,7 +1000,7 @@ func (m Model) viewDetail(w, h int) string {
 	lines = lines[start:]
 	if len(lines) > h {
 		lines = lines[:h]
-		lines[h-1] = sMuted.Render("  ↓ suite (molette)")
+		lines[h-1] = sMuted.Render(i18n.T("  ↓ suite (molette)", "  ↓ more (scroll)"))
 	}
 	for i, l := range lines {
 		lines[i] = ansi.Truncate(l, w, "…") // never let a line wrap
@@ -995,12 +1057,12 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 
 	if a := m.selectedOther(); a != nil {
 		add(sBold.Render(a.Label())+" "+agentIcon(a.Status)+" "+a.Status, "",
-			lbl("Titre")+trunc(a.Title, w-label),
-			lbl("Dossier")+trunc(tilde(a.Dir()), w-label),
+			lbl(i18n.T("Titre", "Title"))+trunc(a.Title, w-label),
+			lbl(i18n.T("Dossier", "Folder"))+trunc(tilde(a.Dir()), w-label),
 			lbl("Pane")+a.PaneID, "",
-			sMuted.Render("Cet agent ne travaille sur aucun ticket connu."))
+			sMuted.Render(i18n.T("Cet agent ne travaille sur aucun ticket connu.", "This agent works on no known ticket.")))
 		if len(m.chantiers) > 0 {
-			add("", sHeader.Render("Rattacher à un chantier")+sMuted.Render("  (clic : l'agent prend le nom du ticket)"))
+			add("", sHeader.Render(i18n.T("Rattacher à un chantier", "Attach to a ticket"))+sMuted.Render(i18n.T("  (clic : l'agent prend le nom du ticket)", "  (click: the agent takes the ticket's name)")))
 			for _, c := range m.chantiers {
 				add("  " + sImg.Render("› "+c.Key) + " " + trunc(c.Title(), w-len(c.Key)-6))
 				targets[len(targets)-1] = "attach:" + c.Key
@@ -1037,15 +1099,15 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 	for _, p := range chantier.Flow {
 		switch {
 		case p < c.Phase:
-			flow = append(flow, sGood.Render(p.String()+" ✓"))
+			flow = append(flow, sGood.Render(p.Label()+" ✓"))
 		case p == c.Phase:
-			flow = append(flow, phaseStyle(p).Bold(true).Render(p.String()+" ●"))
+			flow = append(flow, phaseStyle(p).Bold(true).Render(p.Label()+" ●"))
 		default:
-			flow = append(flow, sMuted.Render(p.String()))
+			flow = append(flow, sMuted.Render(p.Label()))
 		}
 	}
 	if c.Phase == chantier.ToPlan {
-		add(lbl("Phase") + "À planifier : bouton " + sKey.Render("Planifier") + " pour lancer un agent")
+		add(lbl("Phase") + i18n.T("À planifier : bouton ", "To plan: the ") + sKey.Render(i18n.T("Planifier", "Plan")) + i18n.T(" pour lancer un agent", " button starts an agent"))
 	} else {
 		start := journal.PhaseSince(m.watch.history[c.Key])
 		add(lbl("Phase") + strings.Join(flow, sMuted.Render(" → ")) + sMuted.Render("  "+since(start)))
@@ -1058,32 +1120,32 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 		activity = append(activity, "commit "+progress.Ago(g.LastAt))
 	}
 	if len(activity) > 0 {
-		add(lbl("Activité") + strings.Join(activity, sMuted.Render(" · ")))
+		add(lbl(i18n.T("Activité", "Activity")) + strings.Join(activity, sMuted.Render(" · ")))
 	}
 	if s != nil {
 		if s.PushAllowed() {
-			add(lbl("Push") + sGood.Render("autorisé") + sMuted.Render(" (le prochain push seulement)"))
+			add(lbl("Push") + sGood.Render(i18n.T("autorisé", "allowed")) + sMuted.Render(i18n.T(" (le prochain push seulement)", " (next push only)")))
 		} else {
-			add(lbl("Push") + sMuted.Render("bloqué jusqu'à ton feu vert"))
+			add(lbl("Push") + sMuted.Render(i18n.T("bloqué jusqu'à ton feu vert", "blocked until you allow it")))
 		}
 	}
 	if wt := c.Waiting(); wt != "" {
 		hint := ""
 		if s != nil && s.Waiting != "" {
-			hint = sMuted.Render("  → bouton Valider")
+			hint = sMuted.Render(i18n.T("  → bouton Valider", "  → Approve button"))
 			if isPushWait(s.Waiting) {
-				hint = sMuted.Render("  → relis le Diff, puis Autoriser le push")
+				hint = sMuted.Render(i18n.T("  → relis le Diff, puis Autoriser le push", "  → review the Diff, then Allow push"))
 			}
 		}
-		add(lbl("Attente") + sWarn.Render("⚠ "+wt) + hint)
+		add(lbl(i18n.T("Attente", "Waiting")) + sWarn.Render("⚠ "+wt) + hint)
 	}
 
 	// The plan.
 	if s == nil && c.Phase != chantier.ToPlan {
-		add("", sMuted.Render("Pas de plan cairn pour ce chantier : seuls le code et la PR sont suivis."))
+		add("", sMuted.Render(i18n.T("Pas de plan cairn pour ce chantier : seuls le code et la PR sont suivis.", "No cairn plan for this ticket: only the code and the PR are tracked.")))
 	}
 	if s != nil && len(s.Summary) > 0 {
-		section("Objectif")
+		section(i18n.T("Objectif", "Goal"))
 		lines := wrap(plainMD(strings.Join(s.Summary, " ")), w, "  ")
 		if len(lines) > 6 {
 			lines = append(lines[:5], "  "+sMuted.Render("…"))
@@ -1092,7 +1154,7 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 	}
 	if s != nil {
 		if q := s.OpenQuestions(); len(q) > 0 {
-			section(fmt.Sprintf("Questions ouvertes (%d)", len(q)))
+			section(fmt.Sprintf(i18n.T("Questions ouvertes (%d)", "Open questions (%d)"), len(q)))
 			for _, t := range q {
 				add(sWarn.Render("  ? ") + trunc(plainMD(t), w-4))
 			}
@@ -1100,9 +1162,9 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 	}
 	if s != nil && len(s.Tasks) > 0 {
 		done, doing := state.Count(s.Tasks, true), state.Count(s.Tasks, false)
-		head := fmt.Sprintf("Tâches %d/%d", done, len(s.Tasks))
+		head := fmt.Sprintf(i18n.T("Tâches %d/%d", "Tasks %d/%d"), done, len(s.Tasks))
 		if doing > 0 {
-			head += fmt.Sprintf(" · %d en cours", doing)
+			head += fmt.Sprintf(i18n.T(" · %d en cours", " · %d in progress"), doing)
 		}
 		add("", sHeader.Render(head)+"  "+bar(done, doing, len(s.Tasks), 20))
 		for _, t := range s.Tasks {
@@ -1111,15 +1173,15 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 	}
 	if s != nil && len(s.SideEffects) > 0 {
 		done := state.Count(s.SideEffects, true)
-		section(fmt.Sprintf("Effets de bord %d/%d vérifiés", done, len(s.SideEffects)))
+		section(fmt.Sprintf(i18n.T("Effets de bord %d/%d vérifiés", "Side effects %d/%d checked"), done, len(s.SideEffects)))
 		for _, t := range s.SideEffects {
 			add("  " + taskIcon(t) + " " + trunc(plainMD(t.Text), w-4))
 		}
 	} else if s != nil && c.Phase >= chantier.Build {
-		add("", sWarn.Render("Effets de bord : aucun recensé dans le plan"))
+		add("", sWarn.Render(i18n.T("Effets de bord : aucun recensé dans le plan", "Side effects: none listed in the plan")))
 	}
 	if s != nil && len(s.Proofs) > 0 {
-		section(fmt.Sprintf("Preuves (%d)", len(s.Proofs)))
+		section(fmt.Sprintf(i18n.T("Preuves (%d)", "Proofs (%d)"), len(s.Proofs)))
 		for _, p := range s.Proofs {
 			if f := imagePath(p); f != "" {
 				add("  " + sImg.Render("[img]") + " " + trunc(p, w-8))
@@ -1137,23 +1199,23 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 			if g.Err != "" {
 				add("  " + sErr.Render(g.Err))
 			} else {
-				line := sMuted.Render("aucun commit sur la branche")
+				line := sMuted.Render(i18n.T("aucun commit sur la branche", "no commit on the branch"))
 				if g.Ahead > 0 {
-					line = plural(g.Ahead, "commit", "commits") + " · " + plural(g.Files, "fichier", "fichiers") + " " +
+					line = plural(g.Ahead, "commit", "commits") + " · " + plural(g.Files, i18n.T("fichier", "file"), i18n.T("fichiers", "files")) + " " +
 						sGood.Render(fmt.Sprintf("+%d", g.Added)) + " " + sErr.Render(fmt.Sprintf("−%d", g.Removed))
 				}
 				if g.Uncommitted > 0 {
-					line += sWarn.Render(" · " + plural(g.Uncommitted, "changement non commité", "changements non commités"))
+					line += sWarn.Render(" · " + plural(g.Uncommitted, i18n.T("changement non commité", "uncommitted change"), i18n.T("changements non commités", "uncommitted changes")))
 				}
 				add("  " + line)
 				if g.Ahead > 0 && g.LastSubject != "" {
-					add("  " + sMuted.Render("dernier : ") + trunc(g.LastSubject, w-14))
+					add("  " + sMuted.Render(i18n.T("dernier : ", "last: ")) + trunc(g.LastSubject, w-14))
 				}
 			}
 		} else {
-			add("  " + sMuted.Render("lecture…"))
+			add("  " + sMuted.Render(i18n.T("lecture…", "reading…")))
 		}
-		add("  "+sMuted.Render("branche ")+trunc(c.Branch, w-10), "  "+sMuted.Render("dossier ")+trunc(tilde(c.Worktree), w-10))
+		add("  "+sMuted.Render(i18n.T("branche ", "branch  "))+trunc(c.Branch, w-10), "  "+sMuted.Render(i18n.T("dossier ", "folder  "))+trunc(tilde(c.Worktree), w-10))
 	}
 	if c.Issue != nil && len(c.Issue.PullRequests) > 0 {
 		pr := c.Issue.PullRequests[len(c.Issue.PullRequests)-1]
@@ -1165,7 +1227,7 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 			add("  " + prLine(info))
 			if len(info.Checks.FailedNames) > 0 {
 				add("  " + sErr.Render("✗ ") + trunc(strings.Join(info.Checks.FailedNames, ", "), w-6))
-				add("  " + sImg.Render("› Corriger la CI") + sMuted.Render("  (clic ou f : les logs en échec partent à l'agent)"))
+				add("  " + sImg.Render(i18n.T("› Corriger la CI", "› Fix CI")) + sMuted.Render(i18n.T("  (clic ou f : les logs en échec partent à l'agent)", "  (click or f: the failing logs go to the agent)")))
 				targets[len(targets)-1] = "fixci"
 			}
 			if checks, ready := m.readiness(c); len(checks) > 0 {
@@ -1177,35 +1239,35 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 						parts = append(parts, sMuted.Render("○ "+k.label))
 					}
 				}
-				verdict := sMuted.Render("pas encore prêt à merger")
+				verdict := sMuted.Render(i18n.T("pas encore prêt à merger", "not ready to merge yet"))
 				if ready {
-					verdict = sGood.Bold(true).Render("prêt à merger")
+					verdict = sGood.Bold(true).Render(i18n.T("prêt à merger", "ready to merge"))
 				}
 				add("  "+verdict, "  "+strings.Join(parts, sMuted.Render(" · ")))
 			}
 		} else if ok {
 			add("  " + pr.State + sMuted.Render(" · "+info.Err))
 		} else {
-			add("  " + pr.State + sMuted.Render(" · lecture…"))
+			add("  " + pr.State + sMuted.Render(i18n.T(" · lecture…", " · reading…")))
 		}
-		add("  " + sImg.Render("› Commentaires et images") + sMuted.Render("  (clic ou c)"))
+		add("  " + sImg.Render(i18n.T("› Commentaires et images", "› Comments and images")) + sMuted.Render(i18n.T("  (clic ou c)", "  (click or c)")))
 		targets[len(targets)-1] = "comments"
 	}
 
 	if events := m.watch.history[c.Key]; len(events) > 0 {
-		section("Historique")
+		section(i18n.T("Historique", "History"))
 		add(historyLines(events, 6)...)
 	}
 
 	if len(c.Agents) > 0 {
-		section("Agents" + sMuted.Render("  (clic pour y aller)"))
+		section("Agents" + sMuted.Render(i18n.T("  (clic pour y aller)", "  (click to go there)")))
 		for _, a := range c.Agents {
 			add("  " + agentIcon(a.Status) + " " + sBold.Render(a.Label()) + sMuted.Render(" "+a.Status+" · ") + trunc(a.Title, w-len(a.Label())-len(a.Status)-9))
 			targets[len(targets)-1] = "pane:" + a.PaneID
 		}
 	}
 	if s != nil {
-		add("", sMuted.Render("plan : "+tilde(s.Path)))
+		add("", sMuted.Render(i18n.T("plan : ", "plan: ")+tilde(s.Path)))
 	}
 	return b, targets
 }
@@ -1226,31 +1288,31 @@ func prLine(p progress.PR) string {
 	var parts []string
 	switch {
 	case p.State == "MERGED":
-		parts = append(parts, sGood.Render("mergée"))
+		parts = append(parts, sGood.Render(i18n.T("mergée", "merged")))
 	case p.State == "CLOSED":
-		parts = append(parts, sMuted.Render("fermée"))
+		parts = append(parts, sMuted.Render(i18n.T("fermée", "closed")))
 	case p.Draft:
-		parts = append(parts, sMuted.Render("brouillon"))
+		parts = append(parts, sMuted.Render(i18n.T("brouillon", "draft")))
 	default:
-		parts = append(parts, "ouverte")
+		parts = append(parts, i18n.T("ouverte", "open"))
 	}
 	ck := p.Checks
 	switch {
 	case ck.Failed > 0:
-		parts = append(parts, sErr.Render(fmt.Sprintf("CI ✗ %d en échec", ck.Failed)))
+		parts = append(parts, sErr.Render(fmt.Sprintf(i18n.T("CI ✗ %d en échec", "CI ✗ %d failing"), ck.Failed)))
 	case ck.Pending > 0:
-		parts = append(parts, lipgloss.NewStyle().Foreground(working).Render(fmt.Sprintf("CI ◐ %d en cours", ck.Pending)))
+		parts = append(parts, lipgloss.NewStyle().Foreground(working).Render(fmt.Sprintf(i18n.T("CI ◐ %d en cours", "CI ◐ %d running"), ck.Pending)))
 	case ck.Passed > 0:
 		parts = append(parts, sGood.Render(fmt.Sprintf("CI ✓ %d", ck.Passed)))
 	}
 	switch p.ReviewDecision {
 	case "APPROVED":
-		parts = append(parts, sGood.Render("review approuvée"))
+		parts = append(parts, sGood.Render(i18n.T("review approuvée", "review approved")))
 	case "CHANGES_REQUESTED":
-		parts = append(parts, sErr.Render("changements demandés"))
+		parts = append(parts, sErr.Render(i18n.T("changements demandés", "changes requested")))
 	default:
 		if p.State == "OPEN" {
-			parts = append(parts, sMuted.Render("review en attente"))
+			parts = append(parts, sMuted.Render(i18n.T("review en attente", "review pending")))
 		}
 	}
 	if p.State == "OPEN" {
@@ -1258,11 +1320,11 @@ func prLine(p progress.PR) string {
 		case "MERGEABLE":
 			parts = append(parts, sGood.Render("mergeable"))
 		case "CONFLICTING":
-			parts = append(parts, sErr.Render("conflits"))
+			parts = append(parts, sErr.Render(i18n.T("conflits", "conflicts")))
 		}
 	}
 	if p.Comments > 0 {
-		parts = append(parts, sMuted.Render(fmt.Sprintf("%d commentaires", p.Comments)))
+		parts = append(parts, sMuted.Render(fmt.Sprintf(i18n.T("%d commentaires", "%d comments"), p.Comments)))
 	}
 	return strings.Join(parts, sMuted.Render(" · "))
 }
@@ -1295,33 +1357,37 @@ func (m Model) mainButtons() []button {
 	c := m.selected()
 	other := m.selectedOther() != nil
 	hasWT := c != nil && c.Worktree != ""
-	back := "Quitter"
+	back := i18n.T("Quitter", "Quit")
 	if m.inside {
-		back = "Retour à herdr"
+		back = i18n.T("Retour à herdr", "Back to herdr")
 	}
 	bs := []button{
-		{"enter", "Aller à l'agent", other || (c != nil && (len(c.Agents) > 0 || len(c.Workspaces) > 0))},
+		{"enter", i18n.T("Aller à l'agent", "Go to agent"), other || (c != nil && (len(c.Agents) > 0 || len(c.Workspaces) > 0))},
 		{"d", "Diff", hasWT},
-		{"p", "Planifier", c != nil && c.Issue != nil && (!hasWT || c.Main)},
-		{"v", "Valider", c != nil && c.State != nil && c.State.Waiting != "" && !isPushWait(c.State.Waiting)},
-		{"a", "Autoriser le push", c != nil && c.State != nil && !c.State.PushAllowed()},
-		{"c", "Commentaires", c != nil && c.Issue != nil && len(c.Issue.PullRequests) > 0},
+		{"p", i18n.T("Planifier", "Plan"), c != nil && c.Issue != nil && (!hasWT || c.Main)},
+		{"v", i18n.T("Valider", "Approve"), c != nil && c.State != nil && c.State.Waiting != "" && !isPushWait(c.State.Waiting)},
+		{"a", i18n.T("Autoriser le push", "Allow push"), c != nil && c.State != nil && !c.State.PushAllowed()},
+		{"c", i18n.T("Commentaires", "Comments"), c != nil && c.Issue != nil && len(c.Issue.PullRequests) > 0},
 		{"o", "Ticket", c != nil && c.Issue != nil},
 	}
 	// Situational buttons only show when they apply.
 	if c != nil {
 		if pr, ok := m.prs[c.Key]; ok && pr.Checks.Failed > 0 && c.OpenPR() != nil {
-			bs = append(bs, button{"f", "Corriger la CI", true})
+			bs = append(bs, button{"f", i18n.T("Corriger la CI", "Fix CI"), true})
 		}
-		if c.Phase == chantier.Shipped && hasWT && !c.Main {
-			label := "Ranger"
-			if m.confirm == "tidy:"+c.Key {
-				label = "Confirmer : ranger"
-			}
-			bs = append(bs, button{"x", label, true})
+		label := i18n.T("Ranger", "Put away")
+		if m.closed[c.Key] && c.State == nil {
+			label = i18n.T("Ressortir", "Bring back")
 		}
+		switch m.confirm {
+		case "tidy:" + c.Key:
+			label = i18n.T("Confirmer : ranger", "Confirm: put away")
+		case "force:" + c.Key:
+			label = i18n.T("Supprimer quand même", "Delete anyway")
+		}
+		bs = append(bs, button{"x", label, true})
 	}
-	return append(bs, button{"r", "Rafraîchir", true}, button{"q", back, true})
+	return append(bs, button{"l", i18n.T("English", "Français"), true}, button{"r", i18n.T("Rafraîchir", "Refresh"), true}, button{"q", back, true})
 }
 
 var (

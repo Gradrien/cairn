@@ -11,6 +11,7 @@ import (
 	"cairn/internal/chantier"
 	"cairn/internal/config"
 	"cairn/internal/herdr"
+	"cairn/internal/i18n"
 	"cairn/internal/journal"
 	"cairn/internal/progress"
 	"cairn/internal/state"
@@ -34,6 +35,7 @@ type watchState struct {
 	seen        map[string]bool // chantier observed once: no notification on startup
 	prSeen      map[string]bool
 	polling     bool
+	lang        string // language of prevWaiting: a toggle is not a new wait
 	// ready: Sprintosaur issues are loaded. Before that, a chantier with a PR
 	// looks like Build (no PR known yet): journaling it would log a false
 	// Build → Review on every start.
@@ -59,6 +61,8 @@ func (m *Model) observe() tea.Cmd {
 	}
 	var cmds []tea.Cmd
 	dir := config.ChantiersDir()
+	sameLang := m.watch.lang == i18n.Lang()
+	m.watch.lang = i18n.Lang()
 	for _, c := range m.chantiers {
 		key := c.Key
 		if c.Phase != chantier.ToPlan {
@@ -75,8 +79,8 @@ func (m *Model) observe() tea.Cmd {
 			m.watch.history[key] = events
 		}
 		w := c.Waiting()
-		if m.watch.seen[key] && m.inside && w != "" && m.watch.prevWaiting[key] != w {
-			cmds = append(cmds, notify("cairn · "+key+" attend ta décision", w))
+		if m.watch.seen[key] && m.inside && sameLang && w != "" && m.watch.prevWaiting[key] != w {
+			cmds = append(cmds, notify("cairn · "+key+i18n.T(" attend ta décision", " is waiting for you"), w))
 		}
 		m.watch.prevWaiting[key] = w
 		m.watch.seen[key] = true
@@ -90,7 +94,7 @@ func (m *Model) onPhase(c *chantier.Chantier, phase string) tea.Cmd {
 	case chantier.Build.String():
 		return m.ticketInProgress(c)
 	case chantier.Shipped.String():
-		return notify("cairn · "+c.Key+" livré", c.Title()+" — tu peux le ranger.")
+		return notify("cairn · "+c.Key+i18n.T(" livré", " shipped"), c.Title()+i18n.T(" — tu peux le ranger.", " — you can put it away."))
 	}
 	return nil
 }
@@ -105,7 +109,7 @@ func (m *Model) ticketInProgress(c *chantier.Chantier) tea.Cmd {
 		if err := sp.SetStatus(key, "In Progress"); err != nil {
 			return doneMsg{err: err}
 		}
-		return doneMsg{text: key + " passé en In Progress dans Sprintosaur.", refresh: true}
+		return doneMsg{text: key + i18n.T(" passé en In Progress dans Sprintosaur.", " moved to In Progress in Sprintosaur."), refresh: true}
 	}
 }
 
@@ -147,14 +151,14 @@ func (m *Model) notePR(key string, pr progress.PR) tea.Cmd {
 	var cmds []tea.Cmd
 	if m.watch.prSeen[key] && m.inside {
 		if pr.Checks.Failed > 0 && m.watch.prevCI[key] == 0 {
-			cmds = append(cmds, notify("cairn · "+key+" : CI en échec", strings.Join(pr.Checks.FailedNames, ", ")))
+			cmds = append(cmds, notify("cairn · "+key+i18n.T(" : CI en échec", ": CI failing"), strings.Join(pr.Checks.FailedNames, ", ")))
 		}
 		if pr.ReviewDecision != m.watch.prevReview[key] {
 			switch pr.ReviewDecision {
 			case "CHANGES_REQUESTED":
-				cmds = append(cmds, notify("cairn · "+key+" : changements demandés", "Ouvre les commentaires de la PR dans cairn."))
+				cmds = append(cmds, notify("cairn · "+key+i18n.T(" : changements demandés", ": changes requested"), i18n.T("Ouvre les commentaires de la PR dans cairn.", "Open the PR comments in cairn.")))
 			case "APPROVED":
-				cmds = append(cmds, notify("cairn · "+key+" : review approuvée", "La PR est approuvée."))
+				cmds = append(cmds, notify("cairn · "+key+i18n.T(" : review approuvée", ": review approved"), i18n.T("La PR est approuvée.", "The PR is approved.")))
 			}
 		}
 	}
@@ -180,15 +184,15 @@ func (m Model) readiness(c *chantier.Chantier) ([]check, bool) {
 	}
 	var out []check
 	if s := c.State; s != nil {
-		out = append(out, check{"tâches", len(s.Tasks) > 0 && s.DoneCount() == len(s.Tasks)})
-		out = append(out, check{"effets de bord", len(s.SideEffects) > 0 && state.Count(s.SideEffects, true) == len(s.SideEffects)})
+		out = append(out, check{i18n.T("tâches", "tasks"), len(s.Tasks) > 0 && s.DoneCount() == len(s.Tasks)})
+		out = append(out, check{i18n.T("effets de bord", "side effects"), len(s.SideEffects) > 0 && state.Count(s.SideEffects, true) == len(s.SideEffects)})
 	}
 	ck := pr.Checks
 	out = append(out,
 		check{"CI", ck.Failed == 0 && ck.Pending == 0 && ck.Passed > 0},
 		check{"review", pr.ReviewDecision == "APPROVED"},
-		check{"sans conflit", pr.Mergeable == "MERGEABLE"},
-		check{"pas un brouillon", !pr.Draft},
+		check{i18n.T("sans conflit", "no conflicts"), pr.Mergeable == "MERGEABLE"},
+		check{i18n.T("pas un brouillon", "not a draft"), !pr.Draft},
 	)
 	ready := true
 	for _, k := range out {
@@ -197,16 +201,48 @@ func (m Model) readiness(c *chantier.Chantier) ([]check, bool) {
 	return out, ready
 }
 
-// since turns a start time into "depuis 2 j".
+// since turns a start time into "depuis 2 j" / "for 2 d".
 func since(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	ago := progress.Ago(t)
-	if !strings.HasPrefix(ago, "il y a ") {
-		return "depuis peu"
+	d := progress.Elapsed(t)
+	if d == "" {
+		return i18n.T("depuis peu", "just now")
 	}
-	return "depuis " + strings.TrimPrefix(ago, "il y a ")
+	return fmt.Sprintf(i18n.T("depuis %s", "for %s"), d)
+}
+
+// historyText translates a journal event for display. Events are stored in
+// French (stable data); unknown text passes through unchanged.
+func historyText(text string) string {
+	if p, ok := strings.CutPrefix(text, "phase:"); ok {
+		for _, ph := range []chantier.Phase{chantier.ToPlan, chantier.Plan, chantier.Build, chantier.Review, chantier.Shipped} {
+			if ph.String() == p {
+				return "→ " + ph.Label()
+			}
+		}
+		return "→ " + p
+	}
+	switch text {
+	case "plan validé":
+		return i18n.T(text, "plan approved")
+	case "push autorisé":
+		return i18n.T(text, "push allowed")
+	case "rangé":
+		return i18n.T(text, "put away")
+	case "CI envoyée à l'agent":
+		return i18n.T(text, "CI sent to the agent")
+	}
+	if name, ok := strings.CutPrefix(text, "plan lancé ("); ok && strings.HasSuffix(name, ")") {
+		return fmt.Sprintf(i18n.T("plan lancé (%s)", "plan started (%s)"), strings.TrimSuffix(name, ")"))
+	}
+	if who, ok := strings.CutPrefix(text, "retour de "); ok {
+		if who, ok := strings.CutSuffix(who, " envoyé à l'agent"); ok {
+			return fmt.Sprintf(i18n.T("retour de %s envoyé à l'agent", "feedback from %s sent to the agent"), who)
+		}
+	}
+	return text
 }
 
 // historyLines renders the latest journal events, newest first.
@@ -214,11 +250,7 @@ func historyLines(events []journal.Event, n int) []string {
 	var out []string
 	for i := len(events) - 1; i >= 0 && len(out) < n; i-- {
 		e := events[i]
-		text := e.Text
-		if p, ok := strings.CutPrefix(text, "phase:"); ok {
-			text = "→ " + p
-		}
-		out = append(out, fmt.Sprintf("  %s  %s", sMuted.Render(e.At.Format("02/01 15:04")), text))
+		out = append(out, fmt.Sprintf("  %s  %s", sMuted.Render(e.At.Format("02/01 15:04")), historyText(e.Text)))
 	}
 	return out
 }

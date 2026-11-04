@@ -105,3 +105,14 @@ Décision : on garde le titre.
 		t.Fatalf("proofs %q", s.Proofs)
 	}
 }
+
+func TestEnglishAliases(t *testing.T) {
+	s := Parse("/x", "---\nwaiting: Ready to push\npush: allowed\n---\nGoal\n\n- [x] a\n\n## Side effects\n- [ ] b\n\n## Proofs\n- tests pass\n")
+	if s.Waiting != "Ready to push" || !s.PushAllowed() || len(s.SideEffects) != 1 || len(s.Proofs) != 1 {
+		t.Fatalf("%+v", s)
+	}
+	s.Set("attente", "")
+	if s.Waiting != "" || strings.Contains(s.String(), "waiting") {
+		t.Fatalf("waiting not cleared:\n%s", s.String())
+	}
+}

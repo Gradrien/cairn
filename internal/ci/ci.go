@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"cairn/internal/i18n"
 )
 
 var jobRe = regexp.MustCompile(`github\.com/([^/]+/[^/]+)/actions/runs/\d+/job/(\d+)`)
@@ -19,7 +21,7 @@ var jobRe = regexp.MustCompile(`github\.com/([^/]+/[^/]+)/actions/runs/\d+/job/(
 func tail(s string, n int) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	if len(lines) > n {
-		lines = append([]string{fmt.Sprintf("… (%d lignes plus haut coupées)", len(lines)-n)}, lines[len(lines)-n:]...)
+		lines = append([]string{fmt.Sprintf(i18n.T("… (%d lignes plus haut coupées)", "… (%d earlier lines cut)"), len(lines)-n)}, lines[len(lines)-n:]...)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -29,7 +31,7 @@ func tail(s string, n int) string {
 func FailedLogs(prURL, dir, key string) (string, []string, error) {
 	out, err := exec.Command("gh", "pr", "checks", prURL, "--json", "name,bucket,link").Output()
 	if err != nil && len(out) == 0 { // gh exits non-zero when checks fail
-		return "", nil, fmt.Errorf("gh pr checks : %v", err)
+		return "", nil, fmt.Errorf(i18n.T("gh pr checks : %v", "gh pr checks: %v"), err)
 	}
 	var checks []struct{ Name, Bucket, Link string }
 	if err := json.Unmarshal(out, &checks); err != nil {
@@ -45,18 +47,18 @@ func FailedLogs(prURL, dir, key string) (string, []string, error) {
 		fmt.Fprintf(&b, "===== %s =====\n%s\n\n", c.Name, c.Link)
 		m := jobRe.FindStringSubmatch(c.Link)
 		if m == nil {
-			b.WriteString("(pas un job GitHub Actions : voir le lien)\n\n")
+			b.WriteString(i18n.T("(pas un job GitHub Actions : voir le lien)\n\n", "(not a GitHub Actions job: see the link)\n\n"))
 			continue
 		}
 		logs, err := exec.Command("gh", "run", "view", "--job", m[2], "--log-failed", "-R", m[1]).Output()
 		if err != nil || len(logs) == 0 {
-			b.WriteString("(logs indisponibles)\n\n")
+			b.WriteString(i18n.T("(logs indisponibles)\n\n", "(logs unavailable)\n\n"))
 			continue
 		}
 		b.WriteString(tail(string(logs), 250) + "\n\n")
 	}
 	if len(names) == 0 {
-		return "", nil, fmt.Errorf("aucun check en échec")
+		return "", nil, fmt.Errorf("%s", i18n.T("aucun check en échec", "no failing check"))
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", nil, err

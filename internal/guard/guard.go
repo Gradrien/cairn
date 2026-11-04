@@ -5,6 +5,7 @@ package guard
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"cairn/internal/chantier"
+	"cairn/internal/i18n"
 	"cairn/internal/state"
 )
 
@@ -68,9 +70,12 @@ func Check(r io.Reader, team, chantiersDir string) string {
 		_ = s.Save()
 		return ""
 	}
-	return "cairn : " + key + " attend une validation humaine avant tout push ou PR. " +
-		"Ne contourne pas ce blocage. Termine ce que tu fais, mets `attente: Prêt à pousser` dans " + s.Path +
-		" avec en une ligne ce qui partira, lance `cairn sync`, puis arrête-toi : l'humain relit dans cairn et autorise le push."
+	return fmt.Sprintf(i18n.T("cairn : %s attend une validation humaine avant tout push ou PR. "+
+		"Ne contourne pas ce blocage. Termine ce que tu fais, mets `attente: Prêt à pousser` dans %s"+
+		" avec en une ligne ce qui partira, lance `cairn sync`, puis arrête-toi : l'humain relit dans cairn et autorise le push.",
+		"cairn: %s needs a human approval before any push or PR. "+
+			"Do not work around this block. Finish what you are doing, set `attente: Prêt à pousser` in %s"+
+			" with one line on what will ship, run `cairn sync`, then stop: the human reviews in cairn and allows the push."), key, s.Path)
 }
 
 func resolve(base, p string) string {

@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"cairn/internal/i18n"
 )
 
 type Config struct {
@@ -30,6 +32,8 @@ type Config struct {
 	SprintosaurCredentials string `json:"sprintosaur_credentials"`
 	// SprintosaurWeb is the base URL of issue pages.
 	SprintosaurWeb string `json:"sprintosaur_web"`
+	// Lang is the interface language: "fr" (default) or "en".
+	Lang string `json:"lang"`
 }
 
 // Dir is cairn's home: config and chantier files.
@@ -54,6 +58,7 @@ func defaults() Config {
 		AgentKind:              "claude",
 		SprintosaurCredentials: filepath.Join(home, ".claude", "skills", "sprintosaur", "credentials.env"),
 		SprintosaurWeb:         "https://sprintosaur.preview.spinup.yalink.fr/issue/",
+		Lang:                   "fr",
 	}
 }
 
@@ -132,7 +137,23 @@ func Path() string { return filepath.Join(Dir(), "config.json") }
 // Check reports a config that cannot work, with what to change.
 func (c Config) Check() error {
 	if !isRepo(c.Repo) {
-		return fmt.Errorf("le dépôt %q n'est pas un checkout git : corrige \"repo\" dans %s", c.Repo, Path())
+		return fmt.Errorf(i18n.T("le dépôt %q n'est pas un checkout git : corrige \"repo\" dans %s", "%q is not a git checkout: fix \"repo\" in %s"), c.Repo, Path())
 	}
 	return nil
+}
+
+// SetLang saves the interface language, keeping the rest of the file as is.
+func SetLang(lang string) error {
+	raw := map[string]any{}
+	if data, err := os.ReadFile(Path()); err == nil {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+	}
+	raw["lang"] = lang
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(Path(), append(out, '\n'), 0o644)
 }
