@@ -184,13 +184,15 @@ func (m Model) startTicket(is sprintosaur.Issue) (tea.Model, tea.Cmd) {
 
 func (m Model) pickMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	p := m.pick
-	row := ev.Y - 2 - pickListTop
+	item := -1
+	if _, owners := m.pickRows(); !p.loading {
+		if row := ev.Y - 2 - pickListTop; row >= 0 && row < len(owners) {
+			item = owners[row]
+		}
+	}
 	if ev.Action == tea.MouseActionMotion {
 		_, m.hoverBtn = m.hitTest(ev.X, ev.Y)
-		p.hover = -1
-		if row >= 0 && row < len(p.list) {
-			p.hover = row
-		}
+		p.hover = item
 		return m, nil
 	}
 	if ev.Button != tea.MouseButtonLeft || ev.Action != tea.MouseActionPress || m.busy != "" {
@@ -206,8 +208,8 @@ func (m Model) pickMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 				return m.pickKeyPress(keyFor(b.key))
 			}
 		}
-	case row >= 0 && row < len(p.list):
-		return m.startTicket(p.list[row])
+	case item >= 0:
+		return m.startTicket(p.list[item])
 	}
 	return m, nil
 }
@@ -218,6 +220,35 @@ func (m Model) pickButtons() []button {
 		{"esc", i18n.T("Retour", "Back"), true},
 		{"enter", i18n.T("Lancer le plan", "Start the plan"), p.input != "" || p.cursor >= 0},
 	}
+}
+
+// pickRows renders the ticket list, long titles wrapped, and the ticket index of each row.
+func (m Model) pickRows() ([]string, []int) {
+	p := m.pick
+	var lines []string
+	var owners []int
+	for i, is := range p.list {
+		meta := is.Status
+		if is.Priority != "" {
+			meta += " · " + is.Priority
+		}
+		if is.EstimateLabel != "" {
+			meta += " · " + is.EstimateLabel
+		}
+		key := strings.ToUpper(is.ID)
+		rows := hang("  "+sBold.Render(key)+"  ", is.Title+"  "+sMuted.Render(meta), m.width)
+		for _, l := range rows {
+			switch {
+			case i == p.cursor:
+				l = sSel.Width(m.width).Render(xansi.Strip(l))
+			case i == p.hover:
+				l = sHover.Width(m.width).Render(xansi.Strip(l))
+			}
+			lines = append(lines, l)
+			owners = append(owners, i)
+		}
+	}
+	return lines, owners
 }
 
 func (m Model) pickView() string {
@@ -248,25 +279,8 @@ func (m Model) pickView() string {
 	case len(p.list) == 0:
 		lines = append(lines, sMuted.Render(i18n.T("  Aucun ticket libre dans le cycle.", "  No free ticket in this cycle.")))
 	}
-	for i, is := range p.list {
-		meta := is.Status
-		if is.Priority != "" {
-			meta += " · " + is.Priority
-		}
-		if is.EstimateLabel != "" {
-			meta += " · " + is.EstimateLabel
-		}
-		key := strings.ToUpper(is.ID)
-		room := max(10, m.width-len(key)-lipgloss.Width(meta)-8)
-		l := "  " + sBold.Render(key) + "  " + trunc(is.Title, room) + "  " + sMuted.Render(meta)
-		switch {
-		case i == p.cursor:
-			l = sSel.Width(m.width).Render(xansi.Strip(l))
-		case i == p.hover:
-			l = sHover.Width(m.width).Render(xansi.Strip(l))
-		}
-		lines = append(lines, l)
-	}
+	rows, _ := m.pickRows()
+	lines = append(lines, rows...)
 	bodyH := m.bodyHeight()
 	if len(lines) > bodyH {
 		lines = lines[:bodyH]

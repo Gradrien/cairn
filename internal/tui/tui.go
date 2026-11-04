@@ -1046,6 +1046,22 @@ func wrap(text string, w int, indent string) []string {
 	return out
 }
 
+// hang wraps text after prefix, continuation lines aligned under the text:
+// nothing in the detail pane is cut, the pane scrolls instead.
+func hang(prefix, text string, w int) []string {
+	pw := lipgloss.Width(prefix)
+	body := wrap(text, w-pw, "")
+	out := make([]string, len(body))
+	for i, l := range body {
+		if i == 0 {
+			out[i] = prefix + l
+		} else {
+			out[i] = strings.Repeat(" ", pw) + l
+		}
+	}
+	return out
+}
+
 func bar(done, doing, total, width int) string {
 	if total == 0 {
 		return ""
@@ -1085,16 +1101,19 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 	section := func(title string) { add("", sHeader.Render(title)) }
 
 	if a := m.selectedOther(); a != nil {
-		add(sBold.Render(a.Label())+" "+agentIcon(a.Status)+" "+a.Status, "",
-			lbl(i18n.T("Titre", "Title"))+trunc(a.Title, w-label),
-			lbl(i18n.T("Dossier", "Folder"))+trunc(tilde(a.Dir()), w-label),
-			lbl("Pane")+a.PaneID, "",
+		add(sBold.Render(a.Label())+" "+agentIcon(a.Status)+" "+a.Status, "")
+		add(hang(lbl(i18n.T("Titre", "Title")), a.Title, w)...)
+		add(hang(lbl(i18n.T("Dossier", "Folder")), tilde(a.Dir()), w)...)
+		add(lbl("Pane")+a.PaneID, "",
 			sMuted.Render(i18n.T("Cet agent ne travaille sur aucun ticket connu.", "This agent works on no known ticket.")))
 		if len(m.chantiers) > 0 {
 			add("", sHeader.Render(i18n.T("Rattacher à un chantier", "Attach to a ticket"))+sMuted.Render(i18n.T("  (clic : l'agent prend le nom du ticket)", "  (click: the agent takes the ticket's name)")))
 			for _, c := range m.chantiers {
-				add("  " + sImg.Render("› "+c.Key) + " " + trunc(c.Title(), w-len(c.Key)-6))
-				targets[len(targets)-1] = "attach:" + c.Key
+				lines := hang("  "+sImg.Render("› "+c.Key)+" ", c.Title(), w)
+				add(lines...)
+				for i := range lines {
+					targets[len(targets)-1-i] = "attach:" + c.Key
+				}
 			}
 		}
 		return b, targets
@@ -1175,17 +1194,13 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 	}
 	if s != nil && len(s.Summary) > 0 {
 		section(i18n.T("Objectif", "Goal"))
-		lines := wrap(plainMD(strings.Join(s.Summary, " ")), w, "  ")
-		if len(lines) > 6 {
-			lines = append(lines[:5], "  "+sMuted.Render("…"))
-		}
-		add(lines...)
+		add(wrap(plainMD(strings.Join(s.Summary, " ")), w, "  ")...)
 	}
 	if s != nil {
 		if q := s.OpenQuestions(); len(q) > 0 {
 			section(fmt.Sprintf(i18n.T("Questions ouvertes (%d)", "Open questions (%d)"), len(q)))
 			for _, t := range q {
-				add(sWarn.Render("  ? ") + trunc(plainMD(t), w-4))
+				add(hang(sWarn.Render("  ? "), plainMD(t), w)...)
 			}
 		}
 	}
@@ -1197,14 +1212,14 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 		}
 		add("", sHeader.Render(head)+"  "+bar(done, doing, len(s.Tasks), 20))
 		for _, t := range s.Tasks {
-			add("  " + taskIcon(t) + " " + trunc(plainMD(t.Text), w-4))
+			add(hang("  "+taskIcon(t)+" ", plainMD(t.Text), w)...)
 		}
 	}
 	if s != nil && len(s.SideEffects) > 0 {
 		done := state.Count(s.SideEffects, true)
 		section(fmt.Sprintf(i18n.T("Effets de bord %d/%d vérifiés", "Side effects %d/%d checked"), done, len(s.SideEffects)))
 		for _, t := range s.SideEffects {
-			add("  " + taskIcon(t) + " " + trunc(plainMD(t.Text), w-4))
+			add(hang("  "+taskIcon(t)+" ", plainMD(t.Text), w)...)
 		}
 	} else if s != nil && c.Phase >= chantier.Build {
 		add("", sWarn.Render(i18n.T("Effets de bord : aucun recensé dans le plan", "Side effects: none listed in the plan")))
@@ -1213,11 +1228,14 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 		section(fmt.Sprintf(i18n.T("Preuves (%d)", "Proofs (%d)"), len(s.Proofs)))
 		for _, p := range s.Proofs {
 			if f := imagePath(p); f != "" {
-				add("  " + sImg.Render("[img]") + " " + trunc(p, w-8))
-				targets[len(targets)-1] = "img:" + f
+				lines := hang("  "+sImg.Render("[img]")+" ", p, w)
+				add(lines...)
+				for i := range lines {
+					targets[len(targets)-1-i] = "img:" + f
+				}
 				continue
 			}
-			add("  • " + trunc(p, w-4))
+			add(hang("  • ", p, w)...)
 		}
 	}
 
@@ -1238,13 +1256,14 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 				}
 				add("  " + line)
 				if g.Ahead > 0 && g.LastSubject != "" {
-					add("  " + sMuted.Render(i18n.T("dernier : ", "last: ")) + trunc(g.LastSubject, w-14))
+					add(hang("  "+sMuted.Render(i18n.T("dernier : ", "last: ")), g.LastSubject, w)...)
 				}
 			}
 		} else {
 			add("  " + sMuted.Render(i18n.T("lecture…", "reading…")))
 		}
-		add("  "+sMuted.Render(i18n.T("branche ", "branch  "))+trunc(c.Branch, w-10), "  "+sMuted.Render(i18n.T("dossier ", "folder  "))+trunc(tilde(c.Worktree), w-10))
+		add(hang("  "+sMuted.Render(i18n.T("branche ", "branch  ")), c.Branch, w)...)
+		add(hang("  "+sMuted.Render(i18n.T("dossier ", "folder  ")), tilde(c.Worktree), w)...)
 	}
 	if c.Issue != nil && len(c.Issue.PullRequests) > 0 {
 		pr := c.Issue.PullRequests[len(c.Issue.PullRequests)-1]
@@ -1255,7 +1274,7 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 		if info, ok := m.prs[c.Key]; ok && info.Err == "" {
 			add("  " + prLine(info))
 			if len(info.Checks.FailedNames) > 0 {
-				add("  " + sErr.Render("✗ ") + trunc(strings.Join(info.Checks.FailedNames, ", "), w-6))
+				add(hang("  "+sErr.Render("✗ "), strings.Join(info.Checks.FailedNames, ", "), w)...)
 				add("  " + sImg.Render(i18n.T("› Corriger la CI", "› Fix CI")) + sMuted.Render(i18n.T("  (clic ou f : les logs en échec partent à l'agent)", "  (click or f: the failing logs go to the agent)")))
 				targets[len(targets)-1] = "fixci"
 			}
@@ -1291,8 +1310,11 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 	if len(c.Agents) > 0 {
 		section("Agents" + sMuted.Render(i18n.T("  (clic pour y aller)", "  (click to go there)")))
 		for _, a := range c.Agents {
-			add("  " + agentIcon(a.Status) + " " + sBold.Render(a.Label()) + sMuted.Render(" "+a.Status+" · ") + trunc(a.Title, w-len(a.Label())-len(a.Status)-9))
-			targets[len(targets)-1] = "pane:" + a.PaneID
+			lines := hang("  "+agentIcon(a.Status)+" "+sBold.Render(a.Label())+sMuted.Render(" "+a.Status+" · "), a.Title, w)
+			add(lines...)
+			for i := range lines {
+				targets[len(targets)-1-i] = "pane:" + a.PaneID
+			}
 		}
 	}
 	if s != nil {
