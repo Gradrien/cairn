@@ -100,10 +100,23 @@ Chaque bouton a aussi sa touche :
 
 ## Installer
 
+Il te faut : Go, `gh` connecté (`gh auth login`), herdr, et le skill sprintosaur avec ses identifiants.
+
 ```sh
-./install.sh            # vet, test, go install, lien du skill dans ~/.claude/skills/cairn
-./install.sh --herdr    # en plus : plugin herdr (bouton cairn dans la barre latérale), prefix+a, phase dans la barre latérale
+git clone https://github.com/Gradrien/cairn.git && cd cairn
+./install.sh --herdr
 ```
 
-Config : `~/.cairn/config.json`, écrit au premier lancement (dépôt, équipe, handle Sprintosaur, base, type d'agent).
-Les identifiants Sprintosaur sont lus depuis le skill sprintosaur.
+Au premier passage, l'installeur pose deux questions : où est ton checkout de Yak-App et ton handle Sprintosaur
+(proposé d'après ton email git). Il installe ensuite le binaire, le skill `cairn` pour les agents, le hook
+Claude Code qui bloque les push non autorisés, et avec `--herdr` le bouton `cairn` dans la barre latérale et `prefix+a`.
+Relance `./install.sh` après chaque `git pull`.
+
+Config : `~/.cairn/config.json`. Seuls `repo` et `assignee` sont propres à chacun ; les autres réglages prennent
+les valeurs de l'équipe (équipe `YAK`, base `origin/main`, branches `<handle>/yak-123-…`, agent `claude`) et
+peuvent y être surchargés : `team`, `branch_prefix`, `base`, `worktree_parent`, `agent_kind`,
+`sprintosaur_credentials`, `sprintosaur_web`. Les identifiants Sprintosaur viennent du skill sprintosaur
+(`~/.claude/skills/sprintosaur/credentials.env`) ou des variables `SPRINTOSAUR_API` et `SPRINTOSAUR_TOKEN`.
+Si `repo` est faux, cairn le dit au démarrage et indique le fichier à corriger.
+
+Les Claude déjà ouverts avant l'installation ne voient le hook qu'après un redémarrage.

@@ -49,6 +49,9 @@ func main() {
 		}
 		return
 	}
+	if err := cfg.Check(); err != nil {
+		fail(err)
+	}
 	if !herdr.Available() {
 		fail(fmt.Errorf("herdr est introuvable dans le PATH"))
 	}

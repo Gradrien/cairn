@@ -38,14 +38,36 @@ type Client struct {
 	http              *http.Client
 }
 
-// New reads a KEY=VALUE credentials file (shell style, optional export/quotes).
+// New reads a KEY=VALUE credentials file (shell style, optional export/quotes);
+// the SPRINTOSAUR_API, _TOKEN and _SHARE_TOKEN environment variables override it.
 func New(credentialsPath string) (*Client, error) {
-	f, err := os.Open(credentialsPath)
-	if err != nil {
-		return nil, fmt.Errorf("identifiants Sprintosaur : %w", err)
-	}
-	defer f.Close()
 	vals := map[string]string{}
+	f, ferr := os.Open(credentialsPath)
+	if ferr == nil {
+		defer f.Close()
+		readEnvFile(f, vals)
+	}
+	for _, k := range []string{"SPRINTOSAUR_API", "SPRINTOSAUR_TOKEN", "SPRINTOSAUR_SHARE_TOKEN"} {
+		if v := os.Getenv(k); v != "" {
+			vals[k] = v
+		}
+	}
+	c := &Client{
+		api:   strings.TrimRight(vals["SPRINTOSAUR_API"], "/"),
+		token: vals["SPRINTOSAUR_TOKEN"],
+		share: vals["SPRINTOSAUR_SHARE_TOKEN"],
+		http:  &http.Client{Timeout: 15 * time.Second},
+	}
+	if c.api == "" || c.token == "" {
+		if ferr != nil {
+			return nil, fmt.Errorf("identifiants Sprintosaur introuvables (%s, ou variables SPRINTOSAUR_API et SPRINTOSAUR_TOKEN)", credentialsPath)
+		}
+		return nil, fmt.Errorf("identifiants Sprintosaur incomplets dans %s", credentialsPath)
+	}
+	return c, nil
+}
+
+func readEnvFile(f io.Reader, vals map[string]string) {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -56,16 +78,6 @@ func New(credentialsPath string) (*Client, error) {
 		}
 		vals[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
 	}
-	c := &Client{
-		api:   strings.TrimRight(vals["SPRINTOSAUR_API"], "/"),
-		token: vals["SPRINTOSAUR_TOKEN"],
-		share: vals["SPRINTOSAUR_SHARE_TOKEN"],
-		http:  &http.Client{Timeout: 15 * time.Second},
-	}
-	if c.api == "" || c.token == "" {
-		return nil, fmt.Errorf("identifiants Sprintosaur incomplets dans %s", credentialsPath)
-	}
-	return c, nil
 }
 
 func (c *Client) get(path string, q url.Values, out any) error {

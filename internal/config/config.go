@@ -4,6 +4,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,7 +47,7 @@ func ChantiersDir() string { return filepath.Join(Dir(), "chantiers") }
 func defaults() Config {
 	home, _ := os.UserHomeDir()
 	return Config{
-		Repo:                   filepath.Join(home, "Applications", "Yak-App"),
+		Repo:                   guessRepo(home),
 		Team:                   "YAK",
 		BranchPrefix:           "",
 		Base:                   "origin/main",
@@ -58,7 +59,7 @@ func defaults() Config {
 
 func Load() (Config, error) {
 	cfg := defaults()
-	path := filepath.Join(Dir(), "config.json")
+	path := Path()
 	data, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -94,11 +95,44 @@ func gitHandle(repo string) string {
 	if err != nil {
 		return ""
 	}
-	// adrien.ricou@school.eu → adrien: Sprintosaur handles are first names.
+	// prenom.nom@domaine → prenom: Sprintosaur handles are first names.
 	local, _, _ := strings.Cut(strings.TrimSpace(string(out)), "@")
 	first := strings.FieldsFunc(local, func(r rune) bool { return r == '.' || r == '_' || r == '+' || r == '-' })
 	if len(first) == 0 {
 		return ""
 	}
 	return strings.ToLower(first[0])
+}
+
+// guessRepo picks the Yak-App checkout on first run: the usual places, else
+// ~/Applications/Yak-App (Check then says where to fix it).
+func guessRepo(home string) string {
+	for _, p := range []string{
+		filepath.Join(home, "Applications", "Yak-App"),
+		filepath.Join(home, "Yak-App"),
+		filepath.Join(home, "code", "Yak-App"),
+		filepath.Join(home, "dev", "Yak-App"),
+		filepath.Join(home, "Projects", "Yak-App"),
+		filepath.Join(home, "Documents", "Yak-App"),
+	} {
+		if isRepo(p) {
+			return p
+		}
+	}
+	return filepath.Join(home, "Applications", "Yak-App")
+}
+
+func isRepo(dir string) bool {
+	return exec.Command("git", "-C", dir, "rev-parse", "--git-dir").Run() == nil
+}
+
+// Path is the config file.
+func Path() string { return filepath.Join(Dir(), "config.json") }
+
+// Check reports a config that cannot work, with what to change.
+func (c Config) Check() error {
+	if !isRepo(c.Repo) {
+		return fmt.Errorf("le dépôt %q n'est pas un checkout git : corrige \"repo\" dans %s", c.Repo, Path())
+	}
+	return nil
 }
