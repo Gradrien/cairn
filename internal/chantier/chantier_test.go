@@ -87,3 +87,15 @@ func TestBuild(t *testing.T) {
 		t.Fatalf("order: %s %s", list[0].Key, list[1].Key)
 	}
 }
+
+// Sprintosaur can still say "open" for a PR GitHub has merged: GitHub wins.
+func TestGitHubStateWins(t *testing.T) {
+	is := sprintosaur.Issue{ID: "YAK-1", PullRequests: []sprintosaur.PullRequest{{URL: "u", State: "open"}}}
+	list, _ := Gather(Input{Team: "YAK", Issues: []sprintosaur.Issue{is}, GitHubPRs: map[string]string{"u": "MERGED"}})
+	if len(list) != 1 || list[0].Phase != Shipped || list[0].OpenPR() != nil {
+		t.Fatalf("got %+v", list)
+	}
+	if is.PullRequests[0].State != "open" {
+		t.Fatal("the input issue was modified")
+	}
+}

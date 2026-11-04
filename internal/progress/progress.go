@@ -31,6 +31,7 @@ type Checks struct {
 }
 
 type PR struct {
+	URL            string
 	State          string // OPEN, MERGED, CLOSED
 	Draft          bool
 	ReviewDecision string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, ""
@@ -99,7 +100,7 @@ func ReadPR(url string) PR {
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return PR{Err: err.Error()}
 	}
-	pr := PR{State: raw.State, Draft: raw.IsDraft, ReviewDecision: raw.ReviewDecision,
+	pr := PR{URL: url, State: raw.State, Draft: raw.IsDraft, ReviewDecision: raw.ReviewDecision,
 		Mergeable: raw.Mergeable, Comments: len(raw.Comments)}
 	for _, c := range raw.Checks {
 		result := c.Conclusion

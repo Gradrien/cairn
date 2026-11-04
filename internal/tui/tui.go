@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -194,8 +195,9 @@ func (m *Model) rebuild() tea.Cmd {
 	m.chantiers, m.others = chantier.Gather(chantier.Input{
 		Team: m.cfg.Team, Repo: m.cfg.Repo, ChantiersDir: config.ChantiersDir(),
 		Issues: m.issues, ExtraIssues: m.extra, Worktrees: m.worktrees, Snapshot: m.snap,
-		Closed: m.hidden(),
+		Closed: m.hidden(), GitHubPRs: m.githubPRs(),
 	})
+	sort.SliceStable(m.chantiers, func(i, j int) bool { return !m.isClosed(m.chantiers[i]) && m.isClosed(m.chantiers[j]) })
 	if selKey != "" {
 		for i, c := range m.chantiers {
 			if c.Key == selKey {
@@ -295,7 +297,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		if pm.pr != nil {
+			changed := pm.pr.State != m.prs[pm.key].State
 			cmd = m.notePR(pm.key, *pm.pr)
+			if changed {
+				cmd = tea.Batch(cmd, m.rebuild())
+			}
 		}
 		return m, cmd
 	}
@@ -352,6 +358,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for key, pr := range msg {
 			cmds = append(cmds, m.notePR(key, pr))
 		}
+		// Phases are journaled once issues AND GitHub's PR states are known:
+		// before, a merged PR still looks open (Sprintosaur lags).
+		m.watch.ready = true
+		cmds = append(cmds, m.rebuild())
 		return m, tea.Batch(append(cmds, every(prsEvery, tickPRs{}))...)
 	case tickPRs:
 		return m, m.pollPRs()
@@ -401,7 +411,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spErr = msg.err
 		if msg.err == nil {
 			m.issues, m.extra = msg.issues, msg.extra
-			m.watch.ready = true
 		}
 		cmd := m.rebuild()
 		if !m.watch.polling && msg.err == nil {
@@ -922,13 +931,34 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 	if len(m.chantiers) == 0 {
 		add(-1, sMuted.Render(trunc(i18n.T("Chargement…", "Loading…"), w)))
 	}
+	// The put-away chantiers sit at the end of m.chantiers, under their toggle.
+	toggled := false
+	toggle := func() {
+		toggled = true
+		if len(m.closed) == 0 {
+			return
+		}
+		label := fmt.Sprintf(i18n.T("› %d rangé(s) : afficher", "› %d put away: show"), len(m.closed))
+		if m.showClosed {
+			label = i18n.T("› masquer les rangés", "› hide put away")
+		}
+		l := sMuted.Render(label)
+		if m.hoverItem == closedItem {
+			l = sHover.Width(w).Render(label)
+		}
+		lines = append(lines, "", l)
+		owners = append(owners, -1, closedItem)
+	}
 	waitingHdr, restHdr := false, false
 	for i, c := range m.chantiers {
-		if c.Waiting() != "" && !waitingHdr {
+		if m.isClosed(c) && !toggled {
+			toggle()
+		}
+		if !toggled && c.Waiting() != "" && !waitingHdr {
 			add(-1, sWarn.Render(i18n.T("Attend ta décision", "Waiting for you")))
 			waitingHdr = true
 		}
-		if c.Waiting() == "" && !restHdr {
+		if !toggled && c.Waiting() == "" && !restHdr {
 			if waitingHdr {
 				add(-1, "")
 			}
@@ -941,7 +971,7 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 		}
 		l1 := mark + " " + sBold.Render(c.Key) + " " + trunc(c.Title(), w-len(c.Key)-3)
 		info := phaseStyle(c.Phase).Render(c.Phase.Label())
-		if m.closed[c.Key] && c.State == nil {
+		if m.isClosed(c) {
 			info += sMuted.Render(i18n.T(" · rangé", " · put away"))
 		}
 		if c.State != nil && len(c.State.Tasks) > 0 {
@@ -967,6 +997,9 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 		}
 		add(i, l1, "    "+info)
 	}
+	if !toggled {
+		toggle()
+	}
 	if len(m.others) > 0 {
 		add(-1, "", sHeader.Render(i18n.T("Hors chantier", "Not on a ticket")))
 		for j, a := range m.others {
@@ -980,18 +1013,6 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 			add(len(m.chantiers)+j, l)
 		}
 	}
-	if n := len(m.closed); n > 0 {
-		label := fmt.Sprintf(i18n.T("› %d rangé(s) : afficher", "› %d put away: show"), n)
-		if m.showClosed {
-			label = i18n.T("› masquer les rangés", "› hide put away")
-		}
-		l := sMuted.Render(label)
-		if m.hoverItem == closedItem {
-			l = sHover.Width(w).Render(label)
-		}
-		lines = append(lines, "", l)
-		owners = append(owners, -1, closedItem)
-	}
 	// Keep the cursor in view.
 	start := 0
 	if curLine+2 > h {
@@ -1004,6 +1025,17 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 	return lines, owners
 }
 
+// githubPRs is what GitHub says of every PR read so far, by URL.
+func (m Model) githubPRs() map[string]string {
+	out := map[string]string{}
+	for _, pr := range m.prs {
+		if pr.URL != "" && pr.Err == "" {
+			out[pr.URL] = pr.State
+		}
+	}
+	return out
+}
+
 // hidden reads the put-away chantiers and returns those to leave out of the list.
 func (m *Model) hidden() map[string]bool {
 	m.closed = journal.Closed(config.ChantiersDir())
@@ -1012,6 +1044,9 @@ func (m *Model) hidden() map[string]bool {
 	}
 	return m.closed
 }
+
+// isClosed reports a put-away chantier shown anyway.
+func (m Model) isClosed(c *chantier.Chantier) bool { return m.closed[c.Key] && c.State == nil }
 
 // closedItem is the list row that shows or hides the put-away chantiers.
 const closedItem = -2

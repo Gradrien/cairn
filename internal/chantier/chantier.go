@@ -137,6 +137,20 @@ func derivePhase(c *Chantier) Phase {
 	return ToPlan
 }
 
+// withGitHub copies an issue with its PR states corrected from GitHub.
+func withGitHub(is sprintosaur.Issue, gh map[string]string) *sprintosaur.Issue {
+	is.PullRequests = append([]sprintosaur.PullRequest(nil), is.PullRequests...)
+	for i, pr := range is.PullRequests {
+		switch gh[pr.URL] {
+		case "MERGED":
+			is.PullRequests[i].State = "merged"
+		case "CLOSED":
+			is.PullRequests[i].State = "closed"
+		}
+	}
+	return &is
+}
+
 // KeyRe finds a ticket key for team in a branch name.
 func KeyRe(team string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)(?:^|[/_-])(` + regexp.QuoteMeta(team) + `-\d+)(?:$|[^0-9])`)
@@ -151,6 +165,9 @@ type Input struct {
 	Worktrees    []herdr.Worktree
 	Snapshot     herdr.Snapshot
 	Closed       map[string]bool // put away by hand: hidden unless a plan file exists again
+	// GitHubPRs is the state GitHub reports for a PR URL (OPEN, MERGED,
+	// CLOSED). It wins over Sprintosaur's copy, which can lag behind.
+	GitHubPRs map[string]string
 }
 
 // Gather returns the chantiers, most urgent first, and the agents that belong to none.
@@ -166,7 +183,7 @@ func Gather(in Input) ([]*Chantier, []herdr.Agent) {
 		return c
 	}
 	for i := range in.Issues {
-		get(in.Issues[i].ID).Issue = &in.Issues[i]
+		get(in.Issues[i].ID).Issue = withGitHub(in.Issues[i], in.GitHubPRs)
 	}
 	for key := range in.ExtraIssues {
 		get(key) // tickets started from outside the cycle
@@ -192,7 +209,7 @@ func Gather(in Input) ([]*Chantier, []herdr.Agent) {
 	for key, c := range byKey {
 		if c.Issue == nil {
 			if is, ok := in.ExtraIssues[key]; ok {
-				c.Issue = &is
+				c.Issue = withGitHub(is, in.GitHubPRs)
 			}
 		}
 		if s, err := state.Load(state.PathFor(in.ChantiersDir, key)); err == nil {
