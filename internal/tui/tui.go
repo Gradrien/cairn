@@ -1297,10 +1297,18 @@ func (m Model) detailLayout(w int) ([]string, []string) {
 					line = plural(g.Ahead, "commit", "commits") + " · " + plural(g.Files, i18n.T("fichier", "file"), i18n.T("fichiers", "files")) + " " +
 						sGood.Render(fmt.Sprintf("+%d", g.Added)) + " " + sErr.Render(fmt.Sprintf("−%d", g.Removed))
 				}
-				if g.Uncommitted > 0 {
+				if g.Uncommitted > 0 && !c.Main {
 					line += sWarn.Render(" · " + plural(g.Uncommitted, i18n.T("changement non commité", "uncommitted change"), i18n.T("changements non commités", "uncommitted changes")))
 				}
 				add("  " + line)
+				if c.Main {
+					// The shared checkout's changes belong to whatever else runs there.
+					note := i18n.T("dans le dépôt principal, partagé : cairn n'y touche pas", "in the shared main checkout: cairn leaves it alone")
+					if g.Uncommitted > 0 {
+						note += fmt.Sprintf(i18n.T(" (%d changements non commités, pas forcément de ce ticket)", " (%d uncommitted changes, not necessarily this ticket's)"), g.Uncommitted)
+					}
+					add(hang("  ", sMuted.Render(note), w)...)
+				}
 				if g.Ahead > 0 && g.LastSubject != "" {
 					add(hang("  "+sMuted.Render(i18n.T("dernier : ", "last: ")), g.LastSubject, w)...)
 				}
