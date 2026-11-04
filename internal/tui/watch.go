@@ -34,6 +34,10 @@ type watchState struct {
 	seen        map[string]bool // chantier observed once: no notification on startup
 	prSeen      map[string]bool
 	polling     bool
+	// ready: Sprintosaur issues are loaded. Before that, a chantier with a PR
+	// looks like Build (no PR known yet): journaling it would log a false
+	// Build → Review on every start.
+	ready bool
 }
 
 func newWatch() *watchState {
@@ -50,6 +54,9 @@ func notify(title, body string) tea.Cmd {
 // observe records phase changes in each chantier's journal, keeps Sprintosaur
 // in step, and notifies when a chantier starts waiting for you.
 func (m *Model) observe() tea.Cmd {
+	if !m.watch.ready {
+		return nil
+	}
 	var cmds []tea.Cmd
 	dir := config.ChantiersDir()
 	for _, c := range m.chantiers {

@@ -379,6 +379,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spErr = msg.err
 		if msg.err == nil {
 			m.issues, m.extra = msg.issues, msg.extra
+			m.watch.ready = true
 		}
 		cmd := m.rebuild()
 		if !m.watch.polling && msg.err == nil {

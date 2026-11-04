@@ -1,122 +1,203 @@
+<div align="center">
+
 # cairn
 
-Où en est chaque chantier, à côté de [herdr](https://herdr.dev).
+**Know where every ticket stands, without leaving herdr.**
 
-herdr te dit quel agent travaille, attend ou dort. cairn te dit **où en est le travail** : la phase du ticket,
-les tâches faites, les preuves, la PR, et ce qui attend ta décision. Une seule commande à retenir, tout le reste
-est au clavier, affiché à l'écran.
+cairn is a mouse-driven TUI that sits next to [herdr](https://herdr.dev).
+herdr tells you which agent is working, waiting or asleep. cairn tells you **where the work is**:
+the ticket's phase, the plan, the proofs, the PR, and what is waiting for your decision.
 
-```
-cairn  YAK · adrien · cycle 86
-Attend ta décision                       │ YAK-900  Export PDF des missions
-⚠ YAK-900 Export PDF des missions        │ Sprintosaur  In Progress · High · M
-    Plan 0/5 · ◐                         │ Phase   Plan ● → Build → Review → Livré
-Chantiers                                │ Attente ⚠ Valider le plan  (v valider · enter voir l'agent)
-  YAK-788 Supprimer « Définir comme… »   │ Tâches 0/5
-    Review · ○ · PR #3323                │   ○ …
-```
+One command to remember. Everything else is a button.
 
-## Dans herdr
+<img src="docs/overview.png" alt="cairn: chantiers on the left, the selected ticket's phase, tasks and proofs on the right" width="100%">
 
-cairn vit dans **son propre espace herdr**, nommé `cairn`, en plein écran. Tu gardes herdr tel quel (barre latérale, panes,
-agents) :
-- **un clic sur `cairn` dans la barre latérale** l'ouvre. Sous son nom, la barre latérale indique « ⚠ N attendent ta décision » ;
-- `prefix+a` bascule entre cairn et l'espace d'où tu viens. Dans cairn, `q` te ramène aussi à cet espace ;
-- `enter` sur un chantier t'emmène dans l'espace de son agent.
+</div>
 
-Le plugin herdr (`herdr-plugin/`) recrée l'espace et relance cairn à chaque démarrage de herdr : le bouton ne disparaît pas.
+---
 
-## Un chantier
+<sub>LESS CHECKING IN</sub>
 
-C'est un ticket Sprintosaur, du cycle en cours et assigné à toi, ou dont le nom de branche contient la clé. On lui associe :
-- son **worktree**, s'il en a un (sa branche contient `yak-123`) ;
-- ses **agents herdr**, ceux qui travaillent dans ce worktree, ou dont le nom ou le titre cite le ticket ;
-- son **fichier** `~/.cairn/chantiers/YAK-123.md` : phase, tâches, preuves, attente. Ce sont les agents qui le
-  tiennent à jour, via le skill `cairn` (`skill/SKILL.md`).
+### Stop babysitting terminals.
 
-Les phases sont **Plan → Build → Review → Livré**. « Livré » est détecté quand les PR du ticket sont mergées.
+With five agents on five tickets, herdr shows you five panes. You still have to open each one to find out
+whether it is planning, building, stuck on a question, or done and waiting for you.
 
-## Commentaires et images de PR
+cairn reads every ticket's state and puts the answer on one screen. The tickets that need you come first,
+under **Attend ta décision** ("waiting for your decision"), with the exact thing to decide and the button that decides it.
 
-Le bouton **Commentaires** (`c`, ou un clic sur « 💬 Commentaires et images » dans le détail) ouvre la conversation de la
-PR en plein écran : la description, les commentaires, les reviews, et les commentaires inline avec leur `fichier:ligne`.
-Le HTML des bots est nettoyé et leurs longs messages sont repliés (bouton **Bots**).
+---
 
-Les images sont marquées `🖼 image N`. Un clic sur l'une d'elles, ou **Images** (`i`) pour les voir toutes, les
-télécharge et les affiche **dans le terminal**, via le protocole d'images de Kitty que herdr transmet à Ghostty, Kitty
-ou WezTerm :
-- `←` `→` pour passer d'une image à l'autre ;
-- `o` pour ouvrir l'image dans Aperçu ;
-- `q` pour revenir.
+<sub>FROM TICKET TO MERGE</sub>
 
-Les pièces jointes GitHub privées passent par le token `gh`, les liens signés (Linear…) sont téléchargés tels quels.
-Tout est mis en cache dans `~/.cairn/cache/images`. Les captures citées sous `## Preuves` d'un plan sont cliquables de
-la même façon.
+### Track every ticket end to end.
 
-## Boucler avec les agents
+A ticket in cairn is a **chantier** (French for a work site). It ties together:
 
-- **Retour de review → agent** : dans la vue Commentaires, `[→ agent]` en bout d'en-tête envoie un commentaire (review,
-  inline avec son `fichier:ligne`, bot) à l'agent du chantier. L'agent l'ajoute comme tâche, corrige en local, puis
-  demande le push.
-- **Corriger la CI** : quand un check échoue, le bouton `f` (ou le lien dans le détail) récupère les logs des étapes
-  en échec (`gh run view --log-failed`) dans `~/.cairn/cache/ci/` et les passe à l'agent.
-- **Rattacher un agent** : un agent « hors chantier » (par exemple dans le dépôt principal) se rattache d'un clic à un
-  chantier. cairn le renomme d'après le ticket, ce qui le place aussi au bon endroit dans herdr.
+- the **Sprintosaur ticket**: title, status, priority, estimate;
+- its **git worktree** and its own **herdr workspace**;
+- its **agents**, wherever they run;
+- its **plan file**, `~/.cairn/chantiers/YAK-123.md`, which the agents keep up to date: phase, tasks, side effects, proofs,
+  open questions, what they are waiting for;
+- its **pull request**: CI, review, conflicts, comments.
 
-## Suivi
+Every chantier moves through **Plan → Build → Review → Shipped**, and cairn shows where it is and since when.
 
-- **Prêt à merger** : pour une PR ouverte, cairn vérifie les tâches, les effets de bord, la CI, la review, les conflits et
-  le statut brouillon. La liste affiche `✓ prêt` ou `✗ CI`.
-- **Historique** : chaque changement de phase et chaque décision (plan validé, push autorisé, retour envoyé…) est noté
-  dans `~/.cairn/chantiers/<TICKET>.log`. La ligne Phase indique depuis quand le chantier est dans sa phase actuelle.
-- **Notifications herdr** quand un chantier attend ta décision, quand la CI casse, quand une review demande des
-  changements ou approuve, et quand un chantier est livré. Seule l'instance qui tourne dans l'espace `cairn` notifie.
-  Les PR ouvertes sont relues toutes les 2 minutes.
-- **Sprintosaur suit** : le ticket passe en In Progress quand le plan est lancé ou que le chantier entre en Build.
-  Les passages en Pull Request puis en Done restent automatiques, via les PR liées.
-- **Ranger** (`x`, deux clics) : une fois le chantier livré, cairn supprime son worktree et son espace herdr et archive
-  son plan dans `~/.cairn/archive/`. Il refuse s'il reste des changements non commités.
+<img src="docs/plan.png" alt="A plan waiting for approval: open questions, tasks, side effects to verify" width="100%">
 
-## Souris et clavier
+**Plan with one click.** `Planifier` creates the worktree and its herdr workspace, starts Claude, and asks for a plan
+sized to the ticket. Plans always list their **side effects**: other callers, screens, data, emails. Each one must be
+checked off before the PR counts as ready.
 
-Tout se fait à la souris :
-- un clic sur un chantier le sélectionne, un second clic t'emmène à son agent ;
-- la molette fait défiler la liste ;
-- un clic sur un agent dans le détail t'amène dans son pane ;
-- les actions sont des boutons en bas de l'écran, grisés quand ils ne s'appliquent pas au chantier sélectionné.
+**Approve with one click.** When the plan is ready, the chantier jumps to the top. Read it, answer the open questions,
+press `Valider`, and the agent starts building.
 
-Chaque bouton a aussi sa touche :
+---
 
-## Touches
+<sub>NOTHING SHIPS WITHOUT YOU</sub>
 
-| Touche | Action |
-|---|---|
-| `enter` | aller à l'agent du chantier (celui qui attend d'abord) |
-| `d` | browsediff de la branche (`origin/main...HEAD`) |
-| `p` | planifier le ticket : crée le worktree et l'espace herdr, lance Claude et lui demande le plan |
-| `v` | valider ce qui attend : plan validé → Build, et l'agent est relancé |
-| `o` | ouvrir le ticket dans Sprintosaur |
-| `r` | rafraîchir · `q` retour à herdr (quitter, hors de herdr) |
+### A human go-ahead before every push.
 
-## Installer
+Agents never push or open a PR on their own. When the work is ready, the agent stops and asks
+(*Prêt à pousser*, "ready to push"). You press **Autoriser le push** ("allow the push"), and that allows **one** push.
 
-Il te faut : Go, `gh` connecté (`gh auth login`), herdr, et le skill sprintosaur avec ses identifiants.
+This is enforced, not just requested. A Claude Code hook (`cairn guard`) blocks `git push` and `gh pr create/ready/merge`
+on a chantier's branch until you allow it. Unfinished work stays off the CI pipeline and out of your reviewers' inbox.
+
+---
+
+<sub>READY FOR REVIEW</sub>
+
+### Everything you need to get it merged.
+
+<img src="docs/pr.png" alt="PR tracking: CI, review, conflicts, merge checklist, history and agents" width="100%">
+
+- **Merge checklist.** Tasks done, side effects checked, CI green, review approved, no conflicts, not a draft.
+  The list shows `✓ prêt` when everything passes and `✗ CI` when a check breaks.
+- **Fix the CI.** When a check fails, `Corriger la CI` fetches the failing steps' logs and hands them to the agent.
+- **History.** Every phase change and every decision (plan approved, push allowed, feedback sent) is logged, so you
+  can see how long a chantier has been sitting in review.
+- **Notifications.** herdr notifies you when a chantier is waiting for you, when the CI breaks, when a review requests
+  changes or approves, and when a chantier ships.
+- **Sprintosaur follows.** A ticket moves to *In Progress* when its plan starts. *Pull Request* and *Done* follow the linked PRs.
+- **Tidy up.** Once a chantier has shipped, `Ranger` ("tidy up") removes its worktree and workspace and archives its plan.
+
+---
+
+<sub>THE REVIEW LOOP</sub>
+
+### Read the PR in the terminal. Send feedback to the agent in one click.
+
+<img src="docs/comments.png" alt="PR conversation rendered as markdown, with a send-to-agent button on each comment" width="100%">
+
+`Commentaires` opens the whole PR conversation full screen: description, comments, reviews, inline comments with
+their `file:line`. Markdown is rendered and bot noise is folded away.
+
+- **`[→ agent]`** on any comment sends it to the chantier's agent. The agent adds it as a task, fixes it locally,
+  and asks for the next push. If it disagrees, it raises a question in the plan instead.
+- **Images in the terminal.** Screenshots in the PR, private GitHub attachments included, are downloaded and shown inline
+  through the Kitty graphics protocol (Ghostty, Kitty, WezTerm). Proof captures in the plan open the same way.
+- **Broken image links are flagged.** Agents often write `./capture.png`, which GitHub resolves to a dead `/pull/` URL.
+  cairn marks those links as broken, and the cairn skill tells agents not to write them.
+
+---
+
+<sub>INSIDE HERDR</sub>
+
+### Part of herdr, not another window.
+
+- cairn lives in **its own herdr workspace**. Click `cairn` in herdr's sidebar or press `prefix+a` to toggle between
+  cairn and where you were.
+- herdr's sidebar shows each workspace's phase, and under cairn, how many chantiers are waiting for you.
+- `enter` on a chantier jumps straight to its agent's pane. `d` opens browsediff on the branch.
+- An agent started outside a chantier can be **attached** with one click. cairn names it after the ticket.
+- A herdr plugin brings cairn back every time herdr starts.
+
+Everything works with the mouse: click to select, click again to jump to the agent, scroll anywhere, hover the
+buttons. Each button also has a key, shown on it.
+
+---
+
+<sub>GET STARTED</sub>
+
+### Your first chantier in three steps.
+
+**1. Install.** You need Go, `gh` logged in (`gh auth login`), herdr, and the Sprintosaur skill with its credentials.
 
 ```sh
 git clone https://github.com/Gradrien/cairn.git && cd cairn
 ./install.sh --herdr
 ```
 
-Au premier passage, l'installeur pose deux questions : où est ton checkout de Yak-App et ton handle Sprintosaur
-(proposé d'après ton email git). Il installe ensuite le binaire, le skill `cairn` pour les agents, le hook
-Claude Code qui bloque les push non autorisés, et avec `--herdr` le bouton `cairn` dans la barre latérale et `prefix+a`.
-Relance `./install.sh` après chaque `git pull`.
+The first run asks for two things: where your Yak-App checkout is, and your Sprintosaur handle (guessed from your
+git email). It then installs the binary, the `cairn` skill for agents, the push guard hook, the herdr plugin, the
+sidebar button and `prefix+a`. Run `./install.sh` again after every `git pull`. It also restarts the running cairn.
 
-Config : `~/.cairn/config.json`. Seuls `repo` et `assignee` sont propres à chacun ; les autres réglages prennent
-les valeurs de l'équipe (équipe `YAK`, base `origin/main`, branches `<handle>/yak-123-…`, agent `claude`) et
-peuvent y être surchargés : `team`, `branch_prefix`, `base`, `worktree_parent`, `agent_kind`,
-`sprintosaur_credentials`, `sprintosaur_web`. Les identifiants Sprintosaur viennent du skill sprintosaur
-(`~/.claude/skills/sprintosaur/credentials.env`) ou des variables `SPRINTOSAUR_API` et `SPRINTOSAUR_TOKEN`.
-Si `repo` est faux, cairn le dit au démarrage et indique le fichier à corriger.
+**2. Plan a ticket.** Open cairn from herdr's sidebar, pick a ticket from your current cycle, press `Planifier`.
 
-Les Claude déjà ouverts avant l'installation ne voient le hook qu'après un redémarrage.
+**3. Approve with evidence.** Approve the plan, follow the build, read the proofs, allow the push, then answer the
+review from the PR view.
+
+---
+
+<details>
+<summary><b>Keys</b></summary>
+
+| Key | Button | Action |
+|---|---|---|
+| `enter` | Aller à l'agent | jump to the chantier's agent (the one waiting first) |
+| `d` | Diff | browsediff of the branch (`origin/main...HEAD`) |
+| `p` | Planifier | create worktree and workspace, start Claude, ask for the plan |
+| `v` | Valider | approve what is waiting (plan approved → Build) |
+| `a` | Autoriser le push | allow the agent's next push or PR |
+| `c` | Commentaires | PR conversation and images |
+| `f` | Corriger la CI | send the failing CI logs to the agent (shown when CI fails) |
+| `x` | Ranger | remove a shipped chantier's worktree and archive its plan (two clicks) |
+| `o` | Ticket | open the ticket in Sprintosaur |
+| `r` | Rafraîchir | refresh |
+| `q` | Quitter | back to the previous herdr workspace |
+
+In the PR view: `i` images, `b` bots, `o` open on GitHub, `esc` back. In the image viewer: `←` `→`, `o` open in
+Preview, `q` back.
+
+</details>
+
+<details>
+<summary><b>Configuration</b></summary>
+
+`~/.cairn/config.json`. Only `repo` and `assignee` are personal. Everything else defaults to the team's values and
+can be overridden:
+
+| Key | Default |
+|---|---|
+| `repo` | your Yak-App checkout (asked on install) |
+| `assignee` | your Sprintosaur handle (asked on install) |
+| `team` | `YAK` |
+| `branch_prefix` | `<assignee>/` |
+| `base` | `origin/main` |
+| `worktree_parent` | the folder that contains `repo` |
+| `agent_kind` | `claude` |
+| `sprintosaur_credentials` | `~/.claude/skills/sprintosaur/credentials.env` (or `SPRINTOSAUR_API` / `SPRINTOSAUR_TOKEN`) |
+| `sprintosaur_web` | Sprintosaur's issue URL |
+
+If `repo` is wrong, cairn says so on startup and points to the file.
+
+</details>
+
+<details>
+<summary><b>How it works</b></summary>
+
+- **Plan files.** Agents keep `~/.cairn/chantiers/<TICKET>.md` up to date through the `cairn` skill (`skill/SKILL.md`):
+  front matter (`phase`, `attente`, `push`), a summary, tasks (`[ ]`, `[~]`, `[x]`), `## Questions`,
+  `## Effets de bord` (side effects), `## Preuves` (proofs).
+- **Matching.** A worktree belongs to a ticket when its branch contains the key (`yak-123`). An agent belongs to it when
+  it works in that worktree, or when its name or title mentions the ticket.
+- **Phase.** Read from the plan file. Without one, an open PR means Review and a worktree means Build. Merged PRs mean Shipped.
+- **Data.** herdr's socket API for agents and workspaces, Sprintosaur's API for tickets, `gh` for PRs, CI and images.
+  History in `~/.cairn/chantiers/<TICKET>.log`, caches in `~/.cairn/cache/`, archives in `~/.cairn/archive/`.
+- **Push guard.** A Claude Code `PreToolUse` hook on Bash. An allowed push is consumed when it passes, so every push
+  needs its own go-ahead. Claude sessions opened before the install pick the hook up after a restart.
+
+</details>
+
+The interface is in French, like the team.

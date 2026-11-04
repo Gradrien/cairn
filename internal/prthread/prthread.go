@@ -144,15 +144,18 @@ func isBot(login string) bool {
 }
 
 var (
-	mdImage   = regexp.MustCompile(`!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)`)
-	htmlImage = regexp.MustCompile(`(?i)<img[^>]*?src=["']([^"']+)["'][^>]*>`)
-	comments  = regexp.MustCompile(`(?s)<!--.*?-->`)
-	breaks    = regexp.MustCompile(`(?i)<br\s*/?>|</(p|div|tr|li|h[1-6]|summary|details|table|thead|tbody|ul|ol|pre|blockquote)>`)
-	cells     = regexp.MustCompile(`(?i)</?t[dh][^>]*>`)
-	items     = regexp.MustCompile(`(?i)<li[^>]*>`)
-	tags      = regexp.MustCompile(`(?s)<[^>]+>`)
-	blank     = regexp.MustCompile(`\n{3,}`)
-	spaces    = regexp.MustCompile(`[ \t]{2,}`)
+	mdImage     = regexp.MustCompile(`!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)`)
+	htmlImage   = regexp.MustCompile(`(?i)<img[^>]*?src=["']([^"']+)["'][^>]*>`)
+	comments    = regexp.MustCompile(`(?s)<!--.*?-->`)
+	breaks      = regexp.MustCompile(`(?i)<br\s*/?>|</(p|div|tr|li|h[1-6]|summary|details|table|thead|tbody|ul|ol|pre|blockquote)>`)
+	cells       = regexp.MustCompile(`(?i)</?t[dh][^>]*>`)
+	items       = regexp.MustCompile(`(?i)<li[^>]*>`)
+	tags        = regexp.MustCompile(`</?[a-zA-Z][a-zA-Z0-9-]*(?:\s[^<>]*)?/?>`)
+	fence       = regexp.MustCompile("(?ms)^[ \t]*```.*?^[ \t]*```[ \t]*$|^[ \t]*~~~.*?^[ \t]*~~~[ \t]*$")
+	inline      = regexp.MustCompile("`[^`\n]+`")
+	blank       = regexp.MustCompile(`\n{3,}`)
+	spaces      = regexp.MustCompile(`[ \t]{2,}`)
+	placeholder = regexp.MustCompile("\x00\\d+\x00")
 )
 
 // clean turns markdown/HTML into readable text and numbers images.
@@ -167,6 +170,15 @@ func (t *Thread) clean(body string) string {
 		return fmt.Sprintf("[image %d]", len(t.Images))
 	}
 	s := strings.ReplaceAll(body, "\r\n", "\n")
+	// Code is shown as is: set it aside so the HTML cleanup cannot eat a
+	// heredoc or a comparison ("<<'SQL' … > 70").
+	var kept []string
+	keep := func(m string) string {
+		kept = append(kept, m)
+		return fmt.Sprintf("\x00%d\x00", len(kept)-1)
+	}
+	s = fence.ReplaceAllStringFunc(s, keep)
+	s = inline.ReplaceAllStringFunc(s, keep)
 	s = comments.ReplaceAllString(s, "")
 	s = mdImage.ReplaceAllStringFunc(s, func(m string) string { return number(mdImage.FindStringSubmatch(m)[1]) })
 	s = htmlImage.ReplaceAllStringFunc(s, func(m string) string { return number(htmlImage.FindStringSubmatch(m)[1]) })
@@ -180,6 +192,11 @@ func (t *Thread) clean(body string) string {
 		lines[i] = strings.TrimRight(spaces.ReplaceAllString(l, "  "), " ")
 	}
 	s = blank.ReplaceAllString(strings.Join(lines, "\n"), "\n\n")
+	s = placeholder.ReplaceAllStringFunc(s, func(m string) string {
+		var i int
+		fmt.Sscan(strings.Trim(m, "\x00"), &i)
+		return kept[i]
+	})
 	return strings.TrimSpace(s)
 }
 
