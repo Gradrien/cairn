@@ -24,13 +24,18 @@ type PullRequest struct {
 }
 
 type Issue struct {
-	ID            string        `json:"id"`
-	Title         string        `json:"title"`
-	Status        string        `json:"status"`
-	Priority      string        `json:"priority"`
-	EstimateLabel string        `json:"estimateLabel"`
-	PullRequests  []PullRequest `json:"pullRequests"`
-	Cycle         *struct {
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Status        string `json:"status"`
+	Priority      string `json:"priority"`
+	EstimateLabel string `json:"estimateLabel"`
+	PriorityValue int    `json:"priorityValue"`
+	Assignee      *struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"assignee"`
+	PullRequests []PullRequest `json:"pullRequests"`
+	Cycle        *struct {
 		Number int `json:"number"`
 	} `json:"cycle"`
 }
@@ -108,11 +113,20 @@ func (c *Client) get(path string, q url.Values, out any) error {
 
 // SetStatus moves an issue to a status ("In Progress", …).
 func (c *Client) SetStatus(key, status string) error {
+	return c.patch(key, `{"status":`+strconv.Quote(status)+`}`)
+}
+
+// Assign gives an issue to a member handle ("adrien").
+func (c *Client) Assign(key, handle string) error {
+	return c.patch(key, `{"assignee":`+strconv.Quote(handle)+`}`)
+}
+
+func (c *Client) patch(key, json string) error {
 	q := url.Values{}
 	if c.share != "" {
 		q.Set("__sp_pk", c.share)
 	}
-	body := strings.NewReader(`{"status":` + strconv.Quote(status) + `}`)
+	body := strings.NewReader(json)
 	req, err := http.NewRequest(http.MethodPatch, c.api+"/issues/"+url.PathEscape(key)+"?"+q.Encode(), body)
 	if err != nil {
 		return err

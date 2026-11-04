@@ -86,6 +86,7 @@ type Model struct {
 	confirm    string          // action waiting for a second click, e.g. "tidy:YAK-1"
 	closed     map[string]bool // chantiers put away by hand
 	showClosed bool            // list them anyway
+	pick       *pickState      // the "new ticket" view
 
 	// The comments view ("" is the main screen).
 	view      string
@@ -379,6 +380,23 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.rebuild(), every(localEvery, tickLocal{}))
 
+	case pickListMsg:
+		if m.pick != nil {
+			m.pick.loading = false
+			m.pick.list = m.pickList(msg.issues)
+			if msg.err != nil {
+				m.say("", msg.err)
+			}
+		}
+		return m, nil
+	case pickIssueMsg:
+		m.busy = ""
+		if msg.err != nil {
+			m.say("", msg.err)
+			return m, nil
+		}
+		return m.startTicket(msg.issue)
+
 	case issuesMsg:
 		m.spErr = msg.err
 		if msg.err == nil {
@@ -430,6 +448,9 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.view == "comments" {
 		return m.commentsKey(k)
 	}
+	if m.view == "pick" {
+		return m.pickKeyPress(k)
+	}
 	m.flash = ""
 	if k.String() != "x" {
 		m.confirm = ""
@@ -462,6 +483,8 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.say(i18n.T("Interface en français.", "Interface in English."), config.SetLang(lang))
 		cmd := m.rebuild()
 		return m, cmd
+	case "n":
+		return m.openPick()
 	case "r":
 		if c := m.selected(); c != nil {
 			delete(m.readAt, c.Key)
@@ -501,6 +524,9 @@ func (m Model) bodyHeight() int { return max(3, m.height-4) }
 func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.view == "comments" {
 		return m.commentsMouse(ev)
+	}
+	if m.view == "pick" {
+		return m.pickMouse(ev)
 	}
 	bodyH := m.bodyHeight()
 	inList := ev.X < listWidth
@@ -844,6 +870,9 @@ func (m Model) View() string {
 	}
 	if m.view == "comments" {
 		return m.commentsView()
+	}
+	if m.view == "pick" {
+		return m.pickView()
 	}
 	header := sTitle.Render("cairn") + sMuted.Render(fmt.Sprintf("  %s · %s", m.cfg.Team, m.cfg.Assignee))
 	if is := m.cycle(); is != "" {
@@ -1350,6 +1379,9 @@ func (m Model) buttons() []button {
 	if m.view == "comments" {
 		return m.commentsButtons()
 	}
+	if m.view == "pick" {
+		return m.pickButtons()
+	}
 	return m.mainButtons()
 }
 
@@ -1365,6 +1397,7 @@ func (m Model) mainButtons() []button {
 		{"enter", i18n.T("Aller à l'agent", "Go to agent"), other || (c != nil && (len(c.Agents) > 0 || len(c.Workspaces) > 0))},
 		{"d", "Diff", hasWT},
 		{"p", i18n.T("Planifier", "Plan"), c != nil && c.Issue != nil && (!hasWT || c.Main)},
+		{"n", i18n.T("Nouveau ticket", "New ticket"), m.sp != nil},
 		{"v", i18n.T("Valider", "Approve"), c != nil && c.State != nil && c.State.Waiting != "" && !isPushWait(c.State.Waiting)},
 		{"a", i18n.T("Autoriser le push", "Allow push"), c != nil && c.State != nil && !c.State.PushAllowed()},
 		{"c", i18n.T("Commentaires", "Comments"), c != nil && c.Issue != nil && len(c.Issue.PullRequests) > 0},

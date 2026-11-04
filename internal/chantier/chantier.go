@@ -168,6 +168,9 @@ func Gather(in Input) ([]*Chantier, []herdr.Agent) {
 	for i := range in.Issues {
 		get(in.Issues[i].ID).Issue = &in.Issues[i]
 	}
+	for key := range in.ExtraIssues {
+		get(key) // tickets started from outside the cycle
+	}
 	re := KeyRe(in.Team)
 	repo := filepath.Clean(in.Repo)
 	for _, wt := range in.Worktrees {

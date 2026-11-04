@@ -45,6 +45,9 @@ Every chantier moves through **Plan → Build → Review → Shipped**, and cair
 
 <img src="docs/plan.png" alt="A plan waiting for approval: open questions, tasks, side effects to verify" width="100%">
 
+**Start any ticket.** Your current-cycle tickets are already listed. `Nouveau ticket` ("new ticket") starts any other:
+type its number, or pick one of the cycle's unassigned tickets. It is assigned to you and its plan starts right away.
+
 **Plan with one click.** `Planifier` creates the worktree and its herdr workspace, starts Claude, and asks for a plan
 sized to the ticket. Plans always list their **side effects**: other callers, screens, data, emails. Each one must be
 checked off before the PR counts as ready.
@@ -136,7 +139,8 @@ The first run asks for two things: where your Yak-App checkout is, and your Spri
 git email). It then installs the binary, the `cairn` skill for agents, the push guard hook, the herdr plugin, the
 sidebar button and `prefix+a`. Run `./install.sh` again after every `git pull`. It also restarts the running cairn.
 
-**2. Plan a ticket.** Open cairn from herdr's sidebar, pick a ticket from your current cycle, press `Planifier`.
+**2. Plan a ticket.** Open cairn from herdr's sidebar, pick a ticket from your current cycle and press `Planifier`,
+or press `Nouveau ticket` for any other.
 
 **3. Approve with evidence.** Approve the plan, follow the build, read the proofs, allow the push, then answer the
 review from the PR view.
@@ -151,6 +155,7 @@ review from the PR view.
 | `enter` | Aller à l'agent | jump to the chantier's agent (the one waiting first) |
 | `d` | Diff | browsediff of the branch (`origin/main...HEAD`) |
 | `p` | Planifier | create worktree and workspace, start Claude, ask for the plan |
+| `n` | Nouveau ticket | start a ticket outside your list: type its number or pick an unassigned one |
 | `v` | Valider | approve what is waiting (plan approved → Build) |
 | `a` | Autoriser le push | allow the agent's next push or PR |
 | `c` | Commentaires | PR conversation and images |
