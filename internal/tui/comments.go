@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -60,6 +61,7 @@ func (m Model) openComments() (tea.Model, tea.Cmd) {
 	key := m.selected().Key
 	m.view, m.cscroll, m.showBots = "comments", 0, false
 	if m.thread != nil && m.threadKey == key {
+		m.scrollComments(m.firstNew())
 		return m, nil
 	}
 	m.thread, m.threadKey, m.threadErr = nil, key, nil
@@ -207,6 +209,10 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 		add(0, sMuted.Render(i18n.T("Chargement de la conversation…", "Loading the conversation…")))
 		return lines, targets
 	}
+	since, tracked := time.Time{}, false
+	if m.seen != nil {
+		since, tracked = m.seen.get(m.threadKey)
+	}
 	for i, e := range t.Entries {
 		head := sBold.Render(e.Author)
 		if e.Bot {
@@ -223,6 +229,9 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 			kind = sMuted.Render("inline ") + lipgloss.NewStyle().Foreground(working).Render(fmt.Sprintf("%s:%d", e.Path, e.Line))
 		}
 		header := head + sMuted.Render(" · ") + kind + sMuted.Render(" · "+progress.Ago(e.At))
+		if tracked && e.Kind != "description" && e.At.After(since) {
+			header = sFresh.Render("● ") + header + sFresh.Render(i18n.T("  nouveau", "  new"))
+		}
 		if e.Kind == "description" {
 			add(0, header)
 		} else {
@@ -257,6 +266,30 @@ func (m Model) commentsLayout(w int) ([]string, []int) {
 		add(0, "")
 	}
 	return lines, targets
+}
+
+// firstNew is the line of the first entry newer than your last visit, so
+// the conversation opens where you left it; 0 when nothing is new.
+func (m Model) firstNew() int {
+	if m.thread == nil || m.seen == nil {
+		return 0
+	}
+	since, ok := m.seen.get(m.threadKey)
+	if !ok {
+		return 0
+	}
+	_, targets := m.commentsLayout(m.width)
+	for i, e := range m.thread.Entries {
+		if e.Kind == "description" || !e.At.After(since) || (e.Bot && !m.showBots) {
+			continue
+		}
+		for l, t := range targets {
+			if t == -(i + 1) {
+				return l
+			}
+		}
+	}
+	return 0
 }
 
 func (m Model) commentsView() string {

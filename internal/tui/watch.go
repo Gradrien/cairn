@@ -66,7 +66,13 @@ func (m *Model) observe() tea.Cmd {
 	dir := config.ChantiersDir()
 	sameLang := m.watch.lang == i18n.Lang()
 	m.watch.lang = i18n.Lang()
-	for _, c := range m.chantiers {
+	// Every chantier, the shipped ones the list hides included: those are
+	// the ones to clean up.
+	all := m.all
+	if all == nil {
+		all = m.chantiers
+	}
+	for _, c := range all {
 		key := c.Key
 		if c.Phase != chantier.ToPlan {
 			events := journal.Read(dir, key)
@@ -85,7 +91,7 @@ func (m *Model) observe() tea.Cmd {
 		// retrying now and then if something kept it.
 		if c.Phase == chantier.Shipped && m.inside && time.Since(m.watch.cleanedAt[key]) > 2*time.Minute {
 			m.watch.cleanedAt[key] = time.Now()
-			cmds = append(cmds, m.cleanup(c))
+			cmds = append(cmds, m.cleanup(c, false))
 		}
 		w := c.Waiting()
 		if m.watch.seen[key] && m.inside && sameLang && w != "" && m.watch.prevWaiting[key] != w {

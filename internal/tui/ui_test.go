@@ -12,6 +12,7 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/herdr"
+	"cairn/internal/journal"
 	"cairn/internal/progress"
 	"cairn/internal/sprintosaur"
 	"cairn/internal/state"
@@ -233,7 +234,7 @@ func TestFilterAndPalette(t *testing.T) {
 	if c := m.selected(); c.Key != "YAK-800" || m.overlay != "push" {
 		t.Errorf("palette runs the action on its ticket: %s %q", c.Key, m.overlay)
 	}
-	if text := strings.Join(screen(m), "\n"); !strings.Contains(text, "Autoriser un push pour YAK-800") || !strings.Contains(text, "1 reste ouvert") {
+	if text := strings.Join(screen(m), "\n"); !strings.Contains(text, "Autoriser le push de YAK-800") || !strings.Contains(text, "1 reste ouvert") {
 		t.Errorf("push confirmation:\n%s", text)
 	}
 }
@@ -295,5 +296,89 @@ func TestDump(t *testing.T) {
 	for name, v := range shots {
 		_ = os.WriteFile(filepath.Join(dir, name+".txt"), []byte(ansi.Strip(v.View())), 0o644)
 		_ = os.WriteFile(filepath.Join(dir, name+".ans"), []byte(v.View()), 0o644)
+	}
+}
+
+func TestNewsSinceLastVisit(t *testing.T) {
+	m := fixture(t, 160, 45)
+	visit := time.Now().Add(-time.Hour)
+	m.seen = &seenStore{at: map[string]time.Time{"YAK-788": visit, "YAK-712": visit}}
+	pr := m.prs["YAK-788"]
+	pr.Author = "Gradrien"
+	pr.Activity = []progress.Activity{
+		{Who: "BATTAULT-p", At: visit.Add(-time.Hour), Body: "old"}, // before the visit
+		{Who: "Gradrien", At: visit.Add(time.Minute), Body: "mine"}, // your own
+		{Who: "github-actions", At: visit.Add(time.Minute), Body: "## PR Reviewer Guide"},
+		{Who: "BATTAULT-p", At: visit.Add(10 * time.Minute), Review: true, State: "COMMENTED",
+			Body: "> 🤖 **Automated review** by the Yalink console agent. Verdict below is advisory.\n\n**Verdict:** changes requested — two blocking findings."},
+		{Who: "BATTAULT-p", At: visit.Add(11 * time.Minute), Review: true, State: "COMMENTED"},
+	}
+	m.prs["YAK-788"] = pr
+	m.watch.history["YAK-712"] = []journal.Event{{At: visit.Add(5 * time.Minute), Text: "phase:" + chantier.Build.String()}}
+
+	for i, c := range m.chantiers {
+		if c.Key == "YAK-788" {
+			m.cursor = i
+		}
+	}
+	text := strings.Join(screen(m), "\n")
+	for _, want := range []string{"2 chantiers ont bougé", "nouveau sur la PR", "→ Build", "Nouveau depuis ta visite",
+		"BATTAULT-p a laissé une review", "changes requested — two blocking findings", "c lire la conversation"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("screen misses %q:\n%s", want, text)
+		}
+	}
+	for _, not := range []string{"Gradrien", "github-actions"} {
+		if strings.Contains(text, not) {
+			t.Errorf("%s is not news", not)
+		}
+	}
+	if n := m.news(m.chantiers[m.cursor]); len(n) != 1 {
+		t.Fatalf("one line per person, got %d", len(n))
+	}
+
+	// Passing by does not count; leaving after a look does.
+	m.detailOf, m.lookedAt = "YAK-788", time.Now()
+	m.leave("YAK-788")
+	if len(m.news(m.chantiers[m.cursor])) == 0 {
+		t.Fatal("a glance is not a visit")
+	}
+	m.lookedAt = time.Now().Add(-3 * time.Second)
+	m.leave("YAK-788")
+	if len(m.news(m.chantiers[m.cursor])) != 0 {
+		t.Fatal("seen after a look")
+	}
+}
+
+func TestCloseAsksFirst(t *testing.T) {
+	m := fixture(t, 160, 45)
+	c := &chantier.Chantier{Key: "YAK-770", Phase: chantier.Shipped, Worktree: "/w/770", Branch: "adrien/yak-770",
+		Issue: &sprintosaur.Issue{ID: "YAK-770", Title: "CRA", Status: "Done"}}
+	m.chantiers = append(m.chantiers, c)
+	m.all = m.chantiers
+	m.watch.keep["YAK-770"] = "changements non commités"
+	m.cursor = len(m.chantiers) - 1
+	text := strings.Join(screen(m), "\n")
+	for _, want := range []string{"✓ Livré", "Gardé (changements non commités)", "x Fermer le chantier"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("detail misses %q:\n%s", want, text)
+		}
+	}
+	m = press(t, m, "x")
+	next, _ := m.Update(closeRiskMsg{key: "YAK-770", risk: closeRisk{dirty: 2}})
+	m = next.(Model)
+	text = strings.Join(screen(m), "\n")
+	for _, want := range []string{"Fermer YAK-770 ?", "2 fichiers non commités seront perdus", "Fermer et supprimer le worktree"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("confirmation misses %q:\n%s", want, text)
+		}
+	}
+	if m.busy != "" {
+		t.Fatal("nothing happens before you confirm")
+	}
+	// Not shipped: nothing to close.
+	m.overlay, m.cursor = "", 0
+	if m = press(t, m, "x"); m.overlay != "" {
+		t.Fatal("only a shipped chantier closes")
 	}
 }

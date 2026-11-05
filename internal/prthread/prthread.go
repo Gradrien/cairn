@@ -133,6 +133,9 @@ func Fetch(url string) (*Thread, error) {
 	return t, nil
 }
 
+// IsBot tells automated accounts (CI, linters, deploy previews) from people.
+func IsBot(login string) bool { return isBot(login) }
+
 func isBot(login string) bool {
 	l := strings.ToLower(login)
 	for _, b := range []string{"[bot]", "-bot", "github-actions", "copilot", "linear", "vercel", "codecov", "sonar", "dependabot", "renovate"} {

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"cairn/internal/chantier"
 	"cairn/internal/i18n"
 	"cairn/internal/state"
 )
@@ -28,8 +29,8 @@ func (m Model) openPush() (tea.Model, tea.Cmd) {
 		m.say(i18n.T("Ce chantier n'a pas de plan cairn : ses push ne sont pas bloqués.", "This ticket has no cairn plan: its pushes are not blocked."), nil)
 		return m, nil
 	}
-	if c.State.PushAllowed() {
-		m.say(i18n.T("Le prochain push est déjà autorisé.", "The next push is already allowed."), nil)
+	if m.pushValid(c) {
+		m.say(i18n.T("Ce commit est déjà autorisé : push et PR passent.", "This commit is already allowed: pushes and PR go through."), nil)
 		return m, nil
 	}
 	m.overlay, m.pushKey, m.pushLog = "push", c.Key, nil
@@ -130,6 +131,14 @@ func (m Model) overlayKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "q":
 			m.overlay = ""
 		}
+	case "close":
+		switch k.String() {
+		case "enter", "x":
+			m.overlay = ""
+			return m.closeChantier()
+		case "esc", "q":
+			m.overlay = ""
+		}
 	case "palette":
 		found := m.paletteFound()
 		switch k.Type {
@@ -204,7 +213,8 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 				{"↵", i18n.T("aller à l'agent", "go to the agent")},
 				{"v", i18n.T("valider ce qui attend", "approve what waits")},
 				{"e", i18n.T("répondre aux questions", "answer the questions")},
-				{"a", i18n.T("autoriser un push", "allow one push")},
+				{"a", i18n.T("autoriser le push", "allow the push")},
+				{"x", i18n.T("fermer un chantier livré", "close a shipped ticket")},
 				{"f", i18n.T("corriger la CI", "fix the CI")},
 				{"p", i18n.T("planifier", "plan")},
 				{"n", i18n.T("nouveau ticket", "new ticket")},
@@ -276,8 +286,10 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 		}
 		s := c.State
 		row := func(k, v string) { content = append(content, hang(lbl(k), v, inner())...) }
-		content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("Autoriser un push pour %s ?", "Allow one push for %s?"), c.Key)),
-			sMuted.Render(i18n.T("L'agent pourra pousser une fois, puis le garde-fou se referme.", "The agent may push once, then the guard closes again.")), "")
+		content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("Autoriser le push de %s ?", "Allow pushing %s?"), c.Key)))
+		content = append(content, wrap(sMuted.Render(i18n.T("Tu autorises ce commit à partir : push, PR et nouvelles tentatives passent. Une fois la PR ouverte, les correctifs suivants poussent librement : la relecture se fait sur la PR.",
+			"You let this commit leave: pushes, the PR and retries go through. Once the PR is open, later fixes push freely: review happens on the PR.")), inner(), "")...)
+		content = append(content, "")
 		if c.Branch != "" {
 			row(i18n.T("Branche", "Branch"), c.Branch)
 		}
@@ -326,8 +338,57 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 		}
 		content = append(content, "")
 		buttonsRow([]button{
-			{"enter", i18n.T("Autoriser ce push", "Allow this push"), true},
+			{"enter", i18n.T("Autoriser ce commit", "Allow this commit"), true},
 			{"d", i18n.T("Relire le diff", "Review the diff"), c.Worktree != ""},
+			{"esc", i18n.T("Annuler", "Cancel"), true},
+		}, true)
+	case "close":
+		color = danger
+		w = min(m.width-4, 80)
+		var c *chantier.Chantier
+		for _, x := range m.all {
+			if x.Key == m.closeKey {
+				c = x
+			}
+		}
+		if c == nil {
+			return nil, 0, 0, nil, nil
+		}
+		row := func(k, v string) { content = append(content, hang(lbl(k), v, inner())...) }
+		content = append(content, sErr.Render(fmt.Sprintf(i18n.T("Fermer %s ?", "Close %s?"), c.Key)), sMuted.Render(trunc(c.Title(), inner())), "")
+		if c.Worktree != "" && !c.Main {
+			row("Worktree", tilde(c.Worktree)+sMuted.Render(i18n.T(" : supprimé", ": removed")))
+		}
+		if n := len(c.Agents); n > 0 {
+			row(i18n.T("Agents", "Agents"), plural(n, i18n.T("agent fermé", "agent closed"), i18n.T("agents fermés", "agents closed"))+sMuted.Render(i18n.T(", avec leur espace herdr", ", with their herdr workspace")))
+		}
+		row("Plan", i18n.T("archivé dans ~/.cairn/archive", "archived in ~/.cairn/archive"))
+		if c.Branch != "" {
+			row(i18n.T("Branche", "Branch"), c.Branch+sMuted.Render(i18n.T(" : gardée (mergée sur GitHub)", ": kept (merged on GitHub)")))
+		}
+		content = append(content, "")
+		r := m.closeRisk
+		switch {
+		case r == nil:
+			content = append(content, sMuted.Render(i18n.T("Vérification de ce qui serait perdu…", "Checking what would be lost…")))
+		case r.dirty == 0 && r.unpushed == 0:
+			content = append(content, sGood.Render(i18n.T("✓ Rien ne sera perdu : tout est sur GitHub.", "✓ Nothing will be lost: everything is on GitHub.")))
+		default:
+			if r.dirty > 0 {
+				content = append(content, sErr.Render("⚠ "+plural(r.dirty, i18n.T("fichier non commité sera perdu", "uncommitted file will be lost"), i18n.T("fichiers non commités seront perdus", "uncommitted files will be lost"))))
+			}
+			if r.unpushed > 0 {
+				content = append(content, sErr.Render("⚠ "+plural(r.unpushed, i18n.T("commit absent de GitHub sera perdu", "commit not on GitHub will be lost"), i18n.T("commits absents de GitHub seront perdus", "commits not on GitHub will be lost"))))
+			}
+		}
+		for _, a := range c.Agents {
+			if a.Status == "working" {
+				content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("⚠ %s travaille encore", "⚠ %s is still working"), a.Label())))
+			}
+		}
+		content = append(content, "")
+		buttonsRow([]button{
+			{"enter", i18n.T("Fermer et supprimer le worktree", "Close and remove the worktree"), true},
 			{"esc", i18n.T("Annuler", "Cancel"), true},
 		}, true)
 	default:

@@ -190,6 +190,10 @@ func (m Model) boardCard(c *chantier.Chantier, w int, sel bool) []string {
 	if sel {
 		border = accent
 	}
+	key := sBold.Render(c.Key)
+	if len(m.news(c)) > 0 {
+		key += sFresh.Render(" ●")
+	}
 	title := wrap(c.Title(), inner, "")
 	if len(title) > 2 {
 		title = title[:2]
@@ -199,7 +203,7 @@ func (m Model) boardCard(c *chantier.Chantier, w int, sel bool) []string {
 		title = append(title, "")
 	}
 	content := []string{
-		ansi.Truncate(mark+sBold.Render(c.Key), inner, "…"),
+		ansi.Truncate(mark+key, inner, "…"),
 		sSoft.Render(title[0]), sSoft.Render(title[1]),
 		ansi.Truncate(m.listInfo(c), inner, "…"),
 	}

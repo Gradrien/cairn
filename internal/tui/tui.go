@@ -78,6 +78,7 @@ type Model struct {
 	localErr  error
 
 	chantiers []*chantier.Chantier
+	all       []*chantier.Chantier // chantiers, shipped ones the list hides included
 	others    []herdr.Agent
 	cursor    int
 	hoverItem int // list item under the mouse, -1 for none
@@ -100,10 +101,14 @@ type Model struct {
 	palCursor   int
 	pushKey     string   // chantier the push confirmation is about
 	pushLog     []string // its commits, "<hash> <subject>"
-	answerQ     string   // open question being answered, "" if none
+	closeKey    string   // chantier the close confirmation is about
+	closeRisk   *closeRisk
+	answerQ     string // open question being answered, "" if none
 	answerText  string
 	answered    map[string]string // answers sent, by answerKey
 
+	seen        *seenStore // when you last looked at each chantier
+	lookedAt    time.Time  // since when the detail shows the selection
 	watch       *watchState
 	shipped     int        // shipped chantiers left out of the list
 	showShipped bool       // list them anyway
@@ -127,7 +132,7 @@ type Model struct {
 func New(cfg config.Config) Model {
 	m := Model{cfg: cfg, inside: home.Inside(), hoverItem: -1, hoverBtn: -1, watch: newWatch(),
 		gits: map[string]progress.Git{}, prs: map[string]progress.PR{}, readAt: map[string]time.Time{}, reading: map[string]bool{}, tokens: map[string]string{}, extra: map[string]sprintosaur.Issue{},
-		unfold: map[string]bool{}, answered: map[string]string{}}
+		unfold: map[string]bool{}, answered: map[string]string{}, seen: loadSeen(seenPath())}
 	m.sp, m.spErr = sprintosaur.New(cfg.SprintosaurCredentials)
 	return m
 }
@@ -221,6 +226,7 @@ func (m *Model) rebuild() tea.Cmd {
 	// A shipped chantier leaves the list (cairn cleans it up), unless
 	// something keeps it: it then stays in view with the reason.
 	m.rebuildOrder()
+	m.all = append([]*chantier.Chantier(nil), m.chantiers...)
 	m.shipped = 0
 	kept := m.chantiers[:0]
 	var done []*chantier.Chantier
@@ -247,6 +253,9 @@ func (m *Model) rebuild() tea.Cmd {
 	}
 	if n := m.items(); m.cursor >= n {
 		m.cursor = max(0, n-1)
+	}
+	if m.seen != nil && m.watch.ready {
+		m.seen.adopt(m.chantiers)
 	}
 	return tea.Batch(m.pushTokens(), m.observe())
 }
@@ -365,6 +374,8 @@ func (m *Model) readProgress() tea.Cmd {
 		return nil
 	}
 	if c.Key != m.detailOf {
+		m.leave(m.detailOf)
+		m.lookedAt = time.Now()
 		m.detailOf, m.scroll, m.answerQ, m.answerText = c.Key, 0, "", ""
 	}
 	key, wt, base := c.Key, c.Worktree, m.cfg.Base
@@ -420,6 +431,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case threadMsg:
 		if msg.key == m.threadKey {
 			m.thread, m.threadErr = msg.thread, msg.err
+			if m.view == "comments" {
+				m.scrollComments(m.firstNew())
+			}
 		}
 		return m, nil
 	case imagesMsg:
@@ -442,8 +456,19 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.rebuild(), every(localEvery, tickLocal{}))
 
+	case closeRiskMsg:
+		if msg.key == m.closeKey {
+			m.closeRisk = &msg.risk
+		}
+		return m, nil
 	case cleanedMsg:
 		m.watch.keep[msg.key] = msg.keep
+		if m.busy != "" && msg.key == m.closeKey {
+			m.busy = ""
+			if msg.err == nil && msg.text == "" {
+				msg.text = msg.key + i18n.T(" fermé : plan archivé.", " closed: plan archived.")
+			}
+		}
 		if msg.err != nil || msg.text != "" {
 			m.say(msg.text, msg.err)
 		}
@@ -635,6 +660,8 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.validate()
 	case "a":
 		return m.openPush()
+	case "x":
+		return m.openClose()
 	}
 	return m, nil
 }
@@ -646,6 +673,7 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 			return doneMsg{text: i18n.T("← retour à herdr", "← back to herdr"), err: home.Back()}
 		}
 	}
+	m.leave(m.detailOf)
 	return m, tea.Quit
 }
 
@@ -971,7 +999,8 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 	}
 }
 
-// allowPush lets the agent push once: the guard hook consumes the allowance.
+// allowPush lets the agent push the commit the human just reviewed: pushes,
+// PR creation and retries pass while the branch stays on it.
 func (m Model) allowPush() (tea.Model, tea.Cmd) {
 	c := m.selected()
 	if c == nil || c.State == nil {
@@ -979,7 +1008,8 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	s := c.State
-	s.Set("push", "autorisé")
+	head := headOf(c.Worktree)
+	s.Set("push", strings.TrimSpace("autorisé "+head))
 	if isPushWait(s.Waiting) {
 		s.Set("attente", "")
 	}
@@ -988,20 +1018,50 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	_ = journal.Append(config.ChantiersDir(), c.Key, "push autorisé")
-	text := fmt.Sprintf(i18n.T("Push autorisé pour %s (un seul push).", "Push allowed for %s (one push only)."), c.Key)
+	text := fmt.Sprintf(i18n.T("Push autorisé pour %s, commit %s.", "Push allowed for %s, commit %s."), c.Key, shortSHA(head))
 	cmd := m.rebuild()
 	if len(c.Agents) > 0 {
 		pane := c.Agents[0].PaneID
-		prompt := fmt.Sprintf(i18n.T("Push autorisé dans cairn pour %s : pousse maintenant, et ouvre la PR si elle n'existe pas encore "+
-			"(puis lie-la au ticket). L'autorisation vaut pour un seul push : pour les changements suivants, redemande avec `attente: Prêt à pousser`.",
-			"Push allowed in cairn for %s: push now, and open the PR if it does not exist yet "+
-				"(then link it to the ticket). The allowance covers one push only: for further changes, ask again with `attente: Prêt à pousser`."), c.Key)
+		prompt := fmt.Sprintf(i18n.T("Push autorisé dans cairn pour %s, sur le commit %s : pousse maintenant, ouvre la PR si elle n'existe pas encore "+
+			"et lie-la au ticket. Push, PR et nouvelles tentatives passent autant qu'il le faut. "+
+			"Une fois la PR ouverte, tes pushes suivants (correctifs de CI ou de review) passent sans redemander.",
+			"Push allowed in cairn for %s, on commit %s: push now, open the PR if it does not exist yet "+
+				"and link it to the ticket. Pushes, the PR and retries pass as often as needed. "+
+				"Once the PR is open, your next pushes (CI or review fixes) pass without asking again."), c.Key, shortSHA(head))
 		cmd = tea.Batch(cmd, func() tea.Msg {
 			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(pane, prompt)}
 		})
 	}
 	m.say(text, nil)
 	return m, cmd
+}
+
+// headOf is the commit checked out in dir, "" if unknown.
+func headOf(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func shortSHA(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
+// pushValid: an allowance exists and still covers the branch's commit.
+func (m Model) pushValid(c *chantier.Chantier) bool {
+	if pr, ok := m.prs[c.Key]; ok && pr.State == "OPEN" {
+		return true // the PR is where review happens: pushes are free
+	}
+	s := c.State
+	return s != nil && s.PushCommit() != "" && s.PushCovers(m.gits[c.Key].Head)
 }
 
 func isPushWait(w string) bool {

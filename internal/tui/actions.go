@@ -126,14 +126,15 @@ type cleanedMsg struct {
 }
 
 // cleanup is what happens to a shipped chantier: its linked worktree and
-// herdr workspace (agents included) are removed and its plan archived. It
-// only runs when nothing can be lost: no uncommitted change, no commit
-// missing from GitHub, no agent at work. The main checkout is never touched.
-func (m Model) cleanup(c *chantier.Chantier) tea.Cmd {
+// herdr workspace (agents included) are removed and its plan archived. On its
+// own it only runs when nothing can be lost: no uncommitted change, no commit
+// missing from GitHub, no agent at work. force is you closing it by hand
+// after seeing what goes. The main checkout is never touched.
+func (m Model) cleanup(c *chantier.Chantier, force bool) tea.Cmd {
 	key, wt := c.Key, c.Worktree
 	linked := wt != "" && !c.Main
 	for _, a := range c.Agents {
-		if a.Status == "working" {
+		if a.Status == "working" && !force {
 			return func() tea.Msg {
 				return cleanedMsg{key: key, keep: i18n.T("un agent y travaille", "an agent is working")}
 			}
@@ -148,17 +149,21 @@ func (m Model) cleanup(c *chantier.Chantier) tea.Cmd {
 	head := m.prs[key].HeadOid
 	return func() tea.Msg {
 		if linked {
-			if isDirty(wt) {
+			if !force && isDirty(wt) {
 				return cleanedMsg{key: key, keep: i18n.T("changements non commités", "uncommitted changes")}
 			}
-			if unpushed(wt, head) {
+			if !force && unpushed(wt, head) {
 				return cleanedMsg{key: key, keep: i18n.T("commits absents de GitHub", "commits not on GitHub")}
 			}
 			var err error
 			if ws != "" {
-				err = herdr.RemoveWorktree(ws, false)
+				err = herdr.RemoveWorktree(ws, force)
 			} else {
-				err = exec.Command("git", "-C", wt, "worktree", "remove", wt).Run()
+				args := []string{"-C", wt, "worktree", "remove", wt}
+				if force {
+					args = append(args, "--force")
+				}
+				err = exec.Command("git", args...).Run()
 			}
 			if err != nil {
 				return cleanedMsg{key: key, keep: i18n.T("nettoyage impossible", "cleanup failed"), err: err}
@@ -188,6 +193,55 @@ func unpushed(dir, prHead string) bool {
 	}
 	out, err := exec.Command("git", "-C", dir, "rev-list", "--count", "HEAD", "--not", "--remotes").Output()
 	return err != nil || strings.TrimSpace(string(out)) != "0"
+}
+
+// closeRisk is what closing a chantier by hand would throw away.
+type closeRisk struct {
+	dirty    int // uncommitted files
+	unpushed int // commits GitHub does not have
+}
+
+type closeRiskMsg struct {
+	key  string
+	risk closeRisk
+}
+
+// openClose asks before closing a shipped chantier: worktree, herdr
+// workspace and agents go, the plan is archived.
+func (m Model) openClose() (tea.Model, tea.Cmd) {
+	c := m.selected()
+	if c == nil || c.Phase != chantier.Shipped {
+		m.say(i18n.T("Seul un chantier livré se ferme : sa PR doit être mergée.", "Only a shipped ticket closes: its PR must be merged."), nil)
+		return m, nil
+	}
+	m.overlay, m.closeKey, m.closeRisk = "close", c.Key, nil
+	key, wt, head := c.Key, c.Worktree, m.prs[c.Key].HeadOid
+	if wt == "" || c.Main {
+		m.closeRisk = &closeRisk{}
+		return m, nil
+	}
+	return m, func() tea.Msg {
+		var r closeRisk
+		if out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+			r.dirty = len(strings.Split(strings.TrimSpace(string(out)), "\n"))
+		}
+		if unpushed(wt, head) {
+			out, _ := exec.Command("git", "-C", wt, "rev-list", "--count", "HEAD", "--not", "--remotes").Output()
+			fmt.Sscan(strings.TrimSpace(string(out)), &r.unpushed)
+		}
+		return closeRiskMsg{key: key, risk: r}
+	}
+}
+
+// closeChantier closes the chantier the confirmation was about.
+func (m Model) closeChantier() (tea.Model, tea.Cmd) {
+	for _, c := range m.all {
+		if c.Key == m.closeKey {
+			m.busy = fmt.Sprintf(i18n.T("Fermeture de %s…", "Closing %s…"), c.Key)
+			return m, m.cleanup(c, true)
+		}
+	}
+	return m, nil
 }
 
 func isDirty(dir string) bool {

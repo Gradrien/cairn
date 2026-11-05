@@ -98,6 +98,9 @@ func (m Model) header() string {
 		left = sTitle.Render("cairn") + "  " + sKey.Render("‹ esc") + sMuted.Render(i18n.T(" liste", " list"))
 	}
 	right := m.health()
+	if n := m.newsCount(); n > 0 {
+		right = sFresh.Render("● "+plural(n, i18n.T("chantier a bougé", "ticket moved"), i18n.T("chantiers ont bougé", "tickets moved"))) + "   " + right
+	}
 	if n := m.waitingCount(); n > 0 && (m.view == "board" || (m.narrow() && m.detailFocus)) {
 		right = sWarn.Render("⚠ "+plural(n, i18n.T("attend ta décision", "waiting for you"), i18n.T("attendent ta décision", "waiting for you"))) + "   " + right
 	}
@@ -389,10 +392,20 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 		case m.isShipped(c):
 			mark = sGood.Render("✓")
 		}
+		info := m.listInfo(c)
+		key := sBold.Render(c.Key)
+		if n := m.newsShort(c); n != "" {
+			if mark == " " {
+				mark = sFresh.Render("●")
+			} else {
+				key += sFresh.Render(" ●")
+			}
+			info = sFresh.Render(n) + sMuted.Render(" · ") + info
+		}
 		if i == m.cursor {
 			curLine = len(lines)
 		}
-		add(i, mark+" "+sBold.Render(c.Key)+" "+c.Title(), "    "+m.listInfo(c))
+		add(i, mark+" "+key+" "+c.Title(), "    "+info)
 	}
 	if !toggled {
 		toggle()
@@ -531,13 +544,14 @@ func (m Model) chantierButtons(c *chantier.Chantier) []button {
 	push(button{"f", i18n.T("Corriger la CI", "Fix CI"), m.ciFailed(c)})
 	push(button{"c", i18n.T("Commentaires", "Comments"), c.Issue != nil && len(c.Issue.PullRequests) > 0})
 	push(button{"o", "Ticket", c.Issue != nil})
+	push(button{"x", i18n.T("Fermer", "Close"), c.Phase == chantier.Shipped})
 	return bs
 }
 
 // canAllowPush: the plan blocks pushes and the work is far enough to push.
 func (m Model) canAllowPush(c *chantier.Chantier) bool {
 	s := c.State
-	return s != nil && !s.PushAllowed() && (isPushWait(s.Waiting) || c.Phase >= chantier.Build)
+	return s != nil && c.Phase != chantier.Shipped && !m.pushValid(c) && (isPushWait(s.Waiting) || c.Phase >= chantier.Build)
 }
 
 // hints are the global keys shown on the right of the main and board footers.

@@ -1,6 +1,9 @@
 // Package guard is a Claude Code PreToolUse hook: on a cairn chantier, an
 // agent may not push or open a pull request until a human allowed it in cairn.
-// Each allowance covers one push, so unfinished work never reaches the PR.
+// The allowance covers the commit the human reviewed: the first push, PR
+// creation and retries pass as long as the branch stays on it. Once the PR is
+// open, pushes to its branch pass freely: the PR is where the human reviews
+// from then on, and nothing merges without them.
 package guard
 
 import (
@@ -21,6 +24,7 @@ import (
 var (
 	gitPush  = regexp.MustCompile(`(^|[;&|(\s])git(\s+-C\s+\S+|\s+-c\s+\S+)*\s+push\b`)
 	ghPR     = regexp.MustCompile(`(^|[;&|(\s])gh\s+pr\s+(create|ready|merge)\b`)
+	ghMerge  = regexp.MustCompile(`(^|[;&|(\s])gh\s+pr\s+merge\b`)
 	gitDashC = regexp.MustCompile(`git\s+-C\s+("[^"]+"|'[^']+'|\S+)`)
 	cdPath   = regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)`)
 )
@@ -65,10 +69,33 @@ func Check(r io.Reader, team, chantiersDir string) string {
 	if err != nil || s == nil {
 		return "" // not a cairn chantier
 	}
-	if s.PushAllowed() {
-		s.Set("push", "") // one allowance, one push
-		_ = s.Save()
+	head := ""
+	if out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output(); err == nil {
+		head = strings.TrimSpace(string(out))
+	}
+	if s.PushCovers(head) && s.PushCommit() != "" {
 		return ""
+	}
+	// An open PR is reviewed on GitHub: fixes after review or CI push freely.
+	// Merging stays the human's call.
+	if !ghMerge.MatchString(cmd) && OpenPR(dir) {
+		return ""
+	}
+	if s.PushAllowed() {
+		if s.PushCommit() == "" && head != "" {
+			// Allowed without a commit (older cairn): pin it to this one.
+			s.Set("push", "autorisé "+head)
+			_ = s.Save()
+		}
+		if s.PushCovers(head) {
+			return ""
+		}
+		return fmt.Sprintf(i18n.T("cairn : %s a de nouveaux commits depuis l'autorisation (accordée pour %s). "+
+			"Ne contourne pas ce blocage. Mets `attente: Prêt à pousser` dans %s avec en une ligne ce qui partira, "+
+			"lance `cairn sync`, puis arrête-toi : l'humain relit et autorise ce nouveau commit dans cairn.",
+			"cairn: %s has new commits since the approval (given for %s). "+
+				"Do not work around this block. Set `attente: Prêt à pousser` in %s with one line on what will ship, "+
+				"run `cairn sync`, then stop: the human reviews and allows this new commit in cairn."), key, short(s.PushCommit()), s.Path)
 	}
 	return fmt.Sprintf(i18n.T("cairn : %s attend une validation humaine avant tout push ou PR. "+
 		"Ne contourne pas ce blocage. Termine ce que tu fais, mets `attente: Prêt à pousser` dans %s"+
@@ -76,6 +103,22 @@ func Check(r io.Reader, team, chantiersDir string) string {
 		"cairn: %s needs a human approval before any push or PR. "+
 			"Do not work around this block. Finish what you are doing, set `attente: Prêt à pousser` in %s"+
 			" with one line on what will ship, run `cairn sync`, then stop: the human reviews in cairn and allows the push."), key, s.Path)
+}
+
+// OpenPR reports whether the branch checked out in dir has an open pull
+// request. A variable so tests can stub gh.
+var OpenPR = func(dir string) bool {
+	cmd := exec.Command("gh", "pr", "view", "--json", "state", "-q", ".state")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	return err == nil && strings.TrimSpace(string(out)) == "OPEN"
+}
+
+func short(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
 }
 
 func resolve(base, p string) string {

@@ -4,7 +4,7 @@
 //	ticket: YAK-788
 //	phase: plan | build | review
 //	attente: Valider le plan        (optional: a decision waiting for a human)
-//	push: autorisé                  (set by cairn when a human allows one push)
+//	push: autorisé <commit>         (set by cairn: pushes and PRs pass while HEAD is <commit>)
 //	---
 //	a short summary (objective, decisions) before the first "##" heading;
 //	tasks "- [ ]" todo, "- [~]" in progress, "- [x]" done;
@@ -33,7 +33,7 @@ type State struct {
 	Ticket      string
 	Phase       string
 	Waiting     string
-	Push        string // "autorisé" once a human allowed the next push
+	Push        string // "autorisé <commit>" once a human allowed pushing that commit
 	Tasks       []Task
 	SideEffects []Task
 	Questions   []Task
@@ -209,9 +209,33 @@ func (s *State) String() string {
 	return "---\n" + strings.Join(s.front, "\n") + "\n---\n" + s.body
 }
 
-// PushAllowed reports whether a human allowed the next push.
+// PushAllowed reports whether a human allowed pushing. The allowance covers
+// a commit (PushCommit), not a number of commands: pushes, PR creation and
+// retries all pass while the branch stays on it.
 func (s *State) PushAllowed() bool {
-	return strings.EqualFold(s.Push, "autorisé") || strings.EqualFold(s.Push, "autorise") || strings.EqualFold(s.Push, "allowed")
+	f := strings.Fields(s.Push)
+	if len(f) == 0 {
+		return false
+	}
+	return strings.EqualFold(f[0], "autorisé") || strings.EqualFold(f[0], "autorise") || strings.EqualFold(f[0], "allowed")
+}
+
+// PushCommit is the commit the allowance covers, "" if none was recorded.
+func (s *State) PushCommit() string {
+	if f := strings.Fields(s.Push); len(f) > 1 && s.PushAllowed() {
+		return f[1]
+	}
+	return ""
+}
+
+// PushCovers reports whether the allowance covers head: an allowance with no
+// commit recorded covers anything (the guard pins it on first use).
+func (s *State) PushCovers(head string) bool {
+	if !s.PushAllowed() {
+		return false
+	}
+	c := s.PushCommit()
+	return c == "" || head == "" || strings.HasPrefix(head, c) || strings.HasPrefix(c, head)
 }
 
 func (s *State) Save() error { return os.WriteFile(s.Path, []byte(s.String()), 0o644) }

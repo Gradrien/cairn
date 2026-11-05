@@ -68,7 +68,9 @@ merge checklist.
 
 Agents never push or open a PR on their own. When the work is ready, the agent stops and asks
 (*Prêt à pousser*, "ready to push"). You press **Autoriser le push** ("allow the push"), check what will leave (commits,
-files, side effects still open), confirm, and that allows **one** push.
+files, side effects still open), and confirm. The go-ahead covers **the commit you reviewed**: the push, the PR, and any
+retry go through. Once the PR is open, later pushes (CI fixes, review feedback) pass freely: from then on you review on
+the PR, and merging stays yours. One go-ahead per ticket, at the moment the code first leaves.
 
 This is enforced, not just requested. A Claude Code hook (`cairn guard`) blocks `git push` and `gh pr create/ready/merge`
 on a chantier's branch until you allow it. Unfinished work stays off the CI pipeline and out of your reviewers' inbox.
@@ -86,13 +88,19 @@ on a chantier's branch until you allow it. Unfinished work stays off the CI pipe
 - **Fix the CI.** When a check fails, `Corriger la CI` fetches the failing steps' logs and hands them to the agent.
 - **History.** Every phase change and every decision (plan approved, push allowed, feedback sent) is logged, so you
   can see how long a chantier has been sitting in review.
+- **New since your visit.** A cyan `●` marks the chantiers that moved since you last looked: a phase change, or
+  someone (an automated reviewer included) commenting or reviewing the PR. The detail lists it, with the review's
+  verdict, and the PR conversation opens on the first new message. A chantier counts as seen once you leave it after a
+  look of a couple of seconds; your own comments and CI bots are not news.
 - **Notifications.** herdr notifies you when a chantier is waiting for you, when the CI breaks, when a review requests
   changes or approves, and when a chantier ships.
 - **Sprintosaur follows.** A ticket moves to *In Progress* when its plan starts. *Pull Request* and *Done* follow the linked PRs.
 - **Shipped tickets clean up after themselves.** When the PR is merged (GitHub's word, not only Sprintosaur's), the
   chantier leaves the list and cairn removes its worktree and herdr workspace and archives its plan. It only does so
   when nothing can be lost: no uncommitted change, no commit missing from GitHub, no agent at work. Otherwise the
-  chantier stays in view with the reason. Shipped chantiers stay one click away (`› N livré(s)`).
+  chantier stays in view with the reason, and **Fermer le chantier** (`x`, "close the ticket") closes it by hand: it
+  shows what would be lost (uncommitted files, commits not on GitHub, agents still working), then removes the worktree,
+  the herdr workspace and its agents, and archives the plan. Shipped chantiers stay one click away (`› N livré(s)`).
 
 ---
 
@@ -170,7 +178,8 @@ review from the PR view.
 | `n` | Nouveau ticket | start a ticket outside your list: type its number or pick an unassigned one |
 | `v` | Valider | approve what is waiting (plan approved → Build) |
 | `e` | Répondre | answer the plan's open questions; the answer goes to the agent |
-| `a` | Autoriser le push | review what will leave, then allow the agent's next push or PR |
+| `a` | Autoriser le push | review what will leave, then allow that commit to leave (push, PR, retries; free once the PR is open) |
+| `x` | Fermer le chantier | on a shipped ticket: see what would be lost, then remove its worktree and archive its plan |
 | `c` | Commentaires | PR conversation and images |
 | `f` | Corriger la CI | send the failing CI logs to the agent (shown when CI fails) |
 | `o` | Ticket | open the ticket in Sprintosaur |
@@ -225,8 +234,9 @@ If `repo` is wrong, cairn says so on startup and points to the file.
 - **Phase.** Read from the plan file. Without one, an open PR means Review and a worktree means Build. Merged PRs mean Shipped.
 - **Data.** herdr's socket API for agents and workspaces, Sprintosaur's API for tickets, `gh` for PRs, CI and images.
   History in `~/.cairn/chantiers/<TICKET>.log`, caches in `~/.cairn/cache/`, archives in `~/.cairn/archive/`.
-- **Push guard.** A Claude Code `PreToolUse` hook on Bash. An allowed push is consumed when it passes, so every push
-  needs its own go-ahead. Claude sessions opened before the install pick the hook up after a restart.
+- **Push guard.** A Claude Code `PreToolUse` hook on Bash. Allowing writes `push: autorisé <commit>` in the plan; the
+  hook lets pushes and `gh pr` commands through while the branch's HEAD is that commit. Once the branch has an open PR
+  (`gh pr view`), pushes pass whatever the commit; `gh pr merge` still needs the allowance. Claude sessions opened before the install pick the hook up after a restart.
 
 </details>
 

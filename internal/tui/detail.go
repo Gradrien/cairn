@@ -64,6 +64,16 @@ func (m Model) cardFor(c *chantier.Chantier) *card {
 	}
 
 	switch {
+	case c.Phase == chantier.Shipped:
+		sub := i18n.T("Rangement automatique en cours : worktree supprimé et plan archivé.", "Cleaning up on its own: worktree removed, plan archived.")
+		if why := m.watch.keep[c.Key]; why != "" {
+			sub = fmt.Sprintf(i18n.T("Gardé (%s) : ferme-le quand tu as vérifié.", "Kept (%s): close it once you checked."), why)
+		}
+		return &card{color: good, title: "✓ " + i18n.T("Livré", "Shipped"), sub: sub, primary: true, actions: []button{
+			{"x", i18n.T("Fermer le chantier", "Close the ticket"), true},
+			{"d", i18n.T("Relire le diff", "Review the diff"), hasWT},
+			agent,
+		}}
 	case s != nil && isPushWait(s.Waiting):
 		var sub []string
 		if len(s.Tasks) > 0 {
@@ -292,6 +302,7 @@ func (m Model) detailLayout(w int) detail {
 	if cd := m.cardFor(c); cd != nil {
 		b.card(cd, cd.primary)
 	}
+	m.secNews(b, c)
 
 	// Where it stands.
 	b.add("")
@@ -324,8 +335,16 @@ func (m Model) detailLayout(w int) detail {
 	}
 	if s != nil {
 		switch {
+		case m.prs[c.Key].State == "OPEN":
+			b.add(lbl("Push") + sGood.Render(i18n.T("libre", "free")) + sMuted.Render(i18n.T(" : PR ouverte, la relecture se fait dessus", ": the PR is open, review happens there")))
+		case m.pushValid(c):
+			on := ""
+			if sha := s.PushCommit(); sha != "" {
+				on = fmt.Sprintf(i18n.T(" pour %s", " for %s"), shortSHA(sha))
+			}
+			b.add(lbl("Push") + sGood.Render(i18n.T("autorisé", "allowed")+on) + sMuted.Render(i18n.T(" : push et PR libres jusqu'à l'ouverture de la PR", ": pushes and PR are free until the PR is open")))
 		case s.PushAllowed():
-			b.add(lbl("Push") + sGood.Render(i18n.T("autorisé", "allowed")) + sMuted.Render(i18n.T(" (le prochain push seulement)", " (next push only)")))
+			b.add(lbl("Push") + sWarn.Render(fmt.Sprintf(i18n.T("nouveaux commits depuis l'autorisation (%s) : à réautoriser", "new commits since the allowance (%s): allow again"), shortSHA(s.PushCommit()))))
 		case isPushWait(s.Waiting):
 			b.add(lbl("Push") + sWarn.Render(i18n.T("bloqué : l'agent attend ton feu vert", "blocked: the agent waits for your go-ahead")))
 		default:

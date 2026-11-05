@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,8 @@ type Git struct {
 	Files       int
 	Added       int
 	Removed     int
-	Uncommitted int // changed or untracked paths
+	Uncommitted int    // changed or untracked paths
+	Head        string // commit checked out
 	LastSubject string
 	LastAt      time.Time
 	Err         string
@@ -39,7 +41,18 @@ type PR struct {
 	Mergeable      string // MERGEABLE, CONFLICTING, UNKNOWN
 	Checks         Checks
 	Comments       int
+	Author         string     // who opened the PR
+	Activity       []Activity // comments and reviews, oldest first
 	Err            string
+}
+
+// Activity is a comment or a review left on a PR.
+type Activity struct {
+	Who    string
+	At     time.Time
+	Review bool
+	State  string // review state: APPROVED, CHANGES_REQUESTED, COMMENTED
+	Body   string
 }
 
 func git(dir string, args ...string) (string, error) {
@@ -63,6 +76,9 @@ func ReadGit(dir, base string) Git {
 			g.Removed, _ = strconv.Atoi(m[3])
 		}
 	}
+	if out, err := git(dir, "rev-parse", "HEAD"); err == nil {
+		g.Head = out
+	}
 	if out, err := git(dir, "status", "--porcelain"); err == nil && out != "" {
 		g.Uncommitted = len(strings.Split(out, "\n"))
 	}
@@ -80,7 +96,7 @@ func ReadGit(dir, base string) Git {
 // ReadPR asks gh about a pull request URL.
 func ReadPR(url string) PR {
 	out, err := exec.Command("gh", "pr", "view", url, "--json",
-		"state,isDraft,reviewDecision,mergeable,statusCheckRollup,comments,headRefOid").Output()
+		"state,isDraft,reviewDecision,mergeable,statusCheckRollup,comments,reviews,author,headRefOid").Output()
 	if err != nil {
 		return PR{Err: i18n.T("gh indisponible", "gh unavailable")}
 	}
@@ -90,8 +106,25 @@ func ReadPR(url string) PR {
 		HeadOid        string `json:"headRefOid"`
 		ReviewDecision string `json:"reviewDecision"`
 		Mergeable      string `json:"mergeable"`
-		Comments       []any  `json:"comments"`
-		Checks         []struct {
+		Author         struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		Comments []struct {
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			Body      string    `json:"body"`
+			CreatedAt time.Time `json:"createdAt"`
+		} `json:"comments"`
+		Reviews []struct {
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			Body        string    `json:"body"`
+			State       string    `json:"state"`
+			SubmittedAt time.Time `json:"submittedAt"`
+		} `json:"reviews"`
+		Checks []struct {
 			Name       string `json:"name"`
 			Context    string `json:"context"`
 			Status     string `json:"status"`
@@ -103,7 +136,14 @@ func ReadPR(url string) PR {
 		return PR{Err: err.Error()}
 	}
 	pr := PR{URL: url, HeadOid: raw.HeadOid, State: raw.State, Draft: raw.IsDraft, ReviewDecision: raw.ReviewDecision,
-		Mergeable: raw.Mergeable, Comments: len(raw.Comments)}
+		Mergeable: raw.Mergeable, Comments: len(raw.Comments), Author: raw.Author.Login}
+	for _, c := range raw.Comments {
+		pr.Activity = append(pr.Activity, Activity{Who: c.Author.Login, At: c.CreatedAt, Body: c.Body})
+	}
+	for _, r := range raw.Reviews {
+		pr.Activity = append(pr.Activity, Activity{Who: r.Author.Login, At: r.SubmittedAt, Review: true, State: r.State, Body: r.Body})
+	}
+	sort.SliceStable(pr.Activity, func(i, j int) bool { return pr.Activity[i].At.Before(pr.Activity[j].At) })
 	for _, c := range raw.Checks {
 		result := c.Conclusion
 		if result == "" {
