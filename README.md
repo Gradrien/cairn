@@ -43,7 +43,7 @@ A ticket in cairn is a **chantier** (French for a work site). It ties together:
 
 Every chantier moves through **Plan → Build → Review → Shipped**, and cairn shows where it is and since when.
 
-<img src="docs/plan.png" alt="A plan waiting for approval: open questions, tasks, side effects to verify" width="100%">
+<img src="docs/plan.png" alt="A chantier waiting for a decision: the card with its buttons, an open question to answer, tasks with the done ones folded" width="100%">
 
 **Start any ticket.** Your current-cycle tickets are already listed. `Nouveau ticket` ("new ticket") starts any other:
 type its number, or pick one of the cycle's unassigned tickets. It is assigned to you and its plan starts right away.
@@ -52,8 +52,13 @@ type its number, or pick one of the cycle's unassigned tickets. It is assigned t
 sized to the ticket. Plans always list their **side effects**: other callers, screens, data, emails. Each one must be
 checked off before the PR counts as ready.
 
-**Approve with one click.** When the plan is ready, the chantier jumps to the top. Read it, answer the open questions,
-press `Valider`, and the agent starts building.
+**Approve with one click.** When the plan is ready, the chantier jumps to the top. A card at the top of its detail says
+what it waits for and since when, with the buttons that do it. Answer the open questions right under them (`› répondre`,
+or `e`: your answer goes to the agent as is), press `Valider`, and the agent starts building.
+
+**The screen follows the phase.** While planning, the questions, tasks and side effects come first. While building, what
+is in progress and what is left; finished tasks fold away. Before a push, the side effects still to check. In review, the
+merge checklist.
 
 ---
 
@@ -62,7 +67,8 @@ press `Valider`, and the agent starts building.
 ### A human go-ahead before every push.
 
 Agents never push or open a PR on their own. When the work is ready, the agent stops and asks
-(*Prêt à pousser*, "ready to push"). You press **Autoriser le push** ("allow the push"), and that allows **one** push.
+(*Prêt à pousser*, "ready to push"). You press **Autoriser le push** ("allow the push"), check what will leave (commits,
+files, side effects still open), confirm, and that allows **one** push.
 
 This is enforced, not just requested. A Claude Code hook (`cairn guard`) blocks `git push` and `gh pr create/ready/merge`
 on a chantier's branch until you allow it. Unfinished work stays off the CI pipeline and out of your reviewers' inbox.
@@ -120,7 +126,13 @@ their `file:line`. Markdown is rendered and bot noise is folded away.
 - A herdr plugin brings cairn back every time herdr starts.
 
 Everything works with the mouse: click to select, click again to jump to the agent, scroll anywhere, hover the
-buttons. Each button also has a key, shown on it.
+buttons, hover a chantier to read its agents' state. Each button also has a key, shown on it.
+
+The bottom bar only shows what can be done for the selected chantier, the expected action first. Everything else is one
+key away: `ctrl+k` searches every ticket and every action (`val 861`), `?` lists the keys, `/` filters the list, `t`
+shows the chantiers as a board by phase. In a narrow pane, cairn shows one pane at a time (`tab` and `esc` switch).
+
+<img src="docs/board.png" alt="The board: chantiers by phase, the ones waiting for you outlined in orange" width="100%">
 
 ---
 
@@ -157,13 +169,22 @@ review from the PR view.
 | `p` | Planifier | create worktree and workspace, start Claude, ask for the plan |
 | `n` | Nouveau ticket | start a ticket outside your list: type its number or pick an unassigned one |
 | `v` | Valider | approve what is waiting (plan approved → Build) |
-| `a` | Autoriser le push | allow the agent's next push or PR |
+| `e` | Répondre | answer the plan's open questions; the answer goes to the agent |
+| `a` | Autoriser le push | review what will leave, then allow the agent's next push or PR |
 | `c` | Commentaires | PR conversation and images |
 | `f` | Corriger la CI | send the failing CI logs to the agent (shown when CI fails) |
 | `o` | Ticket | open the ticket in Sprintosaur |
-| `l` | English / Français | switch the interface language |
-| `r` | Rafraîchir | refresh |
-| `q` | Quitter | back to the previous herdr workspace |
+| `ctrl+k` | palette | search every ticket and action |
+| `?` | aide | every key |
+| `t` | tableau | board view: chantiers by phase (`←` `→` `↑` `↓`, `enter` opens the detail) |
+| `/` | | filter the list (`esc` clears) |
+| `tab` | | list ⇄ detail; with the detail focused, `j` `k` scroll it |
+| `space` `pgup` | | scroll the detail by a page |
+| `[` `]` | | previous / next section of the detail |
+| `z` | | unfold / fold everything in the detail |
+| `l` | | switch the interface language |
+| `r` | | refresh |
+| `q` | | back to the previous herdr workspace |
 
 In the PR view: `i` images, `b` bots, `o` open on GitHub, `esc` back. In the image viewer: `←` `→`, `o` open in
 Preview, `q` back.

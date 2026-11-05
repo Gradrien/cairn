@@ -365,12 +365,7 @@ func (m Model) commentsMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case ev.Y == 0 && ev.X < lipgloss.Width(backLabel())+1:
 		m.view = ""
 	case ev.Y == 2+bodyH:
-		_, ranges := m.footerLayout()
-		for i, b := range m.buttons() {
-			if b.enabled && ev.X >= ranges[i][0] && ev.X < ranges[i][1] {
-				return m.key(keyFor(b.key))
-			}
-		}
+		return m.footerClick(ev.X)
 	case ev.Y >= 2 && ev.Y < 2+bodyH:
 		lines, targets := m.commentsLayout(m.width)
 		row := ev.Y - 2 + min(m.cscroll, max(0, len(lines)-bodyH))

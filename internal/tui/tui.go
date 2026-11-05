@@ -7,13 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/mattn/go-runewidth"
 
 	"cairn/internal/chantier"
 	"cairn/internal/config"
@@ -31,12 +30,15 @@ import (
 const (
 	localEvery  = 3 * time.Second
 	issuesEvery = 60 * time.Second
-	listWidth   = 40
 )
 
 var (
 	accent  = lipgloss.AdaptiveColor{Light: "#7c3aed", Dark: "#bd93f9"}
-	muted   = lipgloss.AdaptiveColor{Light: "#6b7280", Dark: "#6272a4"}
+	muted   = lipgloss.AdaptiveColor{Light: "#4b5563", Dark: "#8b93c0"} // secondary text, readable
+	dim     = lipgloss.AdaptiveColor{Light: "#9ca3af", Dark: "#6272a4"} // marks and hints
+	line    = lipgloss.AdaptiveColor{Light: "#d1d5db", Dark: "#44475a"} // rules and borders
+	soft    = lipgloss.AdaptiveColor{Light: "#374151", Dark: "#c3c8e6"} // text under a title
+	selBg   = lipgloss.AdaptiveColor{Light: "#ddd6fe", Dark: "#44475a"}
 	warn    = lipgloss.AdaptiveColor{Light: "#b45309", Dark: "#ffb86c"}
 	danger  = lipgloss.AdaptiveColor{Light: "#b91c1c", Dark: "#ff5555"}
 	good    = lipgloss.AdaptiveColor{Light: "#15803d", Dark: "#50fa7b"}
@@ -49,11 +51,18 @@ var (
 	sBold  = lipgloss.NewStyle().Bold(true)
 	// Whole rows are re-rendered from plain text with these, so inner colours
 	// never cut the background in pieces.
-	sSel    = lipgloss.NewStyle().Bold(true).Background(lipgloss.AdaptiveColor{Light: "#ddd6fe", Dark: "#44475a"}).Foreground(lipgloss.AdaptiveColor{Light: "#1f2937", Dark: "#f8f8f2"})
+	sSel    = lipgloss.NewStyle().Bold(true).Background(selBg).Foreground(lipgloss.AdaptiveColor{Light: "#1f2937", Dark: "#f8f8f2"})
+	sSelDim = lipgloss.NewStyle().Bold(true).Background(lipgloss.AdaptiveColor{Light: "#ede9fe", Dark: "#3a3c4e"}).Foreground(lipgloss.AdaptiveColor{Light: "#1f2937", Dark: "#f8f8f2"})
 	sHover  = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#f3f0ff", Dark: "#343746"})
 	sKey    = lipgloss.NewStyle().Foreground(accent).Bold(true)
 	sErr    = lipgloss.NewStyle().Foreground(danger)
 	sHeader = lipgloss.NewStyle().Foreground(muted).Bold(true)
+	sDim    = lipgloss.NewStyle().Foreground(dim)
+	sLine   = lipgloss.NewStyle().Foreground(line)
+	sSoft   = lipgloss.NewStyle().Foreground(soft)
+	// Section titles stand out from the field labels.
+	sSection  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#111827", Dark: "#d6daf5"}).Bold(true)
+	sSoftBold = sSoft.Bold(true)
 )
 
 type Model struct {
@@ -82,6 +91,19 @@ type Model struct {
 	detailOf string // chantier the detail pane shows, to reset its scroll
 	scroll   int    // detail pane scroll offset
 
+	detailFocus bool            // keys scroll the detail; when narrow, the detail shows
+	unfold      map[string]bool // "KEY:section" unfolded by hand, "KEY:*" for all
+	filter      string          // "/" filter of the list
+	filtering   bool            // typing the filter
+	overlay     string          // "", "help", "palette", "push"
+	palQuery    string
+	palCursor   int
+	pushKey     string   // chantier the push confirmation is about
+	pushLog     []string // its commits, "<hash> <subject>"
+	answerQ     string   // open question being answered, "" if none
+	answerText  string
+	answered    map[string]string // answers sent, by answerKey
+
 	watch       *watchState
 	shipped     int        // shipped chantiers left out of the list
 	showShipped bool       // list them anyway
@@ -104,7 +126,8 @@ type Model struct {
 
 func New(cfg config.Config) Model {
 	m := Model{cfg: cfg, inside: home.Inside(), hoverItem: -1, hoverBtn: -1, watch: newWatch(),
-		gits: map[string]progress.Git{}, prs: map[string]progress.PR{}, readAt: map[string]time.Time{}, reading: map[string]bool{}, tokens: map[string]string{}, extra: map[string]sprintosaur.Issue{}}
+		gits: map[string]progress.Git{}, prs: map[string]progress.PR{}, readAt: map[string]time.Time{}, reading: map[string]bool{}, tokens: map[string]string{}, extra: map[string]sprintosaur.Issue{},
+		unfold: map[string]bool{}, answered: map[string]string{}}
 	m.sp, m.spErr = sprintosaur.New(cfg.SprintosaurCredentials)
 	return m
 }
@@ -197,6 +220,7 @@ func (m *Model) rebuild() tea.Cmd {
 	})
 	// A shipped chantier leaves the list (cairn cleans it up), unless
 	// something keeps it: it then stays in view with the reason.
+	m.rebuildOrder()
 	m.shipped = 0
 	kept := m.chantiers[:0]
 	var done []*chantier.Chantier
@@ -225,6 +249,13 @@ func (m *Model) rebuild() tea.Cmd {
 		m.cursor = max(0, n-1)
 	}
 	return tea.Batch(m.pushTokens(), m.observe())
+}
+
+// rebuildOrder puts what needs you first: a decision, or a broken CI.
+func (m *Model) rebuildOrder() {
+	sort.SliceStable(m.chantiers, func(i, j int) bool {
+		return m.needsYou(m.chantiers[i]) && !m.needsYou(m.chantiers[j])
+	})
 }
 
 func (m *Model) pushTokens() tea.Cmd {
@@ -334,7 +365,7 @@ func (m *Model) readProgress() tea.Cmd {
 		return nil
 	}
 	if c.Key != m.detailOf {
-		m.detailOf, m.scroll = c.Key, 0
+		m.detailOf, m.scroll, m.answerQ, m.answerText = c.Key, 0, "", ""
 	}
 	key, wt, base := c.Key, c.Worktree, m.cfg.Base
 	var prURL string
@@ -381,6 +412,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(append(cmds, every(prsEvery, tickPRs{}))...)
 	case tickPRs:
 		return m, m.pollPRs()
+	case pushLogMsg:
+		if msg.key == m.pushKey {
+			m.pushLog = msg.lines
+		}
+		return m, nil
 	case threadMsg:
 		if msg.key == m.threadKey {
 			m.thread, m.threadErr = msg.thread, msg.err
@@ -477,32 +513,90 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.busy != "" && k.String() != "ctrl+c" {
 		return m, nil
 	}
-	if m.view == "comments" {
+	switch {
+	case m.overlay != "":
+		return m.overlayKey(k)
+	case m.view == "comments":
 		return m.commentsKey(k)
-	}
-	if m.view == "pick" {
+	case m.view == "pick":
 		return m.pickKeyPress(k)
+	case m.answerQ != "":
+		return m.answerKeyPress(k)
+	case m.filtering:
+		return m.filterKey(k)
+	case m.view == "board":
+		return m.boardKey(k)
 	}
+	return m.mainKey(k)
+}
+
+func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.flash = ""
 	switch k.String() {
 	case "ctrl+c":
 		return m, tea.Quit
-	case "q", "esc":
-		if m.inside {
-			// cairn stays alive in its workspace; q just hands herdr back.
-			return m, func() tea.Msg {
-				return doneMsg{text: i18n.T("← retour à herdr", "← back to herdr"), err: home.Back()}
-			}
+	case "esc":
+		switch {
+		case m.narrow() && m.detailFocus:
+			m.detailFocus = false
+			return m, nil
+		case m.filter != "":
+			m.filter = ""
+			return m, nil
 		}
-		return m, tea.Quit
+		return m.quit()
+	case "q":
+		return m.quit()
+	case "tab":
+		m.detailFocus = !m.detailFocus
+	case "right":
+		m.detailFocus = true
+	case "left":
+		m.detailFocus = false
 	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
+		if m.detailFocus {
+			m.scrollDetail(-1)
+		} else {
+			m.moveCursor(-1)
 		}
 	case "down", "j":
-		if m.cursor < m.items()-1 {
-			m.cursor++
+		if m.detailFocus {
+			m.scrollDetail(1)
+		} else {
+			m.moveCursor(1)
 		}
+	case " ", "pgdown":
+		m.scrollDetail(max(1, m.bodyHeight()-3))
+	case "pgup":
+		m.scrollDetail(-max(1, m.bodyHeight()-3))
+	case "]":
+		m.jumpSection(1)
+	case "[":
+		m.jumpSection(-1)
+	case "z":
+		if c := m.selected(); c != nil {
+			all := !m.unfold[c.Key+":*"]
+			for k := range m.unfold {
+				if strings.HasPrefix(k, c.Key+":") {
+					delete(m.unfold, k)
+				}
+			}
+			m.unfold[c.Key+":*"] = all
+		}
+	case "/":
+		m.filtering = true
+	case "ctrl+k":
+		m.overlay, m.palQuery, m.palCursor = "palette", "", 0
+	case "?":
+		m.overlay = "help"
+	case "t":
+		if m.view == "board" {
+			m.view = ""
+		} else {
+			m = m.openBoard()
+		}
+	case "e":
+		return m.startAnswer(-1)
 	case "l":
 		lang := "en"
 		if i18n.English() {
@@ -540,23 +634,82 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		return m.validate()
 	case "a":
-		return m.allowPush()
+		return m.openPush()
 	}
 	return m, nil
 }
 
-// Screen rows: 0 header, 1 flash, 2…2+bodyH-1 body, then the button row.
-func (m Model) bodyHeight() int { return max(3, m.height-4) }
+func (m Model) quit() (tea.Model, tea.Cmd) {
+	if m.inside {
+		// cairn stays alive in its workspace; q just hands herdr back.
+		return m, func() tea.Msg {
+			return doneMsg{text: i18n.T("← retour à herdr", "← back to herdr"), err: home.Back()}
+		}
+	}
+	return m, tea.Quit
+}
+
+// moveCursor moves the selection by delta among the items the filter keeps.
+func (m *Model) moveCursor(delta int) {
+	for i := m.cursor + delta; i >= 0 && i < m.items(); i += delta {
+		if m.matches(i) {
+			m.cursor = i
+			return
+		}
+	}
+}
+
+func (m Model) filterKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.Type {
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEsc:
+		m.filter, m.filtering = "", false
+		return m, nil
+	case tea.KeyEnter:
+		m.filtering = false
+		return m, nil
+	case tea.KeyUp:
+		m.moveCursor(-1)
+		return m, nil
+	case tea.KeyDown:
+		m.moveCursor(1)
+		return m, nil
+	case tea.KeyBackspace:
+		if r := []rune(m.filter); len(r) > 0 {
+			m.filter = string(r[:len(r)-1])
+		}
+	case tea.KeySpace:
+		m.filter += " "
+	case tea.KeyRunes:
+		m.filter += string(k.Runes)
+	}
+	// Keep the selection on an item the filter shows.
+	if !m.matches(m.cursor) {
+		for i := 0; i < m.items(); i++ {
+			if m.matches(i) {
+				m.cursor = i
+				break
+			}
+		}
+	}
+	return m, nil
+}
 
 func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if m.view == "comments" {
+	switch {
+	case m.overlay != "":
+		return m.overlayMouse(ev)
+	case m.view == "comments":
 		return m.commentsMouse(ev)
-	}
-	if m.view == "pick" {
+	case m.view == "pick":
 		return m.pickMouse(ev)
+	case m.view == "board":
+		return m.boardMouse(ev)
 	}
 	bodyH := m.bodyHeight()
-	inList := ev.X < listWidth
+	inList := m.showList() && ev.X < m.listW()
+	inDetail := m.showDetail() && ev.X >= m.detailX()
 	if ev.Action == tea.MouseActionMotion {
 		m.hoverItem, m.hoverBtn = m.hitTest(ev.X, ev.Y)
 		return m, nil
@@ -566,19 +719,17 @@ func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	switch ev.Button {
 	case tea.MouseButtonWheelUp:
-		if inList && m.cursor > 0 {
-			m.cursor--
-		} else if !inList && m.scroll > 0 {
-			m.scroll -= 2
-			m.scroll = max(0, m.scroll)
+		if inList {
+			m.moveCursor(-1)
+		} else if inDetail {
+			m.scrollDetail(-2)
 		}
 		return m, nil
 	case tea.MouseButtonWheelDown:
-		if inList && m.cursor < m.items()-1 {
-			m.cursor++
-		} else if !inList {
-			lines, _ := m.detailLayout(m.detailWidth())
-			m.scroll = min(m.scroll+2, max(0, len(lines)-bodyH))
+		if inList {
+			m.moveCursor(1)
+		} else if inDetail {
+			m.scrollDetail(2)
 		}
 		return m, nil
 	}
@@ -587,53 +738,81 @@ func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	row := ev.Y - 2
 	switch {
-	case ev.Y == 2+bodyH: // button row
-		_, ranges := m.footerLayout()
-		for i, b := range m.buttons() {
-			if b.enabled && ev.X >= ranges[i][0] && ev.X < ranges[i][1] {
-				return m.key(keyFor(b.key))
-			}
-		}
+	case ev.Y == 0 && m.narrow() && m.detailFocus:
+		m.detailFocus = false // "‹ esc liste"
+	case ev.Y == 2+bodyH:
+		return m.footerClick(ev.X)
 	case row >= 0 && row < bodyH && inList:
-		_, owners := m.listLayout(listWidth, bodyH)
+		m.detailFocus = false
+		_, owners := m.listLayout(m.listW(), bodyH)
 		if row < len(owners) && owners[row] == shippedItem {
 			m.showShipped = !m.showShipped
 			cmd := m.rebuild()
 			return m, cmd
 		}
 		if row < len(owners) && owners[row] >= 0 {
+			m.flash = ""
+			if m.narrow() {
+				m.cursor, m.detailFocus = owners[row], true // narrow: a click opens the detail
+				return m, nil
+			}
 			if owners[row] == m.cursor {
-				m.flash = ""
 				return m, m.goTo() // second click on the selection: go there
 			}
 			m.cursor = owners[row]
-			m.flash = ""
 		}
-	case row >= 0 && row < bodyH && ev.X >= listWidth+3:
-		lines, targets := m.detailLayout(m.detailWidth())
-		row += min(m.scroll, max(0, len(lines)-bodyH))
-		if row < len(targets) && targets[row] != "" {
-			return m.detailClick(targets[row])
+	case row >= 0 && row < bodyH && inDetail:
+		m.detailFocus = true
+		d := m.detailLayout(m.detailWidth())
+		line := row + m.detailTop(len(d.lines), bodyH)
+		if line == d.cardRow {
+			x := ev.X - m.detailX()
+			for _, h := range d.cardHits {
+				if x >= h.x0 && x < h.x1 {
+					return m.key(keyFor(h.key))
+				}
+			}
+			return m, nil
+		}
+		if line < len(d.targets) && d.targets[line] != "" {
+			return m.detailClick(d.targets[line])
 		}
 	}
 	return m, nil
 }
 
-// hitTest returns the list item and the enabled button under (x, y), -1 if none.
+// footerClick runs the footer button under column x.
+func (m Model) footerClick(x int) (tea.Model, tea.Cmd) {
+	_, hits, _ := m.footer()
+	for _, h := range hits {
+		if h.key != "" && x >= h.x0 && x < h.x1 {
+			switch m.view {
+			case "pick":
+				return m.pickKeyPress(keyFor(h.key))
+			case "comments":
+				return m.commentsKey(keyFor(h.key))
+			}
+			return m.key(keyFor(h.key))
+		}
+	}
+	return m, nil
+}
+
+// hitTest returns the list item and the footer span under (x, y), -1 if none.
 func (m Model) hitTest(x, y int) (item, btn int) {
 	item, btn = -1, -1
 	bodyH := m.bodyHeight()
 	if y == 2+bodyH {
-		_, ranges := m.footerLayout()
-		for i, b := range m.buttons() {
-			if b.enabled && x >= ranges[i][0] && x < ranges[i][1] {
+		_, hits, _ := m.footer()
+		for i, h := range hits {
+			if h.key != "" && x >= h.x0 && x < h.x1 {
 				btn = i
 			}
 		}
 		return
 	}
-	if row := y - 2; row >= 0 && row < bodyH && x < listWidth {
-		_, owners := m.listLayout(listWidth, bodyH)
+	if row := y - 2; m.view == "" && row >= 0 && row < bodyH && m.showList() && x < m.listW() {
+		_, owners := m.listLayout(m.listW(), bodyH)
 		if row < len(owners) {
 			item = owners[row]
 		}
@@ -641,7 +820,7 @@ func (m Model) hitTest(x, y int) (item, btn int) {
 	return
 }
 
-// detailClick acts on a detail-pane target: "pane:<id>", "img:<path>", "comments".
+// detailClick acts on a detail-pane target: "pane:<id>", "img:<path>", "comments"…
 func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 	kind, arg, _ := strings.Cut(target, ":")
 	switch kind {
@@ -653,6 +832,15 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 		return m.fixCI()
 	case "attach":
 		return m.attach(arg)
+	case "answer":
+		var i int
+		fmt.Sscan(arg, &i)
+		return m.startAnswer(i)
+	case "fold":
+		if c := m.selected(); c != nil {
+			k := c.Key + ":" + arg
+			m.unfold[k] = !m.unfolded(c.Key, arg)
+		}
 	case "img":
 		files := m.proofImages()
 		start := 0
@@ -677,6 +865,8 @@ func keyFor(k string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "ctrl+k":
+		return tea.KeyMsg{Type: tea.KeyCtrlK}
 	}
 	return keyForRunes(k)
 }
@@ -853,703 +1043,4 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 		})
 	}
 	return m, cmd
-}
-
-// ── view ────────────────────────────────────────────────────────────────────
-
-func trunc(s string, w int) string {
-	if w <= 1 {
-		return ""
-	}
-	return runewidth.Truncate(s, w, "…")
-}
-
-func agentIcon(status string) string {
-	switch status {
-	case "working":
-		return lipgloss.NewStyle().Foreground(working).Render("◐")
-	case "blocked":
-		return sWarn.Render("⚠")
-	case "done":
-		return sGood.Render("✓")
-	case "idle":
-		return sMuted.Render("○")
-	}
-	return sMuted.Render("?")
-}
-
-func phaseStyle(p chantier.Phase) lipgloss.Style {
-	switch p {
-	case chantier.Review:
-		return lipgloss.NewStyle().Foreground(accent)
-	case chantier.Build:
-		return lipgloss.NewStyle().Foreground(working)
-	case chantier.Shipped:
-		return sGood
-	}
-	return sMuted
-}
-
-func (m Model) View() string {
-	if m.width == 0 {
-		return ""
-	}
-	if m.view == "comments" {
-		return m.commentsView()
-	}
-	if m.view == "pick" {
-		return m.pickView()
-	}
-	header := sTitle.Render("cairn") + sMuted.Render(fmt.Sprintf("  %s · %s", m.cfg.Team, m.cfg.Assignee))
-	if is := m.cycle(); is != "" {
-		header += sMuted.Render(" · cycle " + is)
-	}
-	switch {
-	case m.localErr != nil:
-		header += "  " + sErr.Render(trunc(i18n.T("herdr : ", "herdr: ")+m.localErr.Error(), m.width/2))
-	case m.spErr != nil:
-		header += "  " + sErr.Render(trunc(i18n.T("Sprintosaur : ", "Sprintosaur: ")+m.spErr.Error(), m.width/2))
-	}
-	bodyH := m.bodyHeight()
-	left := m.viewList(listWidth, bodyH)
-	right := m.viewDetail(m.detailWidth(), bodyH)
-	sep := sMuted.Render(strings.TrimSuffix(strings.Repeat(" │ \n", bodyH), "\n"))
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
-	return header + "\n" + m.viewFlash() + "\n" + body + "\n" + m.viewFooter()
-}
-
-func (m Model) cycle() string {
-	for _, is := range m.issues {
-		if is.Cycle != nil {
-			return fmt.Sprint(is.Cycle.Number)
-		}
-	}
-	return ""
-}
-
-// listLayout renders the list and says which item each visible line belongs
-// to (-1 for headers), so clicks map back to items.
-func (m Model) listLayout(w, h int) ([]string, []int) {
-	var lines []string
-	var owners []int
-	curLine := 0
-	add := func(item int, s ...string) {
-		for _, l := range s {
-			switch {
-			case item >= 0 && item == m.cursor:
-				l = sSel.Width(w).Render(ansi.Strip(l))
-			case item >= 0 && item == m.hoverItem:
-				l = sHover.Width(w).Render(ansi.Strip(l))
-			}
-			lines = append(lines, l)
-			owners = append(owners, item)
-		}
-	}
-	if len(m.chantiers) == 0 {
-		add(-1, sMuted.Render(trunc(i18n.T("Chargement…", "Loading…"), w)))
-	}
-	// The put-away chantiers sit at the end of m.chantiers, under their toggle.
-	toggled := false
-	toggle := func() {
-		toggled = true
-		if m.shipped == 0 {
-			return
-		}
-		label := fmt.Sprintf(i18n.T("› %d livré(s) : afficher", "› %d shipped: show"), m.shipped)
-		if m.showShipped {
-			label = i18n.T("› masquer les livrés", "› hide shipped")
-		}
-		l := sMuted.Render(label)
-		if m.hoverItem == shippedItem {
-			l = sHover.Width(w).Render(label)
-		}
-		lines = append(lines, "", l)
-		owners = append(owners, -1, shippedItem)
-	}
-	waitingHdr, restHdr := false, false
-	for i, c := range m.chantiers {
-		if m.isShipped(c) && !toggled {
-			toggle()
-		}
-		if !toggled && c.Waiting() != "" && !waitingHdr {
-			add(-1, sWarn.Render(i18n.T("Attend ta décision", "Waiting for you")))
-			waitingHdr = true
-		}
-		if !toggled && c.Waiting() == "" && !restHdr {
-			if waitingHdr {
-				add(-1, "")
-			}
-			add(-1, sHeader.Render(i18n.T("Chantiers", "Tickets")))
-			restHdr = true
-		}
-		mark := " "
-		if c.Waiting() != "" {
-			mark = sWarn.Render("⚠")
-		}
-		l1 := mark + " " + sBold.Render(c.Key) + " " + trunc(c.Title(), w-len(c.Key)-3)
-		info := phaseStyle(c.Phase).Render(c.Phase.Label())
-		if why := m.watch.keep[c.Key]; why != "" && c.Phase == chantier.Shipped {
-			info += sWarn.Render(" · " + why)
-		}
-		if c.State != nil && len(c.State.Tasks) > 0 {
-			info += sMuted.Render(fmt.Sprintf(" %d/%d", c.State.DoneCount(), len(c.State.Tasks)))
-		}
-		if len(c.Agents) > 0 {
-			icons := ""
-			for _, a := range c.Agents {
-				icons += agentIcon(a.Status)
-			}
-			info += sMuted.Render(" · ") + icons
-		}
-		if pr := c.OpenPR(); pr != nil {
-			info += sMuted.Render(fmt.Sprintf(" · PR #%d", pr.Number))
-			if p, ok := m.prs[c.Key]; ok && p.Checks.Failed > 0 {
-				info += sErr.Render(" ✗ CI")
-			} else if _, ready := m.readiness(c); ready {
-				info += sGood.Render(i18n.T(" ✓ prêt", " ✓ ready"))
-			}
-		}
-		if i == m.cursor {
-			curLine = len(lines)
-		}
-		add(i, l1, "    "+info)
-	}
-	if !toggled {
-		toggle()
-	}
-	if len(m.others) > 0 {
-		add(-1, "", sHeader.Render(i18n.T("Hors chantier", "Not on a ticket")))
-		for j, a := range m.others {
-			l := agentIcon(a.Status) + " " + trunc(a.Title, w-3)
-			if a.Title == "" {
-				l = agentIcon(a.Status) + " " + a.Label()
-			}
-			if len(m.chantiers)+j == m.cursor {
-				curLine = len(lines)
-			}
-			add(len(m.chantiers)+j, l)
-		}
-	}
-	// Keep the cursor in view.
-	start := 0
-	if curLine+2 > h {
-		start = curLine + 2 - h
-	}
-	lines, owners = lines[start:], owners[start:]
-	if len(lines) > h {
-		lines, owners = lines[:h], owners[:h]
-	}
-	return lines, owners
-}
-
-// githubPRs is what GitHub says of every PR read so far, by URL.
-func (m Model) githubPRs() map[string]string {
-	out := map[string]string{}
-	for _, pr := range m.prs {
-		if pr.URL != "" && pr.Err == "" {
-			out[pr.URL] = pr.State
-		}
-	}
-	return out
-}
-
-// isShipped reports a shipped chantier with nothing left to look at: it
-// leaves the list. One cairn could not clean up stays, with the reason.
-func (m Model) isShipped(c *chantier.Chantier) bool {
-	return c.Phase == chantier.Shipped && m.watch.keep[c.Key] == ""
-}
-
-// shippedItem is the list row that shows or hides the shipped chantiers.
-const shippedItem = -2
-
-func (m Model) viewList(w, h int) string {
-	lines, _ := m.listLayout(w, h)
-	return lipgloss.NewStyle().Width(w).Height(h).Render(strings.Join(lines, "\n"))
-}
-
-func (m Model) detailWidth() int { return max(20, m.width-listWidth-3) }
-
-func (m Model) viewDetail(w, h int) string {
-	lines, _ := m.detailLayout(w)
-	start := min(m.scroll, max(0, len(lines)-h))
-	lines = lines[start:]
-	if len(lines) > h {
-		lines = lines[:h]
-		lines[h-1] = sMuted.Render(i18n.T("  ↓ suite (molette)", "  ↓ more (scroll)"))
-	}
-	for i, l := range lines {
-		lines[i] = ansi.Truncate(l, w, "…") // never let a line wrap
-	}
-	return lipgloss.NewStyle().Width(w).Height(h).MaxHeight(h).Render(strings.Join(lines, "\n"))
-}
-
-// wrap breaks text to width w and indents every line.
-func wrap(text string, w int, indent string) []string {
-	out := strings.Split(lipgloss.NewStyle().Width(max(10, w-len(indent))).Render(text), "\n")
-	for i := range out {
-		out[i] = indent + strings.TrimRight(out[i], " ")
-	}
-	return out
-}
-
-// hang wraps text after prefix, continuation lines aligned under the text:
-// nothing in the detail pane is cut, the pane scrolls instead.
-func hang(prefix, text string, w int) []string {
-	pw := lipgloss.Width(prefix)
-	body := wrap(text, w-pw, "")
-	out := make([]string, len(body))
-	for i, l := range body {
-		if i == 0 {
-			out[i] = prefix + l
-		} else {
-			out[i] = strings.Repeat(" ", pw) + l
-		}
-	}
-	return out
-}
-
-func bar(done, doing, total, width int) string {
-	if total == 0 {
-		return ""
-	}
-	d := done * width / total
-	g := min(width-d, (doing*width+total-1)/total)
-	return sGood.Render(strings.Repeat("█", d)) +
-		lipgloss.NewStyle().Foreground(working).Render(strings.Repeat("▓", g)) +
-		sMuted.Render(strings.Repeat("░", width-d-g))
-}
-
-func taskIcon(t state.Task) string {
-	switch {
-	case t.Done:
-		return sGood.Render("✓")
-	case t.Doing:
-		return lipgloss.NewStyle().Foreground(working).Render("◐")
-	}
-	return sMuted.Render("○")
-}
-
-const label = 10 // width of the left labels in the detail pane
-
-func lbl(s string) string {
-	return sMuted.Render(s + strings.Repeat(" ", max(1, label-runewidth.StringWidth(s))))
-}
-
-// detailLayout renders the detail pane and the pane each line jumps to on click.
-func (m Model) detailLayout(w int) ([]string, []string) {
-	var b, targets []string
-	add := func(s ...string) {
-		b = append(b, s...)
-		for range s {
-			targets = append(targets, "")
-		}
-	}
-	section := func(title string) { add("", sHeader.Render(title)) }
-
-	if a := m.selectedOther(); a != nil {
-		add(sBold.Render(a.Label())+" "+agentIcon(a.Status)+" "+a.Status, "")
-		add(hang(lbl(i18n.T("Titre", "Title")), a.Title, w)...)
-		add(hang(lbl(i18n.T("Dossier", "Folder")), tilde(a.Dir()), w)...)
-		add(lbl("Pane")+a.PaneID, "",
-			sMuted.Render(i18n.T("Cet agent ne travaille sur aucun ticket connu.", "This agent works on no known ticket.")))
-		if len(m.chantiers) > 0 {
-			add("", sHeader.Render(i18n.T("Rattacher à un chantier", "Attach to a ticket"))+sMuted.Render(i18n.T("  (clic : l'agent prend le nom du ticket)", "  (click: the agent takes the ticket's name)")))
-			for _, c := range m.chantiers {
-				lines := hang("  "+sImg.Render("› "+c.Key)+" ", c.Title(), w)
-				add(lines...)
-				for i := range lines {
-					targets[len(targets)-1-i] = "attach:" + c.Key
-				}
-			}
-		}
-		return b, targets
-	}
-	c := m.selected()
-	if c == nil {
-		return m.statusLines(w), nil
-	}
-	s := c.State
-
-	// Title and ticket.
-	title := wrap(c.Title(), w-len(c.Key)-2, "")
-	add(sBold.Render(c.Key) + "  " + title[0])
-	for _, l := range title[1:] {
-		add(strings.Repeat(" ", len(c.Key)+2) + l)
-	}
-	if c.Issue != nil {
-		meta := []string{c.Issue.Status}
-		if c.Issue.Priority != "" && c.Issue.Priority != "No priority" {
-			meta = append(meta, c.Issue.Priority)
-		}
-		if c.Issue.EstimateLabel != "" {
-			meta = append(meta, c.Issue.EstimateLabel)
-		}
-		add(sMuted.Render("Sprintosaur · " + strings.Join(meta, " · ")))
-	}
-	add("")
-
-	// Where it stands.
-	var flow []string
-	for _, p := range chantier.Flow {
-		switch {
-		case p < c.Phase:
-			flow = append(flow, sGood.Render(p.Label()+" ✓"))
-		case p == c.Phase:
-			flow = append(flow, phaseStyle(p).Bold(true).Render(p.Label()+" ●"))
-		default:
-			flow = append(flow, sMuted.Render(p.Label()))
-		}
-	}
-	if c.Phase == chantier.ToPlan {
-		add(lbl("Phase") + i18n.T("À planifier : bouton ", "To plan: the ") + sKey.Render(i18n.T("Planifier", "Plan")) + i18n.T(" pour lancer un agent", " button starts an agent"))
-	} else {
-		start := journal.PhaseSince(m.watch.history[c.Key])
-		add(lbl("Phase") + strings.Join(flow, sMuted.Render(" → ")) + sMuted.Render("  "+since(start)))
-	}
-	var activity []string
-	if s != nil && !s.UpdatedAt.IsZero() {
-		activity = append(activity, "plan "+progress.Ago(s.UpdatedAt))
-	}
-	if g, ok := m.gits[c.Key]; ok && g.Ahead > 0 && !g.LastAt.IsZero() {
-		activity = append(activity, "commit "+progress.Ago(g.LastAt))
-	}
-	if len(activity) > 0 {
-		add(lbl(i18n.T("Activité", "Activity")) + strings.Join(activity, sMuted.Render(" · ")))
-	}
-	if s != nil {
-		if s.PushAllowed() {
-			add(lbl("Push") + sGood.Render(i18n.T("autorisé", "allowed")) + sMuted.Render(i18n.T(" (le prochain push seulement)", " (next push only)")))
-		} else {
-			add(lbl("Push") + sMuted.Render(i18n.T("bloqué jusqu'à ton feu vert", "blocked until you allow it")))
-		}
-	}
-	if wt := c.Waiting(); wt != "" {
-		hint := ""
-		if s != nil && s.Waiting != "" {
-			hint = sMuted.Render(i18n.T("  → bouton Valider", "  → Approve button"))
-			if isPushWait(s.Waiting) {
-				hint = sMuted.Render(i18n.T("  → relis le Diff, puis Autoriser le push", "  → review the Diff, then Allow push"))
-			}
-		}
-		add(lbl(i18n.T("Attente", "Waiting")) + sWarn.Render("⚠ "+wt) + hint)
-	}
-
-	// The plan.
-	if s == nil && c.Phase != chantier.ToPlan {
-		add("", sMuted.Render(i18n.T("Pas de plan cairn pour ce chantier : seuls le code et la PR sont suivis.", "No cairn plan for this ticket: only the code and the PR are tracked.")))
-	}
-	if s != nil && len(s.Summary) > 0 {
-		section(i18n.T("Objectif", "Goal"))
-		add(wrap(plainMD(strings.Join(s.Summary, " ")), w, "  ")...)
-	}
-	if s != nil {
-		if q := s.OpenQuestions(); len(q) > 0 {
-			section(fmt.Sprintf(i18n.T("Questions ouvertes (%d)", "Open questions (%d)"), len(q)))
-			for _, t := range q {
-				add(hang(sWarn.Render("  ? "), plainMD(t), w)...)
-			}
-		}
-	}
-	if s != nil && len(s.Tasks) > 0 {
-		done, doing := state.Count(s.Tasks, true), state.Count(s.Tasks, false)
-		head := fmt.Sprintf(i18n.T("Tâches %d/%d", "Tasks %d/%d"), done, len(s.Tasks))
-		if doing > 0 {
-			head += fmt.Sprintf(i18n.T(" · %d en cours", " · %d in progress"), doing)
-		}
-		add("", sHeader.Render(head)+"  "+bar(done, doing, len(s.Tasks), 20))
-		for _, t := range s.Tasks {
-			add(hang("  "+taskIcon(t)+" ", plainMD(t.Text), w)...)
-		}
-	}
-	if s != nil && len(s.SideEffects) > 0 {
-		done := state.Count(s.SideEffects, true)
-		section(fmt.Sprintf(i18n.T("Effets de bord %d/%d vérifiés", "Side effects %d/%d checked"), done, len(s.SideEffects)))
-		for _, t := range s.SideEffects {
-			add(hang("  "+taskIcon(t)+" ", plainMD(t.Text), w)...)
-		}
-	} else if s != nil && c.Phase >= chantier.Build {
-		add("", sWarn.Render(i18n.T("Effets de bord : aucun recensé dans le plan", "Side effects: none listed in the plan")))
-	}
-	if s != nil && len(s.Proofs) > 0 {
-		section(fmt.Sprintf(i18n.T("Preuves (%d)", "Proofs (%d)"), len(s.Proofs)))
-		for _, p := range s.Proofs {
-			if f := imagePath(p); f != "" {
-				lines := hang("  "+sImg.Render("[img]")+" ", p, w)
-				add(lines...)
-				for i := range lines {
-					targets[len(targets)-1-i] = "img:" + f
-				}
-				continue
-			}
-			add(hang("  • ", p, w)...)
-		}
-	}
-
-	// Code and pull request.
-	if c.Worktree != "" {
-		section("Code")
-		if g, ok := m.gits[c.Key]; ok {
-			if g.Err != "" {
-				add("  " + sErr.Render(g.Err))
-			} else {
-				line := sMuted.Render(i18n.T("aucun commit sur la branche", "no commit on the branch"))
-				if g.Ahead > 0 {
-					line = plural(g.Ahead, "commit", "commits") + " · " + plural(g.Files, i18n.T("fichier", "file"), i18n.T("fichiers", "files")) + " " +
-						sGood.Render(fmt.Sprintf("+%d", g.Added)) + " " + sErr.Render(fmt.Sprintf("−%d", g.Removed))
-				}
-				if g.Uncommitted > 0 && !c.Main {
-					line += sWarn.Render(" · " + plural(g.Uncommitted, i18n.T("changement non commité", "uncommitted change"), i18n.T("changements non commités", "uncommitted changes")))
-				}
-				add("  " + line)
-				if c.Main {
-					// The shared checkout's changes belong to whatever else runs there.
-					note := i18n.T("dans le dépôt principal, partagé : cairn n'y touche pas", "in the shared main checkout: cairn leaves it alone")
-					if g.Uncommitted > 0 {
-						note += fmt.Sprintf(i18n.T(" (%d changements non commités, pas forcément de ce ticket)", " (%d uncommitted changes, not necessarily this ticket's)"), g.Uncommitted)
-					}
-					add(hang("  ", sMuted.Render(note), w)...)
-				}
-				if g.Ahead > 0 && g.LastSubject != "" {
-					add(hang("  "+sMuted.Render(i18n.T("dernier : ", "last: ")), g.LastSubject, w)...)
-				}
-			}
-		} else {
-			add("  " + sMuted.Render(i18n.T("lecture…", "reading…")))
-		}
-		add(hang("  "+sMuted.Render(i18n.T("branche ", "branch  ")), c.Branch, w)...)
-		add(hang("  "+sMuted.Render(i18n.T("dossier ", "folder  ")), tilde(c.Worktree), w)...)
-	}
-	if c.Issue != nil && len(c.Issue.PullRequests) > 0 {
-		pr := c.Issue.PullRequests[len(c.Issue.PullRequests)-1]
-		if o := c.OpenPR(); o != nil {
-			pr = *o
-		}
-		section(fmt.Sprintf("PR #%d", pr.Number))
-		if info, ok := m.prs[c.Key]; ok && info.Err == "" {
-			add("  " + prLine(info))
-			if len(info.Checks.FailedNames) > 0 {
-				add(hang("  "+sErr.Render("✗ "), strings.Join(info.Checks.FailedNames, ", "), w)...)
-				add("  " + sImg.Render(i18n.T("› Corriger la CI", "› Fix CI")) + sMuted.Render(i18n.T("  (clic ou f : les logs en échec partent à l'agent)", "  (click or f: the failing logs go to the agent)")))
-				targets[len(targets)-1] = "fixci"
-			}
-			if checks, ready := m.readiness(c); len(checks) > 0 {
-				var parts []string
-				for _, k := range checks {
-					if k.ok {
-						parts = append(parts, sGood.Render("✓ "+k.label))
-					} else {
-						parts = append(parts, sMuted.Render("○ "+k.label))
-					}
-				}
-				verdict := sMuted.Render(i18n.T("pas encore prêt à merger", "not ready to merge yet"))
-				if ready {
-					verdict = sGood.Bold(true).Render(i18n.T("prêt à merger", "ready to merge"))
-				}
-				add("  "+verdict, "  "+strings.Join(parts, sMuted.Render(" · ")))
-			}
-		} else if ok {
-			add("  " + pr.State + sMuted.Render(" · "+info.Err))
-		} else {
-			add("  " + pr.State + sMuted.Render(i18n.T(" · lecture…", " · reading…")))
-		}
-		add("  " + sImg.Render(i18n.T("› Commentaires et images", "› Comments and images")) + sMuted.Render(i18n.T("  (clic ou c)", "  (click or c)")))
-		targets[len(targets)-1] = "comments"
-	}
-
-	if events := m.watch.history[c.Key]; len(events) > 0 {
-		section(i18n.T("Historique", "History"))
-		add(historyLines(events, 6)...)
-	}
-
-	if len(c.Agents) > 0 {
-		section("Agents" + sMuted.Render(i18n.T("  (clic pour y aller)", "  (click to go there)")))
-		for _, a := range c.Agents {
-			lines := hang("  "+agentIcon(a.Status)+" "+sBold.Render(a.Label())+sMuted.Render(" "+a.Status+" · "), a.Title, w)
-			add(lines...)
-			for i := range lines {
-				targets[len(targets)-1-i] = "pane:" + a.PaneID
-			}
-		}
-	}
-	if s != nil {
-		add("", sMuted.Render(i18n.T("plan : ", "plan: ")+tilde(s.Path)))
-	}
-	return b, targets
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return "1 " + one
-	}
-	return fmt.Sprintf("%d %s", n, many)
-}
-
-// plainMD drops the markdown marks that only add noise in a terminal.
-func plainMD(s string) string {
-	return strings.NewReplacer("**", "", "`", "", "__", "").Replace(s)
-}
-
-func prLine(p progress.PR) string {
-	var parts []string
-	switch {
-	case p.State == "MERGED":
-		parts = append(parts, sGood.Render(i18n.T("mergée", "merged")))
-	case p.State == "CLOSED":
-		parts = append(parts, sMuted.Render(i18n.T("fermée", "closed")))
-	case p.Draft:
-		parts = append(parts, sMuted.Render(i18n.T("brouillon", "draft")))
-	default:
-		parts = append(parts, i18n.T("ouverte", "open"))
-	}
-	ck := p.Checks
-	switch {
-	case ck.Failed > 0:
-		parts = append(parts, sErr.Render(fmt.Sprintf(i18n.T("CI ✗ %d en échec", "CI ✗ %d failing"), ck.Failed)))
-	case ck.Pending > 0:
-		parts = append(parts, lipgloss.NewStyle().Foreground(working).Render(fmt.Sprintf(i18n.T("CI ◐ %d en cours", "CI ◐ %d running"), ck.Pending)))
-	case ck.Passed > 0:
-		parts = append(parts, sGood.Render(fmt.Sprintf("CI ✓ %d", ck.Passed)))
-	}
-	switch p.ReviewDecision {
-	case "APPROVED":
-		parts = append(parts, sGood.Render(i18n.T("review approuvée", "review approved")))
-	case "CHANGES_REQUESTED":
-		parts = append(parts, sErr.Render(i18n.T("changements demandés", "changes requested")))
-	default:
-		if p.State == "OPEN" {
-			parts = append(parts, sMuted.Render(i18n.T("review en attente", "review pending")))
-		}
-	}
-	if p.State == "OPEN" {
-		switch p.Mergeable {
-		case "MERGEABLE":
-			parts = append(parts, sGood.Render("mergeable"))
-		case "CONFLICTING":
-			parts = append(parts, sErr.Render(i18n.T("conflits", "conflicts")))
-		}
-	}
-	if p.Comments > 0 {
-		parts = append(parts, sMuted.Render(fmt.Sprintf(i18n.T("%d commentaires", "%d comments"), p.Comments)))
-	}
-	return strings.Join(parts, sMuted.Render(" · "))
-}
-
-func (m Model) statusLines(w int) []string {
-	var b []string
-	if m.localErr != nil {
-		b = append(b, sErr.Render(trunc(m.localErr.Error(), w)))
-	}
-	if m.spErr != nil {
-		b = append(b, sErr.Render(trunc(m.spErr.Error(), w)))
-	}
-	return b
-}
-
-type button struct {
-	key, label string
-	enabled    bool
-}
-
-// buttons are the actions for the current selection; each is also a key.
-func (m Model) buttons() []button {
-	if m.view == "comments" {
-		return m.commentsButtons()
-	}
-	if m.view == "pick" {
-		return m.pickButtons()
-	}
-	return m.mainButtons()
-}
-
-func (m Model) mainButtons() []button {
-	c := m.selected()
-	other := m.selectedOther() != nil
-	hasWT := c != nil && c.Worktree != ""
-	back := i18n.T("Quitter", "Quit")
-	if m.inside {
-		back = i18n.T("Retour à herdr", "Back to herdr")
-	}
-	bs := []button{
-		{"enter", i18n.T("Aller à l'agent", "Go to agent"), other || (c != nil && (len(c.Agents) > 0 || len(c.Workspaces) > 0))},
-		{"d", "Diff", hasWT},
-		{"p", i18n.T("Planifier", "Plan"), c != nil && c.Issue != nil && (!hasWT || c.Main)},
-		{"n", i18n.T("Nouveau ticket", "New ticket"), m.sp != nil},
-		{"v", i18n.T("Valider", "Approve"), c != nil && c.State != nil && c.State.Waiting != "" && !isPushWait(c.State.Waiting)},
-		{"a", i18n.T("Autoriser le push", "Allow push"), c != nil && c.State != nil && !c.State.PushAllowed()},
-		{"c", i18n.T("Commentaires", "Comments"), c != nil && c.Issue != nil && len(c.Issue.PullRequests) > 0},
-		{"o", "Ticket", c != nil && c.Issue != nil},
-	}
-	// Situational buttons only show when they apply.
-	if c != nil {
-		if pr, ok := m.prs[c.Key]; ok && pr.Checks.Failed > 0 && c.OpenPR() != nil {
-			bs = append(bs, button{"f", i18n.T("Corriger la CI", "Fix CI"), true})
-		}
-	}
-	return append(bs, button{"l", i18n.T("English", "Français"), true}, button{"r", i18n.T("Rafraîchir", "Refresh"), true}, button{"q", back, true})
-}
-
-var (
-	btnBg      = lipgloss.AdaptiveColor{Light: "#ede9fe", Dark: "#44475a"}
-	btnHoverBg = lipgloss.AdaptiveColor{Light: "#c4b5fd", Dark: "#6272a4"}
-	btnFg      = lipgloss.AdaptiveColor{Light: "#1f2937", Dark: "#f8f8f2"}
-	sBtnOff    = lipgloss.NewStyle().Padding(0, 1).Foreground(muted)
-)
-
-func renderButton(b button, hover bool) string {
-	key := b.key
-	switch key {
-	case "enter":
-		key = "↵"
-	case "esc":
-		key = "⎋"
-	}
-	if !b.enabled {
-		return sBtnOff.Render(key + " " + b.label)
-	}
-	bg := btnBg
-	if hover {
-		bg = btnHoverBg
-	}
-	k := lipgloss.NewStyle().Background(bg).Foreground(accent).Bold(true).Render(" " + key)
-	l := lipgloss.NewStyle().Background(bg).Foreground(btnFg).Render(" " + b.label + " ")
-	return k + l
-}
-
-// footerLayout renders the button row and the x-range of each button.
-func (m Model) footerLayout() (string, [][2]int) {
-	var parts []string
-	var ranges [][2]int
-	x := 0
-	for i, b := range m.buttons() {
-		r := renderButton(b, i == m.hoverBtn)
-		wd := lipgloss.Width(r)
-		parts = append(parts, r)
-		ranges = append(ranges, [2]int{x, x + wd})
-		x += wd + 1
-	}
-	return lipgloss.NewStyle().MaxWidth(m.width).Render(strings.Join(parts, " ")), ranges
-}
-
-func (m Model) viewFooter() string {
-	f, _ := m.footerLayout()
-	return f
-}
-
-func (m Model) viewFlash() string {
-	switch {
-	case m.busy != "":
-		return sWarn.Render(trunc(m.busy, m.width))
-	case m.flash != "" && m.flashErr:
-		return sErr.Render(trunc(m.flash, m.width))
-	case m.flash != "":
-		return sGood.Render(trunc(m.flash, m.width))
-	}
-	return ""
-}
-
-func tilde(p string) string {
-	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home) {
-		return "~" + strings.TrimPrefix(p, home)
-	}
-	return p
 }

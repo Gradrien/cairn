@@ -199,12 +199,7 @@ func (m Model) pickMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case ev.Y == 0 && ev.X < lipgloss.Width(backLabel())+1:
 		m.view = ""
 	case ev.Y == 2+m.bodyHeight():
-		_, ranges := m.footerLayout()
-		for i, b := range m.buttons() {
-			if b.enabled && ev.X >= ranges[i][0] && ev.X < ranges[i][1] {
-				return m.pickKeyPress(keyFor(b.key))
-			}
-		}
+		return m.footerClick(ev.X)
 	case item >= 0:
 		return m.startTicket(p.list[item])
 	}

@@ -242,6 +242,8 @@ func historyText(text string) string {
 		return i18n.T(text, "put away")
 	case "CI envoyée à l'agent":
 		return i18n.T(text, "CI sent to the agent")
+	case "réponse envoyée à l'agent":
+		return i18n.T(text, "answer sent to the agent")
 	}
 	if name, ok := strings.CutPrefix(text, "plan lancé ("); ok && strings.HasSuffix(name, ")") {
 		return fmt.Sprintf(i18n.T("plan lancé (%s)", "plan started (%s)"), strings.TrimSuffix(name, ")"))
