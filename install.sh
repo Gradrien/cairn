@@ -16,29 +16,36 @@ go install .
 bindir="$(go env GOBIN)"; [ -n "$bindir" ] || bindir="$(go env GOPATH)/bin"
 cairn_bin="$bindir/cairn"
 echo "✓ cairn installé dans $bindir"
+# Go's bin folder is often missing from PATH: link cairn into ~/.local/bin instead.
+case ":$PATH:" in
+  *":$bindir:"*) ;;
+  *)
+    mkdir -p ~/.local/bin
+    ln -sfn "$cairn_bin" ~/.local/bin/cairn
+    case ":$PATH:" in
+      *":$HOME/.local/bin:"*) echo "✓ cairn lié dans ~/.local/bin (déjà dans ton PATH)" ;;
+      *) echo "! ajoute ~/.local/bin à ton PATH (ex. dans ~/.zshrc : export PATH=\"\$HOME/.local/bin:\$PATH\")" ;;
+    esac ;;
+esac
 
-# First install: ask for the two personal settings, the rest has team defaults.
+# First install: ask for a first project. More later with « cairn add » in any repository.
 conf="${CAIRN_HOME:-$HOME/.cairn}/config.json"
 if [[ ! -f "$conf" && -t 0 ]]; then
-  repo=""
-  for p in ~/Applications/Yak-App ~/Yak-App ~/code/Yak-App ~/dev/Yak-App ~/Projects/Yak-App; do
-    [[ -d "$p/.git" ]] && { repo="$p"; break; }
-  done
-  read -r -p "Checkout principal de Yak-App [${repo:-chemin}] : " ans; repo="${ans:-$repo}"
+  read -r -p "Premier dépôt à suivre (vide pour plus tard) : " repo
   repo="${repo/#\~/$HOME}"
-  [[ -d "$repo" ]] && git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || { echo "✗ $repo n'est pas un dépôt git" >&2; exit 1; }
-  handle="$(git -C "$repo" config user.email | cut -d@ -f1 | cut -d. -f1 | tr '[:upper:]' '[:lower:]')"
-  read -r -p "Ton handle Sprintosaur [$handle] : " ans; handle="${ans:-$handle}"
-  mkdir -p "$(dirname "$conf")"
-  python3 - "$conf" "$repo" "$handle" <<'PY2'
-import json, sys
-conf, repo, handle = sys.argv[1:]
-json.dump({"repo": repo, "assignee": handle}, open(conf, "w"), indent=2)
-PY2
-  echo "✓ config écrite dans $conf (les autres réglages prennent les valeurs de l'équipe)"
+  if [[ -n "$repo" ]]; then
+    read -r -p "Tracker [local / linear / sprintosaur] (local) : " tracker; tracker="${tracker:-local}"
+    key=""
+    if [[ "$tracker" != "local" ]]; then
+      read -r -p "Clé d'équipe dans $tracker (ex. ENG, YAK) : " key
+    else
+      read -r -p "Préfixe des tickets (vide : le nom du dossier) : " key
+    fi
+    "$cairn_bin" add "$repo" --tracker "$tracker" ${key:+--key "$key"} || echo "! projet non ajouté : relance « cairn add » dans le dépôt"
+  else
+    echo "• plus tard : « cairn add » dans un dépôt (--tracker linear|sprintosaur --key ENG pour un tracker)"
+  fi
 fi
-creds="$HOME/.claude/skills/sprintosaur/credentials.env"
-[[ -f "$creds" || -n "${SPRINTOSAUR_TOKEN:-}" ]] || echo "! identifiants Sprintosaur introuvables ($creds) : installe le skill sprintosaur ou renseigne « sprintosaur_credentials » dans $conf"
 
 mkdir -p ~/.claude/skills
 ln -sfn "$PWD/skill" ~/.claude/skills/cairn

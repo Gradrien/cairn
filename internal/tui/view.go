@@ -63,6 +63,8 @@ func (m Model) View() string {
 		return m.commentsView()
 	case "pick":
 		return m.pickView()
+	case "settings":
+		return m.settingsView()
 	case "board":
 		return m.overlaid(m.boardView())
 	}
@@ -87,7 +89,17 @@ func (m Model) mainView() string {
 }
 
 func (m Model) header() string {
-	left := sTitle.Render("cairn") + sMuted.Render(fmt.Sprintf("  %s · %s", m.cfg.Team, m.cfg.Assignee))
+	left := sTitle.Render("cairn")
+	var names []string
+	for _, p := range m.projects {
+		names = append(names, p.cfg.Name)
+	}
+	if len(names) > 0 {
+		left += sMuted.Render("  " + strings.Join(names, " · "))
+	}
+	if len(m.projects) == 1 && m.projects[0].cfg.Assignee != "" {
+		left += sMuted.Render(" · " + m.projects[0].cfg.Assignee)
+	}
 	if is := m.cycle(); is != "" {
 		left += sMuted.Render(" · cycle " + is)
 	}
@@ -107,7 +119,8 @@ func (m Model) header() string {
 	return spread(left, right, m.width)
 }
 
-// health says whether herdr and Sprintosaur answer, with the error if not.
+// health says whether herdr and each tracker answer, with the error if not.
+// Local projects have nothing to answer.
 func (m Model) health() string {
 	dot := func(name string, err error) string {
 		if err != nil {
@@ -115,7 +128,23 @@ func (m Model) health() string {
 		}
 		return sGood.Render("●") + sMuted.Render(" "+name)
 	}
-	return dot("herdr", m.localErr) + "  " + dot("Sprintosaur", m.spErr)
+	out := dot("herdr", m.localErr)
+	shown := map[string]bool{}
+	for _, p := range m.projects {
+		if p.cfg.Tracker == "local" || p.cfg.Tracker == "" {
+			continue
+		}
+		name := p.cfg.Name
+		if p.tr != nil {
+			name = p.tr.Name()
+			if shown[name] && p.err == nil {
+				continue
+			}
+		}
+		shown[name] = true
+		out += "  " + dot(name, p.err)
+	}
+	return out
 }
 
 func (m Model) waitingCount() int {
@@ -141,9 +170,12 @@ func spread(left, right string, w int) string {
 }
 
 func (m Model) cycle() string {
-	for _, is := range m.issues {
-		if is.Cycle != nil {
-			return fmt.Sprint(is.Cycle.Number)
+	if len(m.projects) != 1 {
+		return ""
+	}
+	for _, is := range m.projects[0].issues {
+		if is.Cycle != 0 {
+			return fmt.Sprint(is.Cycle)
 		}
 	}
 	return ""
@@ -285,11 +317,11 @@ func (m Model) listInfo(c *chantier.Chantier) string {
 		info += sMuted.Render(fmt.Sprintf(" %d/%d", c.State.DoneCount(), len(c.State.Tasks)))
 	}
 	if c.Phase == chantier.ToPlan && c.Issue != nil {
-		if c.Issue.Priority != "" && c.Issue.Priority != "No priority" {
+		if c.Issue.Priority != "" {
 			info += sMuted.Render(" · " + c.Issue.Priority)
 		}
-		if c.Issue.EstimateLabel != "" {
-			info += sMuted.Render(" · " + c.Issue.EstimateLabel)
+		if c.Issue.Estimate != "" {
+			info += sMuted.Render(" · " + c.Issue.Estimate)
 		}
 	}
 	info += icons
@@ -347,7 +379,11 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 	default:
 		add(-1, sDim.Render(i18n.T("/ filtrer · ctrl+k tout chercher", "/ filter · ctrl+k search everything")))
 	}
-	if len(m.chantiers) == 0 {
+	switch {
+	case len(m.chantiers) > 0:
+	case m.loaded:
+		add(-1, sMuted.Render(i18n.T("Aucun chantier : n pour en lancer un.", "No ticket yet: n to start one.")))
+	default:
 		add(-1, sMuted.Render(i18n.T("Chargement…", "Loading…")))
 	}
 	// The shipped chantiers sit at the end of m.chantiers, under their toggle.
@@ -486,6 +522,8 @@ func (m Model) buttons() []button {
 		return m.commentsButtons()
 	case "pick":
 		return m.pickButtons()
+	case "settings":
+		return m.settingsButtons()
 	case "board":
 		return m.boardButtons()
 	}
@@ -542,8 +580,8 @@ func (m Model) chantierButtons(c *chantier.Chantier) []button {
 	push(button{"v", i18n.T("Valider", "Approve"), s != nil && s.Waiting != "" && !isPushWait(s.Waiting)})
 	push(button{"a", i18n.T("Autoriser le push", "Allow push"), m.canAllowPush(c)})
 	push(button{"f", i18n.T("Corriger la CI", "Fix CI"), m.ciFailed(c)})
-	push(button{"c", i18n.T("Commentaires", "Comments"), c.Issue != nil && len(c.Issue.PullRequests) > 0})
-	push(button{"o", "Ticket", c.Issue != nil})
+	push(button{"c", i18n.T("Commentaires", "Comments"), len(c.PRs) > 0})
+	push(button{"o", "Ticket", c.Issue != nil && c.Issue.URL != ""})
 	push(button{"x", i18n.T("Fermer", "Close"), c.Phase == chantier.Shipped})
 	return bs
 }
@@ -561,7 +599,7 @@ func (m Model) hints() []button {
 		t.label = i18n.T("liste", "list")
 	}
 	return []button{
-		{"n", i18n.T("nouveau", "new"), m.sp != nil},
+		{"n", i18n.T("nouveau", "new"), len(m.projects) > 0},
 		t,
 		{"ctrl+k", "palette", true},
 		{"?", i18n.T("aide", "help"), true},

@@ -34,7 +34,7 @@ func (m Model) openPush() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.overlay, m.pushKey, m.pushLog = "push", c.Key, nil
-	wt, base, key := c.Worktree, m.cfg.Base, c.Key
+	wt, base, key := c.Worktree, m.base(c), c.Key
 	if wt == "" {
 		return m, nil
 	}
@@ -77,8 +77,9 @@ func (m Model) paletteEntries() []palEntry {
 		}})
 	}
 	for _, g := range []button{
-		{"n", i18n.T("Nouveau ticket", "New ticket"), m.sp != nil},
+		{"n", i18n.T("Nouveau ticket", "New ticket"), len(m.projects) > 0},
 		{"t", i18n.T("Vue tableau / liste", "Board / list view"), true},
+		{"s", i18n.T("Réglages : projets, dépôts, clés, trackers", "Settings: projects, repositories, keys, trackers"), true},
 		{"l", i18n.T("English", "Français"), true},
 		{"r", i18n.T("Rafraîchir", "Refresh"), true},
 		{"?", i18n.T("Aide : tous les raccourcis", "Help: every key"), true},
@@ -127,7 +128,7 @@ func (m Model) overlayKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.allowPush()
 		case "d":
 			m.overlay = ""
-			return m, m.browsediff()
+			return m, m.diff()
 		case "esc", "q":
 			m.overlay = ""
 		}
@@ -220,10 +221,11 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 				{"n", i18n.T("nouveau ticket", "new ticket")},
 			}),
 			helpCol(i18n.T("Voir", "See"), [][2]string{
-				{"d", i18n.T("diff (browsediff)", "diff (browsediff)")},
+				{"d", i18n.T("diff de la branche", "branch diff")},
 				{"c", i18n.T("commentaires de la PR", "PR comments")},
-				{"o", i18n.T("ticket Sprintosaur", "Sprintosaur ticket")},
+				{"o", i18n.T("ticket dans son tracker", "ticket in its tracker")},
 				{"t", i18n.T("vue tableau", "board view")},
+				{"s", i18n.T("réglages et projets", "settings and projects")},
 				{"l", i18n.T("English / Français", "Français / English")},
 				{"r", i18n.T("rafraîchir", "refresh")},
 				{"q", i18n.T("retour à herdr", "back to herdr")},

@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -213,7 +214,11 @@ func Show(files []string, captions []string, start int) error {
 		case k == esc+"[D" || k == "h" || k == "p":
 			i = (i - 1 + len(files)) % len(files)
 		case k == "o":
-			_ = exec.Command("open", files[i]).Start()
+			opener := "xdg-open"
+			if runtime.GOOS == "darwin" {
+				opener = "open"
+			}
+			_ = exec.Command(opener, files[i]).Start()
 		}
 	}
 }

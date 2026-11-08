@@ -23,6 +23,10 @@ func usage() string {
 	return i18n.T(`cairn — où en est chaque chantier, à côté de herdr.
 
   cairn            ouvre la TUI (tout se fait au clavier, touches affichées en bas)
+  cairn add [dossier] [--tracker local|linear|sprintosaur] [--key EIDO] [--name eido]
+                   ajoute le dépôt (par défaut celui où tu es) aux projets suivis ;
+                   sans tracker, les tickets naissent dans cairn (EIDO-1, EIDO-2…)
+  cairn projects   liste les projets suivis
   cairn open       affiche cairn dans son propre espace herdr, ou revient à l'espace
                    d'avant s'il est déjà devant (c'est la touche herdr prefix+a)
   cairn sync       pousse la phase de chaque chantier dans la barre latérale herdr
@@ -36,6 +40,10 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
 `, `cairn — where each piece of work stands, next to herdr.
 
   cairn            opens the TUI (all keyboard driven, keys shown at the bottom)
+  cairn add [folder] [--tracker local|linear|sprintosaur] [--key EIDO] [--name eido]
+                   adds the repository (default: the one you are in) to the projects;
+                   without a tracker, tickets are born in cairn (EIDO-1, EIDO-2…)
+  cairn projects   lists the projects
   cairn open       shows cairn in its own herdr workspace, or goes back to the previous
                    workspace if cairn is already in front (herdr key prefix+a)
   cairn sync       pushes each ticket's phase to herdr's sidebar
@@ -60,14 +68,26 @@ func main() {
 	i18n.Set(cfg.Lang)
 	if flag.Arg(0) == "guard" {
 		// Claude Code PreToolUse hook: exit 2 blocks the command and shows the reason to the agent.
-		if reason := guard.Check(os.Stdin, cfg.Team, config.ChantiersDir()); reason != "" {
+		if reason := guard.Check(os.Stdin, cfg.Keys(), config.ChantiersDir()); reason != "" {
 			fmt.Fprintln(os.Stderr, reason)
 			os.Exit(2)
 		}
 		return
 	}
-	if err := cfg.Check(); err != nil {
-		fail(err)
+	switch flag.Arg(0) {
+	case "add":
+		if err := add(flag.Args()[1:]); err != nil {
+			fail(err)
+		}
+		return
+	case "projects":
+		listProjects(cfg)
+		return
+	}
+	// The TUI opens anyway, on its settings, to fix what is wrong.
+	checkErr := cfg.Check()
+	if checkErr != nil && flag.Arg(0) != "" {
+		fail(checkErr)
 	}
 	if !herdr.Available() {
 		fail(fmt.Errorf("%s", i18n.T("herdr est introuvable dans le PATH", "herdr is not in the PATH")))
@@ -75,7 +95,11 @@ func main() {
 
 	switch flag.Arg(0) {
 	case "":
-		if _, err := tea.NewProgram(tui.New(cfg), tea.WithAltScreen(), tea.WithMouseAllMotion(), tea.WithReportFocus()).Run(); err != nil {
+		m := tui.New(cfg)
+		if checkErr != nil {
+			m = m.StartInSettings(checkErr)
+		}
+		if _, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion(), tea.WithReportFocus()).Run(); err != nil {
 			fail(err)
 		}
 	case "open":
@@ -118,19 +142,67 @@ func sync(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	wts, err := herdr.ListWorktrees(cfg.Repo)
-	if err != nil {
-		return err
+	var sources []chantier.Source
+	for _, p := range cfg.Projects {
+		wts, err := herdr.ListWorktrees(p.Repo)
+		if err != nil {
+			return err
+		}
+		sources = append(sources, chantier.Source{Project: p.Name, Key: p.Key, Repo: p.Repo, Worktrees: wts})
 	}
-	list, _ := chantier.Gather(chantier.Input{
-		Team: cfg.Team, Repo: cfg.Repo, ChantiersDir: config.ChantiersDir(), Worktrees: wts, Snapshot: snap,
-	})
+	list, _ := chantier.Gather(chantier.Input{ChantiersDir: config.ChantiersDir(), Sources: sources, Snapshot: snap})
 	for ws, v := range tui.TokensFor(list, snap) {
 		if err := herdr.ReportToken(ws, v); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// add follows a new repository: cairn add [dir] [--tracker …] [--key …] [--name …].
+func add(args []string) error {
+	fs := flag.NewFlagSet("add", flag.ExitOnError)
+	var p config.Project
+	fs.StringVar(&p.Tracker, "tracker", "local", i18n.T("d'où viennent les tickets : local, linear ou sprintosaur", "where tickets come from: local, linear or sprintosaur"))
+	fs.StringVar(&p.Key, "key", "", i18n.T("préfixe des tickets (clé d'équipe avec Linear ou Sprintosaur) ; par défaut le nom du dossier", "ticket prefix (team key with Linear or Sprintosaur); default: the folder name"))
+	fs.StringVar(&p.Name, "name", "", i18n.T("nom court du projet", "short name of the project"))
+	fs.StringVar(&p.Credentials, "credentials", "", i18n.T("fichier KEY=VALUE du jeton du tracker", "KEY=VALUE file with the tracker's token"))
+	fs.StringVar(&p.Base, "base", "", i18n.T("branche de départ (par défaut celle du remote)", "base branch (default: the remote's)"))
+	// Flags may come before or after the folder.
+	_ = fs.Parse(args)
+	p.Repo = "."
+	if rest := fs.Args(); len(rest) > 0 {
+		p.Repo = rest[0]
+		_ = fs.Parse(rest[1:])
+	}
+	switch p.Tracker {
+	case "local", "linear", "sprintosaur":
+	default:
+		return fmt.Errorf(i18n.T("tracker inconnu %q (local, linear ou sprintosaur)", "unknown tracker %q (local, linear or sprintosaur)"), p.Tracker)
+	}
+	if p.Tracker != "local" && p.Key == "" {
+		return fmt.Errorf("%s", i18n.T("avec un tracker, --key donne la clé d'équipe (ex. --key ENG)", "with a tracker, --key gives the team key (e.g. --key ENG)"))
+	}
+	full, err := config.AddProject(p)
+	if err != nil {
+		return err
+	}
+	fmt.Printf(i18n.T("✓ projet %s ajouté : %s, tickets %s-…, tracker %s\n", "✓ project %s added: %s, tickets %s-…, tracker %s\n"), full.Name, full.Repo, full.Key, full.Tracker)
+	if full.Tracker == "linear" && os.Getenv("LINEAR_API_KEY") == "" && full.Credentials == "" {
+		fmt.Println(i18n.T("! Linear : exporte LINEAR_API_KEY (clé personnelle) ou passe --credentials <fichier>",
+			"! Linear: export LINEAR_API_KEY (personal key) or pass --credentials <file>"))
+	}
+	return nil
+}
+
+func listProjects(cfg config.Config) {
+	if len(cfg.Projects) == 0 {
+		fmt.Println(i18n.T("Aucun projet : lance « cairn add » dans un dépôt.", "No project: run \"cairn add\" in a repository."))
+		return
+	}
+	for _, p := range cfg.Projects {
+		fmt.Printf("%-10s %-8s %-12s %s\n", p.Name, p.Key+"-", p.Tracker, p.Repo)
+	}
 }
 
 func fail(err error) {

@@ -38,7 +38,7 @@ type watchState struct {
 	cleanedAt   map[string]time.Time // last cleanup attempt
 	polling     bool
 	lang        string // language of prevWaiting: a toggle is not a new wait
-	// ready: Sprintosaur issues are loaded. Before that, a chantier with a PR
+	// ready: the trackers' issues are loaded. Before that, a chantier with a PR
 	// looks like Build (no PR known yet): journaling it would log a false
 	// Build → Review on every start.
 	ready bool
@@ -56,7 +56,7 @@ func notify(title, body string) tea.Cmd {
 	return func() tea.Msg { _ = herdr.Notify(title, body); return nil }
 }
 
-// observe records phase changes in each chantier's journal, keeps Sprintosaur
+// observe records phase changes in each chantier's journal, keeps the tracker
 // in step, and notifies when a chantier starts waiting for you.
 func (m *Model) observe() tea.Cmd {
 	if !m.watch.ready {
@@ -103,7 +103,7 @@ func (m *Model) observe() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// onPhase reacts to a phase change: Sprintosaur follows the work.
+// onPhase reacts to a phase change: the tracker follows the work.
 func (m *Model) onPhase(c *chantier.Chantier, phase string) tea.Cmd {
 	switch phase {
 	case chantier.Build.String():
@@ -114,17 +114,22 @@ func (m *Model) onPhase(c *chantier.Chantier, phase string) tea.Cmd {
 	return nil
 }
 
-// ticketInProgress moves a not-started ticket to In Progress.
+// ticketInProgress moves a not-started ticket to in progress in its tracker.
 func (m *Model) ticketInProgress(c *chantier.Chantier) tea.Cmd {
-	if m.sp == nil || c.Issue == nil || (c.Issue.Status != "Backlog" && c.Issue.Status != "Todo") {
+	p := m.projectOf(c)
+	if p == nil || p.tr == nil || c.Issue == nil || c.Issue.Started {
 		return nil
 	}
-	sp, key := m.sp, c.Key
+	tr, is, key := p.tr, *c.Issue, c.Key
 	return func() tea.Msg {
-		if err := sp.SetStatus(key, "In Progress"); err != nil {
+		moved, err := tr.Start(is)
+		if err != nil {
 			return doneMsg{err: err}
 		}
-		return doneMsg{text: key + i18n.T(" passé en In Progress dans Sprintosaur.", " moved to In Progress in Sprintosaur."), refresh: true}
+		if !moved {
+			return nil
+		}
+		return doneMsg{text: fmt.Sprintf(i18n.T("%s passé en cours dans %s.", "%s moved to in progress in %s."), key, tr.Name()), refresh: true}
 	}
 }
 

@@ -141,7 +141,7 @@ func (m Model) cleanup(c *chantier.Chantier, force bool) tea.Cmd {
 		}
 	}
 	var ws string
-	for _, w := range m.worktrees {
+	for _, w := range m.allWorktrees() {
 		if linked && filepath.Clean(w.Path) == filepath.Clean(wt) {
 			ws = w.OpenWorkspaceID
 		}
