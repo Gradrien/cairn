@@ -1,5 +1,5 @@
-// Package chantier joins Sprintosaur issues, git worktrees, herdr agents and
-// chantier files into one list of "where is each piece of work".
+// Package chantier joins tickets, git worktrees, pull requests, herdr agents
+// and chantier files into one list of "where is each piece of work".
 package chantier
 
 import (
@@ -14,8 +14,8 @@ import (
 
 	"cairn/internal/herdr"
 	"cairn/internal/i18n"
-	"cairn/internal/sprintosaur"
 	"cairn/internal/state"
+	"cairn/internal/tracker"
 )
 
 type Phase int
@@ -49,9 +49,11 @@ var Flow = []Phase{Plan, Build, Review, Shipped}
 
 type Chantier struct {
 	Key        string
-	Issue      *sprintosaur.Issue
-	Worktree   string // empty when no worktree yet
-	Main       bool   // worktree is the repo's main checkout
+	Project    string // name of the project it belongs to
+	Issue      *tracker.Issue
+	PRs        []tracker.PullRequest // oldest first
+	Worktree   string                // empty when no worktree yet
+	Main       bool                  // worktree is the repo's main checkout
 	Branch     string
 	Workspaces []string
 	State      *state.State
@@ -62,6 +64,9 @@ type Chantier struct {
 func (c *Chantier) Title() string {
 	if c.Issue != nil && c.Issue.Title != "" {
 		return c.Issue.Title
+	}
+	if c.State != nil && c.State.Title != "" {
+		return c.State.Title
 	}
 	return c.Branch
 }
@@ -80,16 +85,24 @@ func (c *Chantier) Waiting() string {
 }
 
 // OpenPR returns the first non-closed pull request.
-func (c *Chantier) OpenPR() *sprintosaur.PullRequest {
-	if c.Issue == nil {
-		return nil
-	}
-	for i, pr := range c.Issue.PullRequests {
+func (c *Chantier) OpenPR() *tracker.PullRequest {
+	for i, pr := range c.PRs {
 		if pr.State == "open" || pr.State == "draft" {
-			return &c.Issue.PullRequests[i]
+			return &c.PRs[i]
 		}
 	}
 	return nil
+}
+
+// LastPR is the open pull request, else the latest one, else nil.
+func (c *Chantier) LastPR() *tracker.PullRequest {
+	if pr := c.OpenPR(); pr != nil {
+		return pr
+	}
+	if len(c.PRs) == 0 {
+		return nil
+	}
+	return &c.PRs[len(c.PRs)-1]
 }
 
 // Token is the short status shown in herdr's sidebar.
@@ -105,14 +118,14 @@ func (c *Chantier) Token() string {
 }
 
 func derivePhase(c *Chantier) Phase {
-	if c.Issue != nil && len(c.Issue.PullRequests) > 0 {
+	if len(c.PRs) > 0 {
 		merged := true
-		for _, pr := range c.Issue.PullRequests {
+		for _, pr := range c.PRs {
 			if pr.State != "merged" && pr.State != "closed" {
 				merged = false
 			}
 		}
-		if merged || c.Issue.Status == "Done" {
+		if merged || (c.Issue != nil && c.Issue.Done) {
 			return Shipped
 		}
 	}
@@ -137,80 +150,107 @@ func derivePhase(c *Chantier) Phase {
 	return ToPlan
 }
 
-// withGitHub copies an issue with its PR states corrected from GitHub.
-func withGitHub(is sprintosaur.Issue, gh map[string]string) *sprintosaur.Issue {
-	is.PullRequests = append([]sprintosaur.PullRequest(nil), is.PullRequests...)
-	for i, pr := range is.PullRequests {
+// withGitHub corrects PR states from GitHub, which wins over a tracker's
+// copy that can lag behind.
+func withGitHub(prs []tracker.PullRequest, gh map[string]string) []tracker.PullRequest {
+	prs = append([]tracker.PullRequest(nil), prs...)
+	for i, pr := range prs {
 		switch gh[pr.URL] {
 		case "MERGED":
-			is.PullRequests[i].State = "merged"
+			prs[i].State = "merged"
 		case "CLOSED":
-			is.PullRequests[i].State = "closed"
+			prs[i].State = "closed"
 		}
 	}
-	return &is
+	return prs
 }
 
-// KeyRe finds a ticket key for team in a branch name.
-func KeyRe(team string) *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:^|[/_-])(` + regexp.QuoteMeta(team) + `-\d+)(?:$|[^0-9])`)
+// KeyRe finds a ticket key of one of the prefixes (YAK, EIDO…) in a branch name.
+func KeyRe(prefixes ...string) *regexp.Regexp {
+	alt := make([]string, len(prefixes))
+	for i, p := range prefixes {
+		alt[i] = regexp.QuoteMeta(p)
+	}
+	return regexp.MustCompile(`(?i)(?:^|[/_-])((?:` + strings.Join(alt, "|") + `)-\d+)(?:$|[^0-9])`)
+}
+
+// Source is what one project knows.
+type Source struct {
+	Project string // project name
+	Key     string // ticket prefix
+	Repo    string // main checkout
+	// Issues are the tickets to show, may be nil when the tracker is unreachable.
+	Issues    []tracker.Issue
+	Worktrees []herdr.Worktree
+	// BranchPRs are the pull requests GitHub has for a branch, newest first.
+	BranchPRs map[string][]tracker.PullRequest
 }
 
 type Input struct {
-	Team         string
-	Repo         string
 	ChantiersDir string
-	Issues       []sprintosaur.Issue // may be nil when Sprintosaur is unreachable
-	ExtraIssues  map[string]sprintosaur.Issue
-	Worktrees    []herdr.Worktree
+	Sources      []Source
 	Snapshot     herdr.Snapshot
 	// GitHubPRs is the state GitHub reports for a PR URL (OPEN, MERGED,
-	// CLOSED). It wins over Sprintosaur's copy, which can lag behind.
+	// CLOSED). It wins over the tracker's copy, which can lag behind.
 	GitHubPRs map[string]string
 }
 
 // Gather returns the chantiers, most urgent first, and the agents that belong to none.
 func Gather(in Input) ([]*Chantier, []herdr.Agent) {
 	byKey := map[string]*Chantier{}
-	get := func(key string) *Chantier {
+	get := func(key, project string) *Chantier {
 		key = strings.ToUpper(key)
 		c, ok := byKey[key]
 		if !ok {
-			c = &Chantier{Key: key}
+			c = &Chantier{Key: key, Project: project}
 			byKey[key] = c
 		}
 		return c
 	}
-	for i := range in.Issues {
-		get(in.Issues[i].ID).Issue = withGitHub(in.Issues[i], in.GitHubPRs)
-	}
-	for key := range in.ExtraIssues {
-		get(key) // tickets started from outside the cycle
-	}
-	re := KeyRe(in.Team)
-	repo := filepath.Clean(in.Repo)
-	for _, wt := range in.Worktrees {
-		m := re.FindStringSubmatch(wt.Branch)
-		if m == nil {
-			continue
+	for _, src := range in.Sources {
+		for i := range src.Issues {
+			if c := get(src.Issues[i].ID, src.Project); c.Issue == nil {
+				is := src.Issues[i]
+				c.Issue = &is
+			}
 		}
-		c := get(m[1])
-		if c.Worktree != "" && filepath.Clean(wt.Path) == repo {
-			continue // a linked worktree wins over the main checkout
+		re := KeyRe(src.Key)
+		repo := filepath.Clean(src.Repo)
+		for _, wt := range src.Worktrees {
+			m := re.FindStringSubmatch(wt.Branch)
+			if m == nil {
+				continue
+			}
+			c := get(m[1], src.Project)
+			if c.Worktree != "" && filepath.Clean(wt.Path) == repo {
+				continue // a linked worktree wins over the main checkout
+			}
+			c.Worktree, c.Branch = wt.Path, wt.Branch
+			c.Main = filepath.Clean(wt.Path) == repo
+			c.Workspaces = nil
+			if wt.OpenWorkspaceID != "" && !c.Main {
+				c.Workspaces = append(c.Workspaces, wt.OpenWorkspaceID)
+			}
 		}
-		c.Worktree, c.Branch = wt.Path, wt.Branch
-		c.Main = filepath.Clean(wt.Path) == repo
-		c.Workspaces = nil
-		if wt.OpenWorkspaceID != "" && !c.Main {
-			c.Workspaces = append(c.Workspaces, wt.OpenWorkspaceID)
+		for _, c := range byKey {
+			if c.Project != src.Project {
+				continue
+			}
+			var prs []tracker.PullRequest
+			if c.Issue != nil {
+				prs = append(prs, c.Issue.PullRequests...)
+			}
+			// GitHub lists newest first; chantiers keep the oldest first.
+			found := src.BranchPRs[c.Branch]
+			for i := len(found) - 1; i >= 0; i-- {
+				if c.Branch != "" && !hasPR(prs, found[i].URL) {
+					prs = append(prs, found[i])
+				}
+			}
+			c.PRs = withGitHub(prs, in.GitHubPRs)
 		}
 	}
 	for key, c := range byKey {
-		if c.Issue == nil {
-			if is, ok := in.ExtraIssues[key]; ok {
-				c.Issue = withGitHub(is, in.GitHubPRs)
-			}
-		}
 		if s, err := state.Load(state.PathFor(in.ChantiersDir, key)); err == nil {
 			c.State = s
 		}
@@ -278,6 +318,15 @@ func owner(a herdr.Agent, byKey map[string]*Chantier) *Chantier {
 	return nil
 }
 
+func hasPR(prs []tracker.PullRequest, url string) bool {
+	for _, p := range prs {
+		if p.URL == url {
+			return true
+		}
+	}
+	return false
+}
+
 func contains(xs []string, x string) bool {
 	for _, y := range xs {
 		if y == x {
@@ -310,18 +359,19 @@ func Slug(title string, max int) string {
 }
 
 // PlanPrompt is what a new chantier's agent is asked first.
-func PlanPrompt(key, title, statePath string) string {
+// guide says where the agent reads the ticket (see tracker.Tracker.Guide).
+func PlanPrompt(key, title, statePath, guide string) string {
 	return fmt.Sprintf(i18n.T("Planifie le ticket %s « %s » avec le workflow cairn (skill cairn). "+
-		"Lis le ticket et ses commentaires via le skill sprintosaur, explore le code, puis écris le plan dans %s, "+
+		"%s, explore le code, puis écris le plan dans %s, "+
 		"à la taille du ticket. Recense les effets de bord : tout ce que le changement peut casser ou modifier ailleurs "+
-		"(autres appelants et écrans, autres apps du monorepo, données existantes, permissions, migrations, notifications, "+
+		"(autres appelants et écrans, autres parties du dépôt, données existantes, permissions, migrations, notifications, "+
 		"performances), avec pour chacun une tâche qui le vérifie. Termine par `attente: Valider le plan` et arrête-toi : ne code rien avant ma validation.",
 		"Plan ticket %s \"%s\" with the cairn workflow (cairn skill). "+
-			"Read the ticket and its comments with the sprintosaur skill, explore the code, then write the plan in %s, "+
+			"%s, explore the code, then write the plan in %s, "+
 			"sized to the ticket. List the side effects: everything the change can break or alter elsewhere "+
-			"(other callers and screens, other apps of the monorepo, existing data, permissions, migrations, notifications, "+
+			"(other callers and screens, other parts of the repository, existing data, permissions, migrations, notifications, "+
 			"performance), each with a task that checks it. Finish with `attente: Valider le plan` and stop: write no code before I approve."),
-		key, title, statePath)
+		key, title, guide, statePath)
 }
 
 // BuildPrompt is sent when the plan is approved.

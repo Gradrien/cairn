@@ -34,7 +34,8 @@ under **Attend ta décision** ("waiting for your decision"), with the exact thin
 
 A ticket in cairn is a **chantier** (French for a work site). It ties together:
 
-- the **Sprintosaur ticket**: title, status, priority, estimate;
+- the **ticket**: title, status, priority, estimate, from **Linear**, **Sprintosaur**, or **no tracker at all**
+  (the ticket is born in cairn from a title);
 - its **git worktree** and its own **herdr workspace**;
 - its **agents**, wherever they run;
 - its **plan file**, `~/.cairn/chantiers/YAK-123.md`, which the agents keep up to date: phase, tasks, side effects, proofs,
@@ -45,8 +46,13 @@ Every chantier moves through **Plan → Build → Review → Shipped**, and cair
 
 <img src="docs/plan.png" alt="A chantier waiting for a decision: the card with its buttons, an open question to answer, tasks with the done ones folded" width="100%">
 
-**Start any ticket.** Your current-cycle tickets are already listed. `Nouveau ticket` ("new ticket") starts any other:
-type its number, or pick one of the cycle's unassigned tickets. It is assigned to you and its plan starts right away.
+**Several projects, one screen.** cairn follows as many repositories as you like (`cairn add` in each), each with its
+own tracker: your work project on Linear, a side project with no tracker at all. Every ticket key says which project it
+belongs to (`ENG-42`, `EIDO-7`).
+
+**Start any ticket.** Your open tickets are already listed. `Nouveau ticket` ("new ticket") starts any other: type its
+number, or pick one nobody has; it is assigned to you and its plan starts right away. In a project without a tracker,
+type a title instead: cairn numbers it (`EIDO-8`) and the plan starts. `tab` switches the project.
 
 **Plan with one click.** `Planifier` creates the worktree and its herdr workspace, starts Claude, and asks for a plan
 sized to the ticket. Plans always list their **side effects**: other callers, screens, data, emails. Each one must be
@@ -94,8 +100,9 @@ on a chantier's branch until you allow it. Unfinished work stays off the CI pipe
   look of a couple of seconds; your own comments and CI bots are not news.
 - **Notifications.** herdr notifies you when a chantier is waiting for you, when the CI breaks, when a review requests
   changes or approves, and when a chantier ships.
-- **Sprintosaur follows.** A ticket moves to *In Progress* when its plan starts. *Pull Request* and *Done* follow the linked PRs.
-- **Shipped tickets clean up after themselves.** When the PR is merged (GitHub's word, not only Sprintosaur's), the
+- **The tracker follows.** A Linear or Sprintosaur ticket moves to *In Progress* when its plan starts; the tracker's
+  GitHub integration takes it from there. Without a tracker, there is nothing to keep in step.
+- **Shipped tickets clean up after themselves.** When the PR is merged (GitHub's word, not only the tracker's), the
   chantier leaves the list and cairn removes its worktree and herdr workspace and archives its plan. It only does so
   when nothing can be lost: no uncommitted change, no commit missing from GitHub, no agent at work. Otherwise the
   chantier stays in view with the reason, and **Fermer le chantier** (`x`, "close the ticket") closes it by hand: it
@@ -129,7 +136,8 @@ their `file:line`. Markdown is rendered and bot noise is folded away.
 - cairn lives in **its own herdr workspace**. Click `cairn` in herdr's sidebar or press `prefix+a` to toggle between
   cairn and where you were.
 - herdr's sidebar shows each workspace's phase, and under cairn, how many chantiers are waiting for you.
-- `enter` on a chantier jumps straight to its agent's pane. `d` opens browsediff on the branch.
+- `enter` on a chantier jumps straight to its agent's pane. `d` opens the branch's diff (browsediff when installed,
+  `git diff` otherwise, or any command you set).
 - An agent started outside a chantier can be **attached** with one click. cairn names it after the ticket.
 - A herdr plugin brings cairn back every time herdr starts.
 
@@ -148,19 +156,27 @@ shows the chantiers as a board by phase. In a narrow pane, cairn shows one pane 
 
 ### Your first chantier in three steps.
 
-**1. Install.** You need Go, `gh` logged in (`gh auth login`), herdr, and the Sprintosaur skill with its credentials.
+**1. Install.** You need Go, `gh` logged in (`gh auth login`) and herdr.
 
 ```sh
 git clone https://github.com/Gradrien/cairn.git && cd cairn
 ./install.sh --herdr
 ```
 
-The first run asks for two things: where your Yak-App checkout is, and your Sprintosaur handle (guessed from your
-git email). It then installs the binary, the `cairn` skill for agents, the push guard hook, the herdr plugin, the
-sidebar button and `prefix+a`. Run `./install.sh` again after every `git pull`. It also restarts the running cairn.
+The first run asks for a first repository and its tracker. Add more at any time, from inside each repository:
 
-**2. Plan a ticket.** Open cairn from herdr's sidebar, pick a ticket from your current cycle and press `Planifier`,
-or press `Nouveau ticket` for any other.
+```sh
+cairn add                                   # no tracker: tickets are born in cairn (EIDO-1, EIDO-2…)
+cairn add --tracker linear --key ENG        # Linear team ENG; export LINEAR_API_KEY (a personal API key)
+cairn add --tracker sprintosaur --key YAK   # Sprintosaur, with the sprintosaur skill's credentials
+cairn projects                              # what cairn follows
+```
+
+`install.sh` also installs the binary, the `cairn` skill for agents, the push guard hook, the herdr plugin, the sidebar
+button and `prefix+a`. Run it again after every `git pull`. It also restarts the running cairn.
+
+**2. Plan a ticket.** Open cairn from herdr's sidebar, pick one of your tickets and press `Planifier`, or press
+`Nouveau ticket` for any other (or, without a tracker, to write one).
 
 **3. Approve with evidence.** Approve the plan, follow the build, read the proofs, allow the push, then answer the
 review from the PR view.
@@ -173,16 +189,16 @@ review from the PR view.
 | Key | Button | Action |
 |---|---|---|
 | `enter` | Aller à l'agent | jump to the chantier's agent (the one waiting first) |
-| `d` | Diff | browsediff of the branch (`origin/main...HEAD`) |
+| `d` | Diff | the branch's diff (`<base>...HEAD`): browsediff, `git diff`, or the project's `diff` command |
 | `p` | Planifier | create worktree and workspace, start Claude, ask for the plan |
-| `n` | Nouveau ticket | start a ticket outside your list: type its number or pick an unassigned one |
+| `n` | Nouveau ticket | start a ticket outside your list: type its number or pick an unassigned one; without a tracker, type its title (`tab`: other project) |
 | `v` | Valider | approve what is waiting (plan approved → Build) |
 | `e` | Répondre | answer the plan's open questions; the answer goes to the agent |
 | `a` | Autoriser le push | review what will leave, then allow that commit to leave (push, PR, retries; free once the PR is open) |
 | `x` | Fermer le chantier | on a shipped ticket: see what would be lost, then remove its worktree and archive its plan |
 | `c` | Commentaires | PR conversation and images |
 | `f` | Corriger la CI | send the failing CI logs to the agent (shown when CI fails) |
-| `o` | Ticket | open the ticket in Sprintosaur |
+| `o` | Ticket | open the ticket in its tracker |
 | `ctrl+k` | palette | search every ticket and action |
 | `?` | aide | every key |
 | `t` | tableau | board view: chantiers by phase (`←` `→` `↑` `↓`, `enter` opens the detail) |
@@ -191,6 +207,7 @@ review from the PR view.
 | `space` `pgup` | | scroll the detail by a page |
 | `[` `]` | | previous / next section of the detail |
 | `z` | | unfold / fold everything in the detail |
+| `s` | | settings: projects, repositories, keys, trackers |
 | `l` | | switch the interface language |
 | `r` | | refresh |
 | `q` | | back to the previous herdr workspace |
@@ -203,23 +220,38 @@ Preview, `q` back.
 <details>
 <summary><b>Configuration</b></summary>
 
-`~/.cairn/config.json`. Only `repo` and `assignee` are personal. Everything else defaults to the team's values and
-can be overridden:
+`~/.cairn/config.json`, written by `cairn add` and by the **settings screen** (`s` in cairn): change a project's
+repository, key or tracker, add or remove a project, each change checked and applied at once. cairn opens on that
+screen when the config cannot work. One entry per project; only `repo` is required:
 
-| Key | Default |
+```json
+{
+  "lang": "fr",
+  "projects": [
+    { "name": "eido", "repo": "~/code/eido", "key": "EIDO", "tracker": "local" },
+    { "name": "work", "repo": "~/code/app", "key": "ENG", "tracker": "linear", "diff": "git difftool -d {base}...HEAD" }
+  ]
+}
+```
+
+| Project key | Default |
 |---|---|
-| `repo` | your Yak-App checkout (asked on install) |
-| `assignee` | your Sprintosaur handle (asked on install) |
-| `team` | `YAK` |
+| `repo` | the main checkout; its worktrees are the chantiers |
+| `key` | the ticket prefix, and the team key in Linear or Sprintosaur (default: the folder name, `EIDO`) |
+| `name` | the key in lower case |
+| `tracker` | `local` (no tracker), `linear` or `sprintosaur` |
+| `credentials` | a `KEY=VALUE` file with the tracker's token. Linear: `LINEAR_API_KEY` (the environment variable wins). Sprintosaur: `~/.claude/skills/sprintosaur/credentials.env` (or `SPRINTOSAUR_API` / `SPRINTOSAUR_TOKEN`) |
+| `assignee` | your Sprintosaur handle (default: guessed from your git email) |
+| `web` | the base URL of issue pages, for Sprintosaur (Linear gives its own) |
 | `branch_prefix` | `<assignee>/` |
-| `base` | `origin/main` |
+| `base` | the remote's default branch (`origin/main`) |
 | `worktree_parent` | the folder that contains `repo` |
-| `agent_kind` | `claude` |
-| `sprintosaur_credentials` | `~/.claude/skills/sprintosaur/credentials.env` (or `SPRINTOSAUR_API` / `SPRINTOSAUR_TOKEN`) |
-| `sprintosaur_web` | Sprintosaur's issue URL |
-| `lang` | `fr` (or `en`; the `l` button sets it) |
+| `agent_kind` | `claude` (also settable for every project at the top level) |
+| `diff` | the command `d` runs in the worktree, `{base}` replaced (also settable at the top level) |
 
-If `repo` is wrong, cairn says so on startup and points to the file.
+At the top level, `lang` is `fr` or `en` (the `l` button sets it). A config from before projects (`repo`, `team`,
+`assignee`, `sprintosaur_*` at the top level) still works as one Sprintosaur project; `cairn add` rewrites it in the new
+form. If a `repo` is wrong, cairn says so on startup and points to the file.
 
 </details>
 
@@ -229,10 +261,12 @@ If `repo` is wrong, cairn says so on startup and points to the file.
 - **Plan files.** Agents keep `~/.cairn/chantiers/<TICKET>.md` up to date through the `cairn` skill (`skill/SKILL.md`):
   front matter (`phase`, `attente`, `push`), a summary, tasks (`[ ]`, `[~]`, `[x]`), `## Questions`,
   `## Effets de bord` (side effects), `## Preuves` (proofs).
-- **Matching.** A worktree belongs to a ticket when its branch contains the key (`yak-123`). An agent belongs to it when
-  it works in that worktree, or when its name or title mentions the ticket.
+- **Matching.** A worktree belongs to a ticket when its branch contains the key (`eng-123`), with the prefix of the
+  project whose repository it is. An agent belongs to it when it works in that worktree, or when its name or title
+  mentions the ticket. A PR belongs to it when the tracker links them, or when it comes from the chantier's branch.
 - **Phase.** Read from the plan file. Without one, an open PR means Review and a worktree means Build. Merged PRs mean Shipped.
-- **Data.** herdr's socket API for agents and workspaces, Sprintosaur's API for tickets, `gh` for PRs, CI and images.
+- **Data.** herdr's socket API for agents and workspaces, the tracker's API for tickets (Linear's GraphQL API,
+  Sprintosaur's REST API, or the chantier files themselves), `gh` for PRs, CI and images.
   History in `~/.cairn/chantiers/<TICKET>.log`, caches in `~/.cairn/cache/`, archives in `~/.cairn/archive/`.
 - **Push guard.** A Claude Code `PreToolUse` hook on Bash. Allowing writes `push: autorisé <commit>` in the plan; the
   hook lets pushes and `gh pr` commands through while the branch's HEAD is that commit. Once the branch has an open PR

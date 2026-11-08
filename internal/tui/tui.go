@@ -23,7 +23,6 @@ import (
 	"cairn/internal/journal"
 	"cairn/internal/progress"
 	"cairn/internal/prthread"
-	"cairn/internal/sprintosaur"
 	"cairn/internal/state"
 )
 
@@ -69,13 +68,10 @@ type Model struct {
 	cfg    config.Config
 	inside bool // running in cairn's own herdr workspace
 
-	sp        *sprintosaur.Client
-	spErr     error
-	issues    []sprintosaur.Issue
-	extra     map[string]sprintosaur.Issue
-	worktrees []herdr.Worktree
-	snap      herdr.Snapshot
-	localErr  error
+	projects []*project
+	loaded   bool // the trackers answered once
+	snap     herdr.Snapshot
+	localErr error
 
 	chantiers []*chantier.Chantier
 	all       []*chantier.Chantier // chantiers, shipped ones the list hides included
@@ -113,6 +109,7 @@ type Model struct {
 	shipped     int        // shipped chantiers left out of the list
 	showShipped bool       // list them anyway
 	pick        *pickState // the "new ticket" view
+	settings    *settingsState
 
 	// The comments view ("" is the main screen).
 	view      string
@@ -131,24 +128,14 @@ type Model struct {
 
 func New(cfg config.Config) Model {
 	m := Model{cfg: cfg, inside: home.Inside(), hoverItem: -1, hoverBtn: -1, watch: newWatch(),
-		gits: map[string]progress.Git{}, prs: map[string]progress.PR{}, readAt: map[string]time.Time{}, reading: map[string]bool{}, tokens: map[string]string{}, extra: map[string]sprintosaur.Issue{},
+		gits: map[string]progress.Git{}, prs: map[string]progress.PR{}, readAt: map[string]time.Time{}, reading: map[string]bool{}, tokens: map[string]string{},
 		unfold: map[string]bool{}, answered: map[string]string{}, seen: loadSeen(seenPath())}
-	m.sp, m.spErr = sprintosaur.New(cfg.SprintosaurCredentials)
+	m.projects = newProjects(cfg)
 	return m
 }
 
 // ── messages ────────────────────────────────────────────────────────────────
 
-type localMsg struct {
-	worktrees []herdr.Worktree
-	snap      herdr.Snapshot
-	err       error
-}
-type issuesMsg struct {
-	issues []sprintosaur.Issue
-	extra  map[string]sprintosaur.Issue
-	err    error
-}
 type tickLocal struct{}
 type tickIssues struct{}
 type doneMsg struct {
@@ -162,52 +149,6 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.loadLocal(), m.loadIssues(), tea.SetWindowTitle("cairn"))
 }
 
-func (m Model) loadLocal() tea.Cmd {
-	repo := m.cfg.Repo
-	return func() tea.Msg {
-		snap, err := herdr.GetSnapshot()
-		if err != nil {
-			return localMsg{err: err}
-		}
-		wts, err := herdr.ListWorktrees(repo)
-		return localMsg{worktrees: wts, snap: snap, err: err}
-	}
-}
-
-func (m Model) loadIssues() tea.Cmd {
-	if m.sp == nil {
-		return nil
-	}
-	sp, cfg := m.sp, m.cfg
-	return func() tea.Msg {
-		issues, err := sp.CurrentIssues(cfg.Team, cfg.Assignee)
-		if err != nil {
-			return issuesMsg{err: err}
-		}
-		// Worktrees whose ticket is not in the current cycle still deserve a title.
-		known := map[string]bool{}
-		for _, is := range issues {
-			known[is.ID] = true
-		}
-		extra := map[string]sprintosaur.Issue{}
-		if wts, err := herdr.ListWorktrees(cfg.Repo); err == nil {
-			re := chantier.KeyRe(cfg.Team)
-			for _, wt := range wts {
-				if mm := re.FindStringSubmatch(wt.Branch); mm != nil {
-					key := strings.ToUpper(mm[1])
-					if !known[key] && len(extra) < 15 {
-						if is, err := sp.Issue(key); err == nil && is.ID != "" {
-							extra[key] = is
-						}
-						known[key] = true
-					}
-				}
-			}
-		}
-		return issuesMsg{issues: issues, extra: extra}
-	}
-}
-
 func every(d time.Duration, msg tea.Msg) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return msg })
 }
@@ -219,8 +160,7 @@ func (m *Model) rebuild() tea.Cmd {
 		selKey = c.Key
 	}
 	m.chantiers, m.others = chantier.Gather(chantier.Input{
-		Team: m.cfg.Team, Repo: m.cfg.Repo, ChantiersDir: config.ChantiersDir(),
-		Issues: m.issues, ExtraIssues: m.extra, Worktrees: m.worktrees, Snapshot: m.snap,
+		ChantiersDir: config.ChantiersDir(), Sources: m.sources(), Snapshot: m.snap,
 		GitHubPRs: m.githubPRs(),
 	})
 	// A shipped chantier leaves the list (cairn cleans it up), unless
@@ -378,16 +318,13 @@ func (m *Model) readProgress() tea.Cmd {
 		m.lookedAt = time.Now()
 		m.detailOf, m.scroll, m.answerQ, m.answerText = c.Key, 0, "", ""
 	}
-	key, wt, base := c.Key, c.Worktree, m.cfg.Base
+	key, wt, base := c.Key, c.Worktree, m.base(c)
 	var prURL string
-	if c.Issue != nil && len(c.Issue.PullRequests) > 0 {
-		prURL = c.Issue.PullRequests[len(c.Issue.PullRequests)-1].URL
-		if pr := c.OpenPR(); pr != nil {
-			prURL = pr.URL
-		}
+	if pr := c.LastPR(); pr != nil {
+		prURL = pr.URL
 	}
 	// Read again when stale, or when a PR or worktree showed up since (the
-	// first read can happen before Sprintosaur answered).
+	// first read can happen before the tracker answered).
 	_, hasPR := m.prs[key]
 	_, hasGit := m.gits[key]
 	missing := (prURL != "" && !hasPR) || (wt != "" && !hasGit)
@@ -417,7 +354,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.notePR(key, pr))
 		}
 		// Phases are journaled once issues AND GitHub's PR states are known:
-		// before, a merged PR still looks open (Sprintosaur lags).
+		// before, a merged PR still looks open (trackers lag).
 		m.watch.ready = true
 		cmds = append(cmds, m.rebuild())
 		return m, tea.Batch(append(cmds, every(prsEvery, tickPRs{}))...)
@@ -452,7 +389,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case localMsg:
 		m.localErr = msg.err
 		if msg.err == nil {
-			m.worktrees, m.snap = msg.worktrees, msg.snap
+			m.snap = msg.snap
+			for _, p := range m.projects {
+				p.worktrees = msg.worktrees[p.cfg.Name]
+			}
 		}
 		return m, tea.Batch(m.rebuild(), every(localEvery, tickLocal{}))
 
@@ -476,11 +416,19 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case pickListMsg:
 		if m.pick != nil {
+			if msg.project != m.pick.project {
+				return m, nil
+			}
 			m.pick.loading = false
 			m.pick.list = m.pickList(msg.issues)
 			if msg.err != nil {
 				m.say("", msg.err)
 			}
+		}
+		return m, nil
+	case connCheckMsg:
+		if m.settings != nil {
+			m.settings.checks[msg.name] = &connCheck{conn: msg.conn, err: msg.err}
 		}
 		return m, nil
 	case pickIssueMsg:
@@ -489,15 +437,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.say("", msg.err)
 			return m, nil
 		}
-		return m.startTicket(msg.issue)
+		if msg.project >= len(m.projects) {
+			return m, nil
+		}
+		return m.startTicket(m.projects[msg.project], msg.issue)
 
 	case issuesMsg:
-		m.spErr = msg.err
-		if msg.err == nil {
-			m.issues, m.extra = msg.issues, msg.extra
-		}
+		ok := m.apply(msg)
+		m.loaded = true
 		cmd := m.rebuild()
-		if !m.watch.polling && msg.err == nil {
+		if !m.watch.polling && ok {
 			m.watch.polling = true
 			cmd = tea.Batch(cmd, m.pollPRs())
 		}
@@ -545,6 +494,8 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.commentsKey(k)
 	case m.view == "pick":
 		return m.pickKeyPress(k)
+	case m.view == "settings":
+		return m.settingsKey(k)
 	case m.answerQ != "":
 		return m.answerKeyPress(k)
 	case m.filtering:
@@ -633,6 +584,8 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case "n":
 		return m.openPick()
+	case "s":
+		return m.openSettings()
 	case "r":
 		if c := m.selected(); c != nil {
 			delete(m.readAt, c.Key)
@@ -642,12 +595,12 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m, m.goTo()
 	case "d":
-		return m, m.browsediff()
+		return m, m.diff()
 	case "o":
-		if c := m.selected(); c != nil && c.Issue != nil {
-			url := m.cfg.SprintosaurWeb + c.Key
+		if c := m.selected(); c != nil && c.Issue != nil && c.Issue.URL != "" {
+			url := c.Issue.URL
 			return m, func() tea.Msg {
-				return doneMsg{text: i18n.T("Ticket ouvert.", "Ticket opened."), err: exec.Command("open", url).Run()}
+				return doneMsg{text: i18n.T("Ticket ouvert.", "Ticket opened."), err: openURL(url)}
 			}
 		}
 	case "c":
@@ -732,6 +685,8 @@ func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m.commentsMouse(ev)
 	case m.view == "pick":
 		return m.pickMouse(ev)
+	case m.view == "settings":
+		return m.settingsMouse(ev)
 	case m.view == "board":
 		return m.boardMouse(ev)
 	}
@@ -817,6 +772,8 @@ func (m Model) footerClick(x int) (tea.Model, tea.Cmd) {
 			switch m.view {
 			case "pick":
 				return m.pickKeyPress(keyFor(h.key))
+			case "settings":
+				return m.settingsKey(keyFor(h.key))
 			case "comments":
 				return m.commentsKey(keyFor(h.key))
 			}
@@ -895,6 +852,8 @@ func keyFor(k string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEsc}
 	case "ctrl+k":
 		return tea.KeyMsg{Type: tea.KeyCtrlK}
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
 	}
 	return keyForRunes(k)
 }
@@ -934,19 +893,38 @@ func (m Model) goTo() tea.Cmd {
 	}
 }
 
-func (m Model) browsediff() tea.Cmd {
+// base is the ref the chantier's branch compares against.
+func (m Model) base(c *chantier.Chantier) string {
+	if p := m.projectOf(c); p != nil {
+		return p.cfg.Base
+	}
+	return "origin/main"
+}
+
+// diffCommand is the project's diff command, {base} filled in: browsediff
+// when installed, else git diff in its pager.
+func diffCommand(custom, base string) string {
+	if custom == "" {
+		custom = "git diff {base}...HEAD"
+		if _, err := exec.LookPath("browsediff"); err == nil {
+			custom = "browsediff {base}...HEAD"
+		}
+	}
+	return strings.ReplaceAll(custom, "{base}", base)
+}
+
+func (m Model) diff() tea.Cmd {
 	c := m.selected()
 	if c == nil || c.Worktree == "" {
 		return func() tea.Msg {
 			return doneMsg{text: i18n.T("Pas de worktree pour ce chantier.", "No worktree for this ticket.")}
 		}
 	}
-	if _, err := exec.LookPath("browsediff"); err != nil {
-		return func() tea.Msg {
-			return doneMsg{err: fmt.Errorf("%s", i18n.T("browsediff n'est pas installé", "browsediff is not installed"))}
-		}
+	custom := ""
+	if p := m.projectOf(c); p != nil {
+		custom = p.cfg.Diff
 	}
-	cmd := exec.Command("browsediff", m.cfg.Base+"...HEAD")
+	cmd := exec.Command("sh", "-c", diffCommand(custom, m.base(c)))
 	cmd.Dir = c.Worktree
 	return tea.ExecProcess(cmd, func(err error) tea.Msg { return doneMsg{err: err} })
 }
@@ -956,14 +934,15 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 	switch {
 	case c == nil:
 		return m, nil
-	case c.Issue == nil:
-		m.say(i18n.T("Ticket introuvable dans Sprintosaur.", "Ticket not found in Sprintosaur."), nil)
+	case c.Issue == nil || m.projectOf(c) == nil || m.projectOf(c).tr == nil:
+		m.say(i18n.T("Ticket introuvable dans le tracker du projet.", "Ticket not found in the project's tracker."), nil)
 		return m, nil
 	case c.Worktree != "" && !c.Main:
 		m.say(c.Key+i18n.T(" a déjà son worktree : enter pour y aller.", " already has its worktree: enter to go there."), nil)
 		return m, nil
 	}
-	cfg, issue, agents, sp := m.cfg, *c.Issue, m.snap.Agents, m.sp
+	p := m.projectOf(c)
+	cfg, issue, agents, tr := p.cfg, *c.Issue, m.snap.Agents, p.tr
 	key := strings.ToUpper(issue.ID)
 	lower := strings.ToLower(key)
 	_, num, _ := strings.Cut(lower, "-")
@@ -980,8 +959,15 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return doneMsg{err: err}
 		}
-		if s, _ := state.Load(statePath); s == nil {
+		switch s, _ := state.Load(statePath); {
+		case s == nil:
 			if err := state.New(statePath, key, issue.Title).Save(); err != nil {
+				return doneMsg{err: err}
+			}
+		case s.Phase == "todo" || s.Phase == "":
+			// A local ticket waiting for its plan.
+			s.Set("phase", "plan")
+			if err := s.Save(); err != nil {
 				return doneMsg{err: err}
 			}
 		}
@@ -989,10 +975,10 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 		if err := herdr.StartAgent(name, cfg.AgentKind, pane); err != nil {
 			return doneMsg{err: fmt.Errorf(i18n.T("worktree prêt, mais l'agent n'a pas démarré : %w", "worktree ready, but the agent did not start: %w"), err), refresh: true}
 		}
-		err = herdr.Prompt(name, chantier.PlanPrompt(key, issue.Title, statePath))
+		err = herdr.Prompt(name, chantier.PlanPrompt(key, issue.Title, statePath, tr.Guide(key)))
 		text := fmt.Sprintf(i18n.T("%s : l'agent %s écrit le plan.", "%s: agent %s is writing the plan."), key, name)
-		if sp != nil && (issue.Status == "Backlog" || issue.Status == "Todo") && sp.SetStatus(key, "In Progress") == nil {
-			text += i18n.T(" Ticket passé en In Progress.", " Ticket moved to In Progress.")
+		if moved, err := tr.Start(issue); moved && err == nil {
+			text += i18n.T(" Ticket passé en cours.", " Ticket moved to in progress.")
 		}
 		_ = journal.Append(config.ChantiersDir(), key, "plan lancé ("+name+")")
 		return doneMsg{text: text, err: err, refresh: true}

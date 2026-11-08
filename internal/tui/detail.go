@@ -48,7 +48,7 @@ func (m Model) cardFor(c *chantier.Chantier) *card {
 	s := c.State
 	hasWT := c.Worktree != ""
 	agent := button{"enter", i18n.T("Aller à l'agent", "Go to agent"), len(c.Agents) > 0 || len(c.Workspaces) > 0}
-	comments := button{"c", i18n.T("Commentaires", "Comments"), c.Issue != nil && len(c.Issue.PullRequests) > 0}
+	comments := button{"c", i18n.T("Commentaires", "Comments"), len(c.PRs) > 0}
 	pr, hasPR := m.prs[c.Key]
 	prOK := hasPR && pr.Err == "" && c.OpenPR() != nil
 	since := ""
@@ -289,13 +289,26 @@ func (m Model) detailLayout(w int) detail {
 	}
 	if c.Issue != nil {
 		meta := []string{c.Issue.Status}
-		if c.Issue.Priority != "" && c.Issue.Priority != "No priority" {
+		if c.Issue.Priority != "" {
 			meta = append(meta, c.Issue.Priority)
 		}
-		if c.Issue.EstimateLabel != "" {
-			meta = append(meta, c.Issue.EstimateLabel)
+		if c.Issue.Estimate != "" {
+			meta = append(meta, c.Issue.Estimate)
 		}
-		b.add(sMuted.Render("Sprintosaur · " + strings.Join(meta, " · ")))
+		src := c.Project
+		if p := m.projectOf(c); p != nil && p.tr != nil {
+			src = p.tr.Name()
+			if len(m.projects) > 1 {
+				src = p.cfg.Name + " · " + src
+			}
+		}
+		var parts []string
+		for _, s := range append([]string{src}, meta...) {
+			if s != "" {
+				parts = append(parts, s)
+			}
+		}
+		b.add(sMuted.Render(strings.Join(parts, " · ")))
 	}
 
 	// What it waits for.
@@ -574,13 +587,11 @@ func (m Model) secCode(b *detailBuilder, c *chantier.Chantier) {
 // secPR shows the pull request; with checklist, the merge checklist leads,
 // one check per line.
 func (m Model) secPR(b *detailBuilder, c *chantier.Chantier, checklist bool) {
-	if c.Issue == nil || len(c.Issue.PullRequests) == 0 {
+	last := c.LastPR()
+	if last == nil {
 		return
 	}
-	pr := c.Issue.PullRequests[len(c.Issue.PullRequests)-1]
-	if o := c.OpenPR(); o != nil {
-		pr = *o
-	}
+	pr := *last
 	info, ok := m.prs[c.Key]
 	if checklist && ok && info.Err == "" {
 		if checks, ready := m.readiness(c); len(checks) > 0 {
@@ -656,8 +667,10 @@ func (m Model) statusLines(w int) []string {
 	if m.localErr != nil {
 		b = append(b, sErr.Render(trunc(m.localErr.Error(), w)))
 	}
-	if m.spErr != nil {
-		b = append(b, sErr.Render(trunc(m.spErr.Error(), w)))
+	for _, p := range m.projects {
+		if p.err != nil {
+			b = append(b, sErr.Render(trunc(p.cfg.Name+" : "+p.err.Error(), w)))
+		}
 	}
 	return b
 }

@@ -34,6 +34,7 @@ type State struct {
 	Phase       string
 	Waiting     string
 	Push        string // "autorisé <commit>" once a human allowed pushing that commit
+	Title       string // the first "# " heading, without its "KEY · " prefix
 	Tasks       []Task
 	SideEffects []Task
 	Questions   []Task
@@ -105,6 +106,12 @@ func Parse(path, text string) *State {
 	seenH2 := false
 	for _, l := range strings.Split(s.body, "\n") {
 		if headRe.MatchString(l) {
+			if t, ok := strings.CutPrefix(l, "# "); ok && s.Title == "" {
+				s.Title = strings.TrimSpace(t)
+				if k, rest, ok := strings.Cut(s.Title, " · "); ok && strings.EqualFold(k, s.Ticket) {
+					s.Title = strings.TrimSpace(rest)
+				}
+			}
 			switch {
 			case proofHd.MatchString(l):
 				section = "proofs"

@@ -40,9 +40,9 @@ type input struct {
 // Check reads a hook payload and returns a non-empty reason to block.
 // Anything unexpected lets the command through: the guard must never get in
 // the way of work that is not a cairn chantier.
-func Check(r io.Reader, team, chantiersDir string) string {
+func Check(r io.Reader, keys []string, chantiersDir string) string {
 	var in input
-	if err := json.NewDecoder(r).Decode(&in); err != nil || in.ToolName != "Bash" {
+	if err := json.NewDecoder(r).Decode(&in); err != nil || in.ToolName != "Bash" || len(keys) == 0 {
 		return ""
 	}
 	cmd := in.ToolInput.Command
@@ -60,7 +60,7 @@ func Check(r io.Reader, team, chantiersDir string) string {
 	if err != nil {
 		return ""
 	}
-	m := chantier.KeyRe(team).FindStringSubmatch(strings.TrimSpace(string(out)))
+	m := chantier.KeyRe(keys...).FindStringSubmatch(strings.TrimSpace(string(out)))
 	if m == nil {
 		return ""
 	}

@@ -1,6 +1,6 @@
 ---
 name: cairn
-description: Keep a ticket's chantier file (~/.cairn/chantiers/<TICKET>.md) true while you plan, build and review it, so the human sees where the work stands in cairn and herdr's sidebar. Use whenever you work on a Sprintosaur ticket (YAK-123…) and that file exists, or when asked to plan a ticket "avec le workflow cairn".
+description: Keep a ticket's chantier file (~/.cairn/chantiers/<TICKET>.md) true while you plan, build and review it, so the human sees where the work stands in cairn and herdr's sidebar. Use whenever you work on a ticket (YAK-123, ENG-42, EIDO-7…: Linear, Sprintosaur or a cairn-only ticket) and that file exists, or when asked to plan a ticket "avec le workflow cairn".
 ---
 
 # cairn
@@ -9,7 +9,8 @@ Le fichier du chantier sert à afficher où en est le travail : ce que l'humain 
 
 ## Le fichier
 
-`~/.cairn/chantiers/<TICKET>.md`, par exemple `~/.cairn/chantiers/YAK-788.md` :
+`~/.cairn/chantiers/<TICKET>.md`, par exemple `~/.cairn/chantiers/YAK-788.md`. La clé dépend du projet : celle du tracker
+(Linear, Sprintosaur), ou celle que cairn a donnée à un ticket créé sans tracker (`EIDO-7`) :
 
 ```markdown
 ---
@@ -53,7 +54,7 @@ L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directe
 - **La taille suit le ticket.** XS ou S : quelques tâches, pas de prose. L ou XL : un plan plus détaillé, mais toujours en tâches vérifiables. Pas d'autre fichier de plan.
 - **Les effets de bord font partie du plan, toujours.** Avant de valider, cherche ce que le changement peut casser ou modifier ailleurs :
   - les autres appelants et écrans du code touché ;
-  - les autres apps du monorepo ;
+  - les autres parties du dépôt (autres apps d'un monorepo, paquets partagés) ;
   - les données existantes et leur rattrapage ;
   - les permissions ;
   - les migrations ;
@@ -75,4 +76,7 @@ L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directe
 - **`attente:`** n'apparaît que quand une décision humaine bloque. Écris-la en quelques mots (« Choisir entre migration et script »), pose la question dans ta réponse, puis attends. Retire la ligne une fois la réponse obtenue.
 - **Les preuves** sont des choses réellement exécutées : la commande, son résultat et la date. Jamais une affirmation sans exécution.
 - **Après chaque modification du fichier**, lance `cairn sync` pour mettre à jour la barre latérale de herdr. S'il échoue, ce n'est pas grave : continue.
-- Les règles du skill sprintosaur (PR liée au ticket, commentaire de fin) s'appliquent toujours.
+- **Le ticket vit là où le projet le range.** Avec Linear ou Sprintosaur, ses règles s'appliquent toujours (PR liée au
+  ticket, commentaire de fin) : lis-le avec l'outil du tracker (MCP Linear, skill sprintosaur). Sans tracker, le ticket
+  n'est que ce fichier : son titre dit tout, ce qui manque se demande sous `## Questions`. Dans tous les cas, mets la clé
+  du ticket dans le nom de la branche et dans le titre de la PR : c'est par la branche que cairn retrouve la PR.

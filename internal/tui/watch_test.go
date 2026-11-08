@@ -8,12 +8,12 @@ import (
 	"cairn/internal/config"
 	"cairn/internal/journal"
 	"cairn/internal/progress"
-	"cairn/internal/sprintosaur"
 	"cairn/internal/state"
+	"cairn/internal/tracker"
 )
 
 func TestReadiness(t *testing.T) {
-	c := &chantier.Chantier{Key: "YAK-1", Issue: &sprintosaur.Issue{PullRequests: []sprintosaur.PullRequest{{State: "open"}}},
+	c := &chantier.Chantier{Key: "YAK-1", PRs: []tracker.PullRequest{{State: "open"}},
 		State: state.Parse("/x", "- [x] a\n\n## Effets de bord\n- [x] b\n")}
 	m := Model{prs: map[string]progress.PR{}}
 	if _, ready := m.readiness(c); ready {
@@ -34,7 +34,7 @@ func TestReadiness(t *testing.T) {
 	}
 }
 
-// Before Sprintosaur answers, a chantier with a PR looks like Build: nothing
+// Before the tracker answers, a chantier with a PR looks like Build: nothing
 // may be journaled then, or every start logs a false Build → Review.
 func TestObserveWaitsForIssues(t *testing.T) {
 	t.Setenv("CAIRN_HOME", t.TempDir())

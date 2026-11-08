@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"cairn/internal/herdr"
-	"cairn/internal/sprintosaur"
+	"cairn/internal/tracker"
 )
 
 func TestSlug(t *testing.T) {
@@ -44,17 +44,19 @@ func TestBuild(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "YAK-788.md"), []byte("---\nphase: plan\nattente: Valider le plan\n---\n- [ ] a\n"), 0o644)
 	in := Input{
-		Team: "YAK", Repo: "/r/Yak-App", ChantiersDir: dir,
-		Issues: []sprintosaur.Issue{
-			{ID: "YAK-788", Title: "modèles"},
-			{ID: "YAK-861", Title: "504", PullRequests: []sprintosaur.PullRequest{{Number: 1, State: "open"}}},
-			{ID: "YAK-900", Title: "nouveau"},
-			{ID: "YAK-770", Title: "CRA"},
-		},
-		Worktrees: []herdr.Worktree{
-			{Branch: "adrien/yak-770-cra", Path: "/r/Yak-App"},
-			{Branch: "adrien/yak-788-modeles", Path: "/r/Yak-App-788", OpenWorkspaceID: "w10"},
-		},
+		ChantiersDir: dir,
+		Sources: []Source{{Project: "yak", Key: "YAK", Repo: "/r/Yak-App",
+			Issues: []tracker.Issue{
+				{ID: "YAK-788", Title: "modèles"},
+				{ID: "YAK-861", Title: "504", PullRequests: []tracker.PullRequest{{Number: 1, State: "open"}}},
+				{ID: "YAK-900", Title: "nouveau"},
+				{ID: "YAK-770", Title: "CRA"},
+			},
+			Worktrees: []herdr.Worktree{
+				{Branch: "adrien/yak-770-cra", Path: "/r/Yak-App"},
+				{Branch: "adrien/yak-788-modeles", Path: "/r/Yak-App-788", OpenWorkspaceID: "w10"},
+			},
+		}},
 		Snapshot: herdr.Snapshot{Agents: []herdr.Agent{
 			{Kind: "claude", Status: "idle", Cwd: "/r/Yak-App-788/apps", PaneID: "w10:p1", WorkspaceID: "w10"},
 			{Kind: "claude", Status: "working", Cwd: "/r/Yak-App", PaneID: "w1:p1", WorkspaceID: "w1", Title: "Tables activity"},
@@ -88,14 +90,42 @@ func TestBuild(t *testing.T) {
 	}
 }
 
-// Sprintosaur can still say "open" for a PR GitHub has merged: GitHub wins.
+// A tracker can still say "open" for a PR GitHub has merged: GitHub wins.
 func TestGitHubStateWins(t *testing.T) {
-	is := sprintosaur.Issue{ID: "YAK-1", PullRequests: []sprintosaur.PullRequest{{URL: "u", State: "open"}}}
-	list, _ := Gather(Input{Team: "YAK", Issues: []sprintosaur.Issue{is}, GitHubPRs: map[string]string{"u": "MERGED"}})
+	is := tracker.Issue{ID: "YAK-1", PullRequests: []tracker.PullRequest{{URL: "u", State: "open"}}}
+	list, _ := Gather(Input{Sources: []Source{{Project: "yak", Key: "YAK", Issues: []tracker.Issue{is}}}, GitHubPRs: map[string]string{"u": "MERGED"}})
 	if len(list) != 1 || list[0].Phase != Shipped || list[0].OpenPR() != nil {
 		t.Fatalf("got %+v", list)
 	}
 	if is.PullRequests[0].State != "open" {
 		t.Fatal("the input issue was modified")
+	}
+}
+
+// Two projects side by side, one without a tracker: its chantier comes from
+// its worktree, its PR from GitHub by branch, its title from its file.
+func TestTwoProjects(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "EIDO-3.md"), []byte("---\nticket: EIDO-3\nphase: build\n---\n# EIDO-3 · Export PDF\n"), 0o644)
+	list, _ := Gather(Input{ChantiersDir: dir, Sources: []Source{
+		{Project: "yak", Key: "YAK", Repo: "/r/Yak-App", Issues: []tracker.Issue{{ID: "YAK-1", Title: "a"}},
+			Worktrees: []herdr.Worktree{{Branch: "adrien/eido-3-export", Path: "/r/Yak-App-3"}}},
+		{Project: "eido", Key: "EIDO", Repo: "/r/eido",
+			Worktrees: []herdr.Worktree{{Branch: "adrien/eido-3-export", Path: "/r/eido-3"}},
+			BranchPRs: map[string][]tracker.PullRequest{"adrien/eido-3-export": {{URL: "new", State: "open"}, {URL: "old", State: "closed"}}}},
+	}})
+	by := map[string]*Chantier{}
+	for _, c := range list {
+		by[c.Key] = c
+	}
+	c := by["EIDO-3"]
+	if len(list) != 2 || c == nil || c.Project != "eido" || c.Worktree != "/r/eido-3" || c.Title() != "Export PDF" {
+		t.Fatalf("got %+v", c)
+	}
+	if c.Phase != Build || c.OpenPR() == nil || c.OpenPR().URL != "new" || c.PRs[0].URL != "old" {
+		t.Fatalf("PRs: %+v phase %v", c.PRs, c.Phase)
+	}
+	if !KeyRe("YAK", "EIDO").MatchString("x/eido-3") || KeyRe("YAK").MatchString("x/eido-3") {
+		t.Fatal("KeyRe prefixes")
 	}
 }

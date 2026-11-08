@@ -11,11 +11,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"cairn/internal/chantier"
+	"cairn/internal/config"
 	"cairn/internal/herdr"
 	"cairn/internal/journal"
 	"cairn/internal/progress"
-	"cairn/internal/sprintosaur"
 	"cairn/internal/state"
+	"cairn/internal/tracker"
 )
 
 // fixture is a screen with one chantier in each situation the UI tells apart.
@@ -27,8 +28,8 @@ func fixture(t *testing.T, w, h int) Model {
 		s.UpdatedAt = time.Now().Add(-32 * time.Minute)
 		return s
 	}
-	issue := func(key, title string, prs ...sprintosaur.PullRequest) *sprintosaur.Issue {
-		return &sprintosaur.Issue{ID: key, Title: title, Status: "In Progress", Priority: "High", EstimateLabel: "S", PullRequests: prs}
+	issue := func(key, title string) *tracker.Issue {
+		return &tracker.Issue{ID: key, Title: title, Status: "In Progress", Priority: "High", Estimate: "S", Started: true, URL: "https://t/" + key}
 	}
 	agent := func(name, status string) herdr.Agent {
 		return herdr.Agent{Name: name, Status: status, PaneID: "p-" + name, Title: "travaille"}
@@ -36,9 +37,9 @@ func fixture(t *testing.T, w, h int) Model {
 	m := Model{
 		width: w, height: h, hoverItem: -1, hoverBtn: -1, watch: newWatch(),
 		gits: map[string]progress.Git{}, prs: map[string]progress.PR{}, readAt: map[string]time.Time{}, reading: map[string]bool{},
-		tokens: map[string]string{}, extra: map[string]sprintosaur.Issue{}, unfold: map[string]bool{}, answered: map[string]string{},
+		tokens: map[string]string{}, unfold: map[string]bool{}, answered: map[string]string{},
 	}
-	m.cfg.Team, m.cfg.Assignee, m.cfg.Base = "YAK", "adrien", "origin/main"
+	m.projects = []*project{{cfg: config.Project{Name: "yak", Key: "YAK", Tracker: "sprintosaur", Assignee: "adrien", Base: "origin/main"}}}
 	m.chantiers = []*chantier.Chantier{
 		{Key: "YAK-861", Phase: chantier.Plan, Worktree: "/w/861", Branch: "adrien/yak-861",
 			Issue:  issue("YAK-861", "Diffusion d'une opportunité interrompue (504) au-delà de 2000 freelances"),
@@ -56,7 +57,7 @@ func fixture(t *testing.T, w, h int) Model {
 			Agents: []herdr.Agent{agent("yak-712", "working")},
 			State:  plan("YAK-712", "---\nphase: build\n---\n- [x] Une\n- [~] Deux\n- [ ] Trois\n")},
 		{Key: "YAK-788", Phase: chantier.Review, Worktree: "/w/788", Branch: "adrien/yak-788",
-			Issue: issue("YAK-788", "Supprimer « Définir comme modèle »", sprintosaur.PullRequest{Number: 3323, State: "open", URL: "u788"})},
+			Issue: issue("YAK-788", "Supprimer « Définir comme modèle »"), PRs: []tracker.PullRequest{{Number: 3323, State: "open", URL: "u788"}}},
 		{Key: "YAK-874", Phase: chantier.ToPlan, Issue: issue("YAK-874", "Export CSV des CRA mensuels")},
 	}
 	m.prs["YAK-788"] = progress.PR{URL: "u788", State: "OPEN", Mergeable: "MERGEABLE", Checks: progress.Checks{Passed: 3, Failed: 2, FailedNames: []string{"e2e", "typecheck"}}}
@@ -165,7 +166,7 @@ func TestDetailOrderFollowsPhase(t *testing.T) {
 		t.Error("plan: questions, tasks, side effects")
 	}
 	// A plan to approve keeps its questions first even with a PR open.
-	m.chantiers[0].Issue.PullRequests = []sprintosaur.PullRequest{{Number: 3321, State: "open", URL: "u861"}}
+	m.chantiers[0].PRs = []tracker.PullRequest{{Number: 3321, State: "open", URL: "u861"}}
 	m.prs["YAK-861"] = progress.PR{URL: "u861", State: "OPEN", Checks: progress.Checks{Passed: 1}}
 	text = strings.Join(screen(m), "\n")
 	if pos(text, "Questions ouvertes") > pos(text, "── PR #3321") || strings.Contains(text, "Prêt à merger") {
@@ -353,7 +354,7 @@ func TestNewsSinceLastVisit(t *testing.T) {
 func TestCloseAsksFirst(t *testing.T) {
 	m := fixture(t, 160, 45)
 	c := &chantier.Chantier{Key: "YAK-770", Phase: chantier.Shipped, Worktree: "/w/770", Branch: "adrien/yak-770",
-		Issue: &sprintosaur.Issue{ID: "YAK-770", Title: "CRA", Status: "Done"}}
+		Issue: &tracker.Issue{ID: "YAK-770", Title: "CRA", Status: "Done", Done: true}}
 	m.chantiers = append(m.chantiers, c)
 	m.all = m.chantiers
 	m.watch.keep["YAK-770"] = "changements non commités"

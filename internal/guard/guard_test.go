@@ -58,7 +58,7 @@ func TestAllowanceCoversACommit(t *testing.T) {
 	t.Cleanup(func() { OpenPR = func(string) bool { return false } })
 	check := func(cmd string) string {
 		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": repo, "tool_input": map[string]string{"command": cmd}})
-		return Check(bytes.NewReader(payload), "YAK", plans)
+		return Check(bytes.NewReader(payload), []string{"YAK", "EIDO"}, plans)
 	}
 
 	write("")

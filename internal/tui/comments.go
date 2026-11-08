@@ -42,13 +42,10 @@ var sImg = lipgloss.NewStyle().Foreground(accent).Underline(true)
 // prURLOf returns the open PR of the selected chantier, else its latest one.
 func (m Model) prURLOf() (string, int) {
 	c := m.selected()
-	if c == nil || c.Issue == nil || len(c.Issue.PullRequests) == 0 {
+	if c == nil || c.LastPR() == nil {
 		return "", 0
 	}
-	pr := c.Issue.PullRequests[len(c.Issue.PullRequests)-1]
-	if o := c.OpenPR(); o != nil {
-		pr = *o
-	}
+	pr := c.LastPR()
 	return pr.URL, pr.Number
 }
 
@@ -368,7 +365,7 @@ func (m Model) commentsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showBots = !m.showBots
 	case "o":
 		url, _ := m.prURLOf()
-		return m, func() tea.Msg { return doneMsg{err: exec.Command("open", url).Run()} }
+		return m, func() tea.Msg { return doneMsg{err: openURL(url)} }
 	case "r":
 		url, _ := m.prURLOf()
 		m.thread = nil
