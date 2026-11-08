@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>cairn</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="cairn is a terminal companion for herdr: it shows where every ticket your coding agents work on stands, and what is waiting for your decision.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=JetBrains+Mono:wght@400;600&family=Overpass:wght@400;600;700&display=swap">
+<style>
+/* Layout: a hiking map. Topographic paper behind the hero, the product as a
+   terminal on it, then the trail of a ticket marked like a GR path
+   (white-over-red blazes), and the stones of a cairn as the phases. */
+:root {
+  --paper: #eceee3;        /* topo map paper, a green-grey bias */
+  --paper-2: #e1e4d4;      /* bands */
+  --ink: #1b211c;
+  --ink-soft: #4b5449;
+  --rule: #c7ccb6;
+  --contour: rgba(92, 108, 62, .2);
+  --blaze: #c62f26;        /* GR waymark red */
+  --blaze-white: #fbfbf6;
+  --lichen: #6f7f1f;
+  --stone-1: #8a877d; --stone-2: #9f9b8f; --stone-3: #b5b1a4; --stone-4: #c9c5b8;
+  --shadow: rgba(27, 33, 28, .14);
+  /* The terminal is dark in both themes, like cairn itself. */
+  --term-bg: #1f2029; --term-fg: #e6e6ef; --term-muted: #8b93c0; --term-dim: #6272a4;
+  --term-accent: #bd93f9; --term-warn: #ffb86c; --term-good: #50fa7b; --term-line: #44475a; --term-sel: #3a3c4e;
+
+  --f-display: "Big Shoulders Display", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --f-body: "Overpass", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --measure: 38rem;
+  --wide: 72rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #121613; --paper-2: #192019; --ink: #e5e9dc; --ink-soft: #a3ab9b; --rule: #2c352d;
+    --contour: rgba(176, 196, 140, .11); --blaze: #ff5b4d; --blaze-white: #ecefe4; --lichen: #b9cc5c;
+    --stone-1: #57554f; --stone-2: #67645d; --stone-3: #78756c; --stone-4: #8a867c; --shadow: rgba(0, 0, 0, .45);
+    --term-bg: #1c1d26; --term-line: #3b3e50;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #121613; --paper-2: #192019; --ink: #e5e9dc; --ink-soft: #a3ab9b; --rule: #2c352d;
+  --contour: rgba(176, 196, 140, .11); --blaze: #ff5b4d; --blaze-white: #ecefe4; --lichen: #b9cc5c;
+  --stone-1: #57554f; --stone-2: #67645d; --stone-3: #78756c; --stone-4: #8a867c; --shadow: rgba(0, 0, 0, .45);
+  --term-bg: #1c1d26; --term-line: #3b3e50;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 1.0625rem/1.6 var(--f-body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: .2em; }
+a:hover { text-decoration-color: var(--blaze); }
+:focus-visible { outline: 2px solid var(--blaze); outline-offset: 3px; border-radius: 2px; }
+code, kbd, pre { font-family: var(--f-mono); }
+kbd {
+  font-size: .8em; padding: .05em .4em; border: 1px solid var(--rule); border-bottom-width: 2px;
+  border-radius: 4px; background: var(--paper-2); color: var(--ink); white-space: nowrap;
+}
+
+.wrap {
+  max-width: var(--wide); margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+@media (min-width: 720px) {
+  .wrap { padding-left: max(32px, env(safe-area-inset-left, 0px)); padding-right: max(32px, env(safe-area-inset-right, 0px)); }
+}
+
+/* ── type ─────────────────────────────────────────────────────────────── */
+h1, h2, h3 { font-family: var(--f-display); font-weight: 800; line-height: .95; margin: 0; text-wrap: balance; letter-spacing: .005em; }
+h1 { font-size: clamp(3.4rem, 9vw, 7.2rem); }
+h2 { font-size: clamp(2.4rem, 5.2vw, 4rem); }
+h3 { font-size: 1.7rem; font-weight: 600; line-height: 1.05; }
+p { margin: 0; max-width: var(--measure); }
+.lede { font-size: clamp(1.1rem, 1.6vw, 1.3rem); color: var(--ink-soft); }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: .7rem;
+  font: 700 .78rem/1 var(--f-body); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft);
+}
+
+/* A GR waymark: white over red, painted on a stone. */
+.blaze {
+  display: inline-grid; grid-template-rows: 1fr 1fr; gap: 2px; padding: 3px;
+  width: 26px; height: 16px; border-radius: 3px 5px 4px 3px; background: var(--stone-3); flex: none;
+}
+.blaze::before, .blaze::after { content: ""; border-radius: 1px; }
+.blaze::before { background: var(--blaze-white); }
+.blaze::after { background: var(--blaze); }
+
+/* ── nav ──────────────────────────────────────────────────────────────── */
+nav.top { position: relative; z-index: 2; }
+nav.top .wrap { display: flex; align-items: center; gap: 1.5rem; padding-block: 1.1rem; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: .55rem; text-decoration: none; font: 800 1.7rem/1 var(--f-display); letter-spacing: .02em; }
+.brand svg { width: 26px; height: 30px; }
+nav.top .links { display: flex; gap: 1.25rem; margin-left: auto; align-items: center; flex-wrap: wrap; font-weight: 600; font-size: .95rem; }
+nav.top .links a { text-decoration: none; }
+nav.top .links a:hover { text-decoration: underline; }
+.lang {
+  font: 600 .85rem/1 var(--f-body); color: var(--ink); background: transparent; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: 999px; padding: .45rem .75rem; display: inline-flex; gap: .45rem; align-items: center;
+}
+.lang:hover { border-color: var(--ink-soft); }
+.lang kbd { font-size: .72rem; }
+@media (max-width: 560px) { nav.top .links a.opt { display: none; } }
+
+/* ── hero ─────────────────────────────────────────────────────────────── */
+.hero { position: relative; overflow: hidden; }
+.hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.hero .wrap { position: relative; padding-block: 2.5rem 4.5rem; display: grid; gap: 3rem; }
+.hero-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2rem; align-items: end; }
+@media (min-width: 900px) { .hero-head { grid-template-columns: minmax(0, 1.35fr) minmax(0, .65fr); } }
+.hero-copy { display: grid; gap: 1.5rem; min-width: 0; }
+.hero h1 .stroke { color: var(--blaze); }
+
+.install { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+.cmd {
+  display: flex; align-items: center; gap: .25rem; min-width: 0; max-width: 100%;
+  background: var(--ink); color: var(--paper); border-radius: 8px; padding: .35rem .35rem .35rem 1rem;
+  font: 400 .9rem/1.4 var(--f-mono);
+}
+.cmd code { overflow-x: auto; white-space: nowrap; padding-block: .35rem; scrollbar-width: none; min-width: 0; }
+.cmd code::before { content: "$ "; opacity: .55; }
+.copy {
+  flex: none; font: 600 .8rem/1 var(--f-body); cursor: pointer; border: 0; border-radius: 5px;
+  padding: .55rem .7rem; background: var(--paper); color: var(--ink);
+}
+.copy:hover { background: var(--blaze-white); }
+.ghost { font-weight: 600; text-decoration: none; padding: .6rem .2rem; border-bottom: 2px solid var(--blaze); }
+.small { font-size: .95rem; color: var(--ink-soft); }
+
+/* The cairn: four stones, one per phase, laid in order on load. */
+.stack { justify-self: center; width: min(100%, 330px); }
+.stack svg { width: 100%; height: auto; overflow: visible; }
+.stack .s1 { fill: var(--stone-1); } .stack .s2 { fill: var(--stone-2); } .stack .s3 { fill: var(--stone-3); } .stack .s4 { fill: var(--stone-4); }
+.stack .ground { fill: var(--shadow); }
+.stack text { font: 600 13px var(--f-body); letter-spacing: .12em; text-transform: uppercase; fill: var(--ink-soft); }
+.stack .lead { stroke: var(--rule); stroke-width: 1; }
+.stack .w { fill: var(--blaze-white); } .stack .r { fill: var(--blaze); }
+.stone { animation: lay .7s cubic-bezier(.2, .9, .3, 1.15) both; }
+.stone.p2 { animation-delay: .25s; } .stone.p3 { animation-delay: .5s; } .stone.p4 { animation-delay: .75s; }
+@keyframes lay { from { transform: translateY(-34px); } to { transform: none; } }
+
+/* ── terminal mock (a recreation of cairn's screen) ───────────────────── */
+.term {
+  background: var(--term-bg); color: var(--term-fg); border-radius: 12px; border: 1px solid var(--term-line);
+  box-shadow: 0 30px 60px -20px var(--shadow), 0 2px 0 var(--shadow);
+  font: 400 clamp(11px, 1.15vw, 13.5px)/1.62 var(--f-mono); overflow: hidden; min-width: 0;
+}
+.term .chrome { display: flex; gap: 7px; padding: 12px 14px 0; }
+.term .chrome i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
+.term .chrome i:nth-child(2) { background: #febc2e; } .term .chrome i:nth-child(3) { background: #28c840; }
+.screen { padding: 10px 16px 12px; display: grid; gap: 10px; }
+.row { display: flex; justify-content: space-between; gap: 1rem; white-space: nowrap; min-width: 0; }
+.row > span { overflow: hidden; text-overflow: ellipsis; }
+.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+@media (min-width: 760px) { .panes { grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); } }
+.pane { min-width: 0; }
+.pane.list { display: none; padding-right: 14px; border-right: 2px solid var(--term-accent); }
+@media (min-width: 760px) { .pane.list { display: block; } .pane.detail { padding-left: 16px; } }
+.l { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.l.sel { background: var(--term-sel); }
+.t-acc { color: var(--term-accent); } .t-warn { color: var(--term-warn); } .t-good { color: var(--term-good); }
+.t-mut { color: var(--term-muted); } .t-dim { color: var(--term-dim); } .t-b { font-weight: 600; }
+.card { border: 1.5px solid var(--term-warn); border-radius: 6px; padding: 4px 10px; margin: 8px 0 10px; }
+.k { background: var(--term-line); padding: 0 6px; margin-right: 4px; white-space: nowrap; }
+.k.p { background: var(--term-accent); color: var(--term-bg); }
+.k b { color: var(--term-accent); font-weight: 400; } .k.p b { color: var(--term-bg); }
+.sec { color: var(--term-fg); white-space: pre; overflow: hidden; }
+.sec::after { content: " ────────────────────────────────────────────────────────────"; color: var(--term-line); }
+.foot { display: flex; justify-content: space-between; gap: 1rem; white-space: nowrap; overflow: hidden; }
+.foot .r { color: var(--term-muted); }
+@media (max-width: 759px) { .foot .r { display: none; } }
+.caption { font-size: .85rem; color: var(--ink-soft); margin-top: .8rem; }
+
+/* ── sections ─────────────────────────────────────────────────────────── */
+section.band { border-top: 1px solid var(--rule); }
+section.band > .wrap { padding-block: clamp(3.5rem, 8vw, 6.5rem); display: grid; gap: 2.5rem; }
+.head { display: grid; gap: 1.1rem; }
+.alt { background: var(--paper-2); }
+
+/* The trail: four waymarks, the decisions that are yours flagged. */
+.trail { list-style: none; margin: 0; padding: 0; display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr); counter-reset: stop; }
+@media (min-width: 880px) { .trail { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.5rem; } }
+.trail li { position: relative; display: grid; gap: .7rem; align-content: start; padding-left: 2.6rem; }
+@media (min-width: 880px) { .trail li { padding-left: 0; padding-top: 3.2rem; } }
+.trail li::before {
+  counter-increment: stop; content: counter(stop);
+  position: absolute; left: 0; top: 0; width: 1.9rem; height: 1.9rem; display: grid; place-items: center;
+  font: 800 1.05rem/1 var(--f-display); background: var(--stone-3); color: var(--ink); border-radius: 46% 54% 50% 48% / 55% 48% 52% 45%;
+}
+/* the path between waymarks */
+.trail li::after { content: ""; position: absolute; left: .9rem; top: 2.2rem; bottom: -1.8rem; border-left: 2px dashed var(--rule); }
+.trail li:last-child::after { display: none; }
+@media (min-width: 880px) {
+  .trail li::after { left: 2.4rem; right: -1.2rem; top: .95rem; bottom: auto; border-left: 0; border-top: 2px dashed var(--rule); }
+}
+.trail h3 { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+.trail p { font-size: .98rem; color: var(--ink-soft); }
+.yours {
+  font: 700 .68rem/1 var(--f-body); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--blaze); border: 1.5px solid var(--blaze); border-radius: 3px; padding: .3rem .4rem .22rem; white-space: nowrap;
+}
+
+/* The guard: prose beside the blocked push. */
+.split { display: grid; gap: 2.5rem; grid-template-columns: minmax(0, 1fr); align-items: center; }
+@media (min-width: 900px) { .split { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); } }
+.shell {
+  background: var(--term-bg); color: var(--term-fg); border-radius: 10px; border: 1px solid var(--term-line);
+  font: 400 .86rem/1.65 var(--f-mono); padding: 1.1rem 1.2rem; overflow-x: auto; min-width: 0; margin: 0;
+}
+.shell .p { color: var(--term-good); } .shell .no { color: #ff6e6e; } .shell .m { color: var(--term-muted); }
+
+/* Trackers: three ways to bring tickets. */
+.ways { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 820px) { .ways { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.way { background: var(--paper); padding: 1.6rem 1.5rem 1.7rem; display: grid; gap: .8rem; align-content: start; }
+.alt .way { background: var(--paper-2); }
+.way .tag { font: 600 .8rem/1.2 var(--f-mono); color: var(--ink-soft); }
+.way p { font-size: .98rem; color: var(--ink-soft); }
+.way h3 { font-size: 2rem; }
+.also { display: flex; flex-wrap: wrap; gap: .5rem 1.6rem; font-size: .95rem; color: var(--ink-soft); }
+.also b { color: var(--ink); font-weight: 600; }
+
+/* Details: key + sentence, like cairn's help screen. */
+.keys { display: grid; gap: 1.6rem 2.5rem; grid-template-columns: minmax(0, 1fr); margin: 0; }
+@media (min-width: 760px) { .keys { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1080px) { .keys { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.keys div { display: grid; grid-template-columns: 4.2rem minmax(0, 1fr); gap: .25rem 1rem; align-items: baseline; }
+.keys dt { grid-row: span 2; text-align: right; }
+.keys dd { margin: 0; font-size: .96rem; color: var(--ink-soft); }
+.keys dd.n { color: var(--ink); font-weight: 700; }
+
+/* Get started: a real sequence. */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.2rem; counter-reset: step; }
+.steps li { display: grid; grid-template-columns: 3rem minmax(0, 1fr); gap: .3rem 1.2rem; align-items: start; }
+.steps li::before {
+  counter-increment: step; content: counter(step); grid-row: span 3;
+  font: 800 2.6rem/1 var(--f-display); color: var(--blaze);
+}
+.steps h3 { font-size: 1.5rem; }
+.steps .shell { font-size: .84rem; padding: .8rem 1rem; }
+.steps p { color: var(--ink-soft); font-size: .96rem; }
+.needs { font-size: .92rem; color: var(--ink-soft); }
+
+footer .wrap { padding-block: 2.5rem 3rem; display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: center; justify-content: space-between; border-top: 1px solid var(--rule); font-size: .92rem; color: var(--ink-soft); }
+footer .brand { font-size: 1.4rem; color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .stone { animation: none; }
+}
+</style>
+</head>
+<body>
+
+<nav class="top" aria-label="Main">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="cairn">
+      <svg viewBox="0 0 26 30" aria-hidden="true">
+        <path fill="var(--stone-1)" d="M2 25c0-3 4-5 11-5s11 2 11 5-4 4.5-11 4.5S2 28 2 25Z"/>
+        <path fill="var(--stone-2)" d="M5 18.5c0-2.6 3.3-4.3 8.2-4.3s7.8 1.7 7.8 4.3-3 3.8-8 3.8-8-1.3-8-3.8Z"/>
+        <path fill="var(--stone-3)" d="M7.5 12.6c0-2.2 2.4-3.6 5.7-3.6s5.4 1.4 5.4 3.6-2.2 3.2-5.6 3.2-5.5-1-5.5-3.2Z"/>
+        <path fill="var(--blaze)" d="M9.6 6.8c0-1.9 1.5-3.1 3.6-3.1s3.4 1.2 3.4 3.1-1.4 2.8-3.5 2.8-3.5-.9-3.5-2.8Z"/>
+      </svg>cairn</a>
+    <div class="links">
+      <a class="opt" href="#trail" data-fr="Le sentier">The trail</a>
+      <a class="opt" href="#trackers" data-fr="Trackers">Trackers</a>
+      <a href="#start" data-fr="Installer">Install</a>
+      <a href="https://github.com/Gradrien/cairn">GitHub</a>
+      <button class="lang" id="lang" type="button" aria-label="Français / English"><span id="lang-label">Français</span><kbd>l</kbd></button>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <canvas id="topo" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <div class="hero-head">
+      <div class="hero-copy">
+        <span class="eyebrow"><span class="blaze" aria-hidden="true"></span><span data-fr="Un compagnon de terminal pour herdr">A terminal companion for herdr</span></span>
+        <h1 data-fr="Sache où en est <span class=&quot;stroke&quot;>chaque ticket.</span>">Know where every <span class="stroke">ticket stands.</span></h1>
+        <p class="lede" data-fr="Cinq agents sur cinq tickets. herdr te dit lequel travaille. cairn te dit où en est le travail : la phase, le plan, les preuves, la PR, et ce qui attend ta décision.">Five agents on five tickets. herdr tells you which one is working. cairn tells you where the work is: the phase, the plan, the proofs, the pull request, and what is waiting for your decision.</p>
+        <div class="install">
+          <div class="cmd"><code id="cmd-install">git clone https://github.com/Gradrien/cairn &amp;&amp; ./cairn/install.sh --herdr</code><button class="copy" type="button" data-copy="cmd-install" data-fr="Copier">Copy</button></div>
+          <a class="ghost" href="#trail" data-fr="Suivre un ticket ↓">Follow a ticket ↓</a>
+        </div>
+        <p class="small" data-fr="Une seule commande à retenir. Le reste, ce sont des boutons.">One command to remember. Everything else is a button.</p>
+      </div>
+
+      <figure class="stack" aria-label="The four phases of a ticket, stacked like a cairn" style="margin:0">
+        <svg viewBox="0 72 332 222" role="img">
+          <ellipse class="ground" cx="150" cy="282" rx="128" ry="9"/>
+          <g class="stone p1"><path class="s1" d="M42 250c-2-28 38-44 108-45 74-1 112 15 108 43-3 20-44 28-108 28-62 0-106-6-108-26Z"/></g>
+          <g class="stone p2"><path class="s2" d="M70 203c-4-23 30-37 82-37 54 0 84 14 80 36-3 18-32 24-82 24-50 0-77-5-80-23Z"/>
+            <rect class="w" x="168" y="183" width="26" height="6" rx="1"/><rect class="r" x="168" y="191" width="26" height="6" rx="1"/></g>
+          <g class="stone p3"><path class="s3" d="M92 165c-2-19 24-33 58-33 40-1 62 13 59 33-2 15-23 21-59 21-36 0-56-5-58-21Z"/></g>
+          <g class="stone p4"><path class="s4" d="M118 131c-2-16 14-27 34-27 23 0 36 12 33 27-2 12-15 17-35 17s-31-5-32-17Z"/></g>
+          <line class="lead" x1="186" y1="122" x2="232" y2="96"/><text x="236" y="99" data-fr="Livré">Shipped</text>
+          <line class="lead" x1="210" y1="160" x2="246" y2="140"/><text x="250" y="143">Review</text>
+          <line class="lead" x1="44" y1="190" x2="10" y2="176"/><text x="6" y="170" text-anchor="start">Build</text>
+          <line class="lead" x1="40" y1="246" x2="8" y2="232"/><text x="4" y="226" text-anchor="start">Plan</text>
+        </svg>
+      </figure>
+    </div>
+
+    <figure style="margin:0">
+      <div class="term" role="img" aria-label="cairn's screen: two tickets wait for a decision, two are in progress; the selected one shows a plan to approve, its open questions, tasks and side effects.">
+        <div class="chrome" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="screen">
+          <div class="row"><span><span class="t-acc t-b">cairn</span>  <span class="t-mut">eng · eido · adrien</span></span><span><span class="t-good">●</span> <span class="t-mut">herdr</span>  <span class="t-good">●</span> <span class="t-mut">Linear</span></span></div>
+          <div class="panes">
+            <div class="pane list">
+              <div class="l t-dim" data-fr="/ filtrer · ctrl+k tout chercher">/ filter · ctrl+k search everything</div>
+              <div class="l t-warn" data-fr="Attend ta décision">Waiting for you</div>
+              <div class="l sel">⚠ <span class="t-b">ENG-412</span> Rate-limit the public API</div>
+              <div class="l sel t-warn" data-fr="   ⚠ Valider le plan · 12 min">   ⚠ Approve the plan · 12 min</div>
+              <div class="l"><span class="t-warn">⚠</span> EIDO-7 Export invoices as PDF</div>
+              <div class="l t-warn" data-fr="   ⚠ Prêt à pousser · 3 commits">   ⚠ Ready to push · 3 commits</div>
+              <div class="l">&nbsp;</div>
+              <div class="l t-mut" data-fr="En cours">In progress</div>
+              <div class="l">  ENG-398 Retry failed webhooks</div>
+              <div class="l">     <span class="t-acc">Build</span> <span class="t-mut">4/6 ·</span> <span class="t-warn">◐</span></div>
+              <div class="l">  EIDO-5 Dark mode for the editor</div>
+              <div class="l">     <span class="t-acc">Review</span> <span class="t-mut">· PR #31 ·</span> <span class="t-good">CI ✓</span></div>
+              <div class="l">&nbsp;</div>
+              <div class="l t-mut" data-fr="› 2 livré(s) : afficher">› 2 shipped: show</div>
+            </div>
+            <div class="pane detail">
+              <div class="l"><span class="t-b">ENG-412</span>  <span class="t-b">Rate-limit the public API</span></div>
+              <div class="l t-mut">Linear · Todo · High · 3 pts</div>
+              <div class="card">
+                <div class="row"><span class="t-warn" data-fr="⚠ À toi : valider le plan">⚠ Your call: approve the plan</span><span class="t-mut" data-fr="depuis 12 min">for 12 min</span></div>
+                <div class="l"><span class="k p"><b>v</b> <span data-fr="Valider">Approve</span></span><span class="k"><b>e</b> <span data-fr="Répondre">Answer</span></span><span class="k"><b>d</b> Diff</span></div>
+              </div>
+              <div class="l"><span class="t-mut">Phase   </span><span class="t-acc">Plan ●</span> <span class="t-dim">→ Build → Review → <span data-fr="Livré">Shipped</span></span></div>
+              <div class="l">&nbsp;</div>
+              <div class="sec"><span data-fr="── Questions ouvertes">── Open questions</span> <span class="t-warn">2</span></div>
+              <div class="l">  <span class="t-warn">?</span> Per API key or per IP?</div>
+              <div class="l">  <span class="t-warn">?</span> Keep the 429 body as JSON?</div>
+              <div class="sec"><span data-fr="── Tâches">── Tasks</span> <span class="t-mut">0/4</span></div>
+              <div class="l">  <span class="t-mut">○</span> Token bucket in middleware/ratelimit.go</div>
+              <div class="l">  <span class="t-mut">○</span> Limits per plan, read from billing</div>
+              <div class="l">  <span class="t-mut">○</span> Retry-After header on 429</div>
+              <div class="l">  <span class="t-mut">○</span> Load test: 500 req/s for 60 s</div>
+              <div class="sec"><span data-fr="── Effets de bord">── Side effects</span> <span class="t-mut">0/2</span></div>
+              <div class="l">  <span class="t-mut">○</span> Webhooks share the router: exempt them</div>
+              <div class="l">  <span class="t-mut">○</span> The status page polls /health every 5 s</div>
+            </div>
+          </div>
+          <div class="foot"><span><span class="k p"><b>v</b> <span data-fr="Valider">Approve</span></span><span class="k"><b>e</b> <span data-fr="Répondre">Answer</span></span><span class="k"><b>d</b> Diff</span><span class="k"><b>↵</b> <span data-fr="Aller à l'agent">Go to agent</span></span></span><span class="r" data-fr="n nouveau  s réglages  ctrl+k palette  ? aide">n new  s settings  ctrl+k palette  ? help</span></div>
+        </div>
+      </div>
+      <figcaption class="caption" data-fr="L'écran de cairn, recréé avec des tickets d'exemple : un projet sur Linear (ENG) et un projet sans tracker (EIDO).">cairn's screen, recreated with example tickets: one project on Linear (ENG), one with no tracker at all (EIDO).</figcaption>
+    </figure>
+  </div>
+</header>
+
+<section class="band" id="trail">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow"><span class="blaze" aria-hidden="true"></span><span data-fr="Du ticket au merge">From ticket to merge</span></span>
+      <h2 data-fr="Chaque ticket suit le même sentier.">Every ticket walks the same trail.</h2>
+      <p class="lede" data-fr="Un ticket dans cairn est un chantier : le ticket, son worktree git, son espace herdr, ses agents, son fichier de plan et sa PR. Deux décisions sur le chemin te reviennent ; cairn te les met sous les yeux.">A ticket in cairn is a chantier: the ticket, its git worktree, its herdr workspace, its agents, its plan file and its pull request. Two decisions on the way are yours, and cairn puts them in front of you.</p>
+    </div>
+    <ol class="trail">
+      <li>
+        <h3>Plan <span class="yours" data-fr="À toi">Your call</span></h3>
+        <p data-fr="<kbd>p</kbd> crée le worktree et l'espace herdr, lance l'agent et demande un plan à la taille du ticket, effets de bord compris. L'agent s'arrête. Tu réponds à ses questions et tu valides avec <kbd>v</kbd>.">
+          <kbd>p</kbd> creates the worktree and the herdr workspace, starts the agent and asks for a plan sized to the ticket, side effects included. The agent stops. You answer its questions and approve with <kbd>v</kbd>.</p>
+      </li>
+      <li>
+        <h3>Build</h3>
+        <p data-fr="Les tâches avancent pendant que l'agent travaille, avec les preuves : les commandes vraiment lancées, leur résultat, la date. Ce qui est fini se replie.">Tasks move as the agent works, with proofs: the commands it really ran, their results, the date. What is done folds away.</p>
+      </li>
+      <li>
+        <h3>Review <span class="yours" data-fr="À toi">Your call</span></h3>
+        <p data-fr="Rien ne part sans ton feu vert : <kbd>a</kbd> montre les commits et les effets de bord encore ouverts, puis autorise ce commit. Ensuite CI, review et conflits tiennent sur une seule checklist.">Nothing leaves without your go-ahead: <kbd>a</kbd> shows the commits and the side effects still open, then allows that commit. From there, CI, review and conflicts sit on one checklist.</p>
+      </li>
+      <li>
+        <h3 data-fr="Livré">Shipped</h3>
+        <p data-fr="Mergé sur GitHub : cairn retire le worktree et l'espace herdr et archive le plan. Seulement quand rien ne peut se perdre : pas de changement non commité, pas de commit absent de GitHub, pas d'agent au travail.">Merged on GitHub: cairn removes the worktree and the herdr workspace and archives the plan. Only when nothing can be lost: no uncommitted change, no commit missing from GitHub, no agent at work.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="band alt" id="guard">
+  <div class="wrap split">
+    <div class="head">
+      <span class="eyebrow"><span class="blaze" aria-hidden="true"></span><span data-fr="Rien ne part sans toi">Nothing ships without you</span></span>
+      <h2 data-fr="Un feu vert humain avant le premier push.">A human go-ahead before the first push.</h2>
+      <p class="lede" data-fr="C'est imposé, pas seulement demandé. Un hook Claude Code bloque <code>git push</code> et <code>gh pr create</code> sur la branche d'un chantier tant que tu n'as pas autorisé le commit que tu as relu. Une fois la PR ouverte, les correctifs passent librement. Le merge reste à toi.">This is enforced, not only requested. A Claude Code hook blocks <code>git push</code> and <code>gh pr create</code> on a chantier's branch until you allow the commit you reviewed. Once the PR is open, fixes go through freely. Merging stays yours.</p>
+    </div>
+    <pre class="shell" aria-label="An agent's push blocked by cairn"><span class="p">$</span> git push -u origin adrien/eng-412-rate-limit
+<span class="no">cairn: ENG-412 needs a human approval before any push or PR.</span>
+<span class="m">Do not work around this block. Finish what you are doing,
+set `attente: Prêt à pousser` in ~/.cairn/chantiers/ENG-412.md
+with one line on what will ship, run `cairn sync`, then stop:
+the human reviews in cairn and allows the push.</span></pre>
+  </div>
+</section>
+
+<section class="band" id="trackers">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow"><span class="blaze" aria-hidden="true"></span><span data-fr="Avec ce que tu as déjà">Works with what you have</span></span>
+      <h2 data-fr="Linear, ton tracker maison, ou rien du tout.">Linear, your in-house tracker, or nothing at all.</h2>
+      <p class="lede" data-fr="cairn suit autant de dépôts que tu veux, chacun avec son tracker, sur un seul écran. La clé du ticket dit d'où il vient : ENG-412 à côté d'EIDO-7.">cairn follows as many repositories as you like, each with its own tracker, on one screen. The ticket key says where it comes from: ENG-412 next to EIDO-7.</p>
+    </div>
+    <div class="ways">
+      <div class="way">
+        <span class="tag">tracker: linear</span>
+        <h3>Linear</h3>
+        <p data-fr="Colle une clé d'API personnelle dans les réglages (<kbd>s</kbd>). cairn la vérifie, trouve ton équipe, t'assigne les tickets que tu prends et les passe en cours quand le plan démarre.">Paste a personal API key in the settings (<kbd>s</kbd>). cairn checks it, finds your team, assigns you the tickets you take and moves them to In Progress when the plan starts.</p>
+      </div>
+      <div class="way">
+        <span class="tag">tracker: local</span>
+        <h3 data-fr="Sans tracker">No tracker</h3>
+        <p data-fr="Tape un titre, obtiens EIDO-8. Le fichier de plan est le ticket, et la PR est retrouvée par sa branche. Lance-toi en une commande : <code>cairn add</code>.">Type a title, get EIDO-8. The plan file is the ticket, and the pull request is found by its branch. Start with one command: <code>cairn add</code>.</p>
+      </div>
+      <div class="way">
+        <span class="tag">tracker: sprintosaur</span>
+        <h3 data-fr="Le tien">Your own</h3>
+        <p data-fr="Un tracker est une interface Go de sept méthodes : lister, prendre, démarrer. Sprintosaur, un tracker maison, est branché ainsi.">A tracker is a seven-method Go interface: list, take, start. Sprintosaur, an in-house tracker, plugs in that way.</p>
+      </div>
+    </div>
+    <div class="also">
+      <span><b>herdr</b> <span data-fr="agents et espaces">agents and workspaces</span></span>
+      <span><b>GitHub</b> <span data-fr="PR, CI et images, via gh">PRs, CI and images, through gh</span></span>
+      <span><b>Claude Code</b> <span data-fr="les agents et le hook de push">the agents and the push hook</span></span>
+      <span><b>browsediff</b> <span data-fr="ou git diff, ou ta commande">or git diff, or your own command</span></span>
+    </div>
+  </div>
+</section>
+
+<section class="band alt" id="details">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow"><span class="blaze" aria-hidden="true"></span><span data-fr="Prêt pour la review">Ready for review</span></span>
+      <h2 data-fr="Tout ce qu'il faut pour merger, une touche à la fois.">Everything you need to merge, one key at a time.</h2>
+    </div>
+    <dl class="keys">
+      <div><dt><kbd>c</kbd></dt><dd class="n" data-fr="La PR dans le terminal">The PR in the terminal</dd><dd data-fr="Description, commentaires et reviews en markdown. <code>[→ agent]</code> renvoie un commentaire à l'agent, qui le corrige en local.">Description, comments and reviews in markdown. <code>[→ agent]</code> sends a comment back to the agent, which fixes it locally.</dd></div>
+      <div><dt><kbd>f</kbd></dt><dd class="n" data-fr="Corriger la CI">Fix the CI</dd><dd data-fr="Récupère les logs des étapes en échec et les donne à l'agent.">Fetches the logs of the failing steps and hands them to the agent.</dd></div>
+      <div><dt><kbd>i</kbd></dt><dd class="n" data-fr="Images dans le terminal">Images in the terminal</dd><dd data-fr="Les captures de la PR, pièces jointes privées comprises, avec le protocole Kitty (Ghostty, Kitty, WezTerm).">Screenshots from the PR, private attachments included, through the Kitty protocol (Ghostty, Kitty, WezTerm).</dd></div>
+      <div><dt><kbd>●</kbd></dt><dd class="n" data-fr="Nouveau depuis ta visite">New since your visit</dd><dd data-fr="Une phase franchie, une review, un commentaire : marqués jusqu'à ce que tu les aies lus. Tes propres commentaires et les bots ne comptent pas.">A phase passed, a review, a comment: marked until you have read them. Your own comments and CI bots do not count.</dd></div>
+      <div><dt><kbd>t</kbd></dt><dd class="n" data-fr="Le tableau">The board</dd><dd data-fr="Les chantiers par phase, ceux qui t'attendent cerclés d'orange.">Tickets by phase, the ones waiting for you outlined in orange.</dd></div>
+      <div><dt><kbd>l</kbd></dt><dd class="n" data-fr="Français et anglais">English and French</dd><dd data-fr="L'interface change de langue à chaud. Appuie sur <kbd>l</kbd> : cette page aussi.">The interface switches language live. Press <kbd>l</kbd>: this page does too.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<section class="band" id="start">
+  <div class="wrap split">
+    <div class="head">
+      <span class="eyebrow"><span class="blaze" aria-hidden="true"></span><span data-fr="Pour commencer">Get started</span></span>
+      <h2 data-fr="Ton premier chantier en trois étapes.">Your first chantier in three steps.</h2>
+      <p class="needs" data-fr="Il te faut Go, <code>gh</code> connecté (<code>gh auth login</code>) et herdr.">You need Go, <code>gh</code> logged in (<code>gh auth login</code>) and herdr.</p>
+    </div>
+    <ol class="steps">
+      <li>
+        <h3 data-fr="Installer">Install</h3>
+        <pre class="shell">git clone https://github.com/Gradrien/cairn
+cd cairn &amp;&amp; ./install.sh --herdr</pre>
+        <p data-fr="Le binaire, le skill des agents, le hook de push, et le bouton cairn dans la barre latérale de herdr.">The binary, the agents' skill, the push hook, and the cairn button in herdr's sidebar.</p>
+      </li>
+      <li>
+        <h3 data-fr="Ajouter un dépôt">Add a repository</h3>
+        <pre class="shell">cd ~/code/eido &amp;&amp; cairn add
+cairn add --tracker linear --key ENG</pre>
+        <p data-fr="Sans option, aucun tracker. Tout se change ensuite dans les réglages (<kbd>s</kbd>).">With no option, no tracker. Change anything later in the settings (<kbd>s</kbd>).</p>
+      </li>
+      <li>
+        <h3 data-fr="Planifier un ticket">Plan a ticket</h3>
+        <p data-fr="Ouvre cairn depuis herdr (<kbd>prefix</kbd> <kbd>a</kbd>), appuie sur <kbd>n</kbd>, tape un titre ou un numéro, puis Entrée. Le plan arrive ; il attend ton feu vert.">Open cairn from herdr (<kbd>prefix</kbd> <kbd>a</kbd>), press <kbd>n</kbd>, type a title or a number, then Enter. The plan comes in and waits for your go-ahead.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#top">cairn</a>
+    <span data-fr="Un cairn est un tas de pierres qui balise le sentier.">A cairn is a pile of stones that marks the trail.</span>
+    <a href="https://github.com/Gradrien/cairn" data-fr="Le code sur GitHub">The code on GitHub</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  // ── language: English in the page, French on demand (button or "l") ──
+  var nodes = document.querySelectorAll("[data-fr]");
+  var svgText = document.querySelectorAll("text[data-fr]");
+  function setLang(lang) {
+    nodes.forEach(function (el) {
+      if (el.dataset.en === undefined) el.dataset.en = el.tagName === "text" ? el.textContent : el.innerHTML;
+      var v = lang === "fr" ? el.dataset.fr : el.dataset.en;
+      if (el.tagName === "text") el.textContent = v; else el.innerHTML = v;
+    });
+    document.documentElement.lang = lang;
+    document.getElementById("lang-label").textContent = lang === "fr" ? "English" : "Français";
+    try { localStorage.setItem("cairn-lang", lang); } catch (e) {}
+  }
+  var lang = "en";
+  try { lang = localStorage.getItem("cairn-lang") || ((navigator.language || "").slice(0, 2) === "fr" ? "fr" : "en"); } catch (e) {}
+  if (lang === "fr") setLang("fr");
+  function toggle() { lang = lang === "fr" ? "en" : "fr"; setLang(lang); }
+  document.getElementById("lang").addEventListener("click", toggle);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "l" && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA/.test(e.target.tagName)) toggle();
+  });
+
+  // ── copy buttons ──
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-copy]");
+    if (!b) return;
+    var el = document.getElementById(b.dataset.copy);
+    var text = el.textContent;
+    var done = function () {
+      var was = b.textContent;
+      b.textContent = lang === "fr" ? "Copié" : "Copied";
+      setTimeout(function () { b.textContent = was; }, 1400);
+    };
+    var select = function () { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, select);
+    else select();
+  });
+
+  // ── topographic contours behind the hero (marching squares on value noise);
+  //    every fifth line is an index contour, drawn heavier, as on a real map ──
+  var canvas = document.getElementById("topo");
+  var ctx = canvas.getContext("2d");
+  var seed = 7;
+  function rand() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+  var G = 9, grid = [];
+  for (var i = 0; i < G * G * 4; i++) grid.push(rand());
+  function smooth(t) { return t * t * (3 - 2 * t); }
+  function noise(x, y, n) {
+    var xi = Math.floor(x), yi = Math.floor(y), xf = smooth(x - xi), yf = smooth(y - yi);
+    var g = function (a, b) { return grid[((b % n) * n + (a % n)) % grid.length]; };
+    var top = g(xi, yi) * (1 - xf) + g(xi + 1, yi) * xf;
+    var bot = g(xi, yi + 1) * (1 - xf) + g(xi + 1, yi + 1) * xf;
+    return top * (1 - yf) + bot * yf;
+  }
+  function field(x, y) { return noise(x, y, G) * .7 + noise(x * 2.3 + 5, y * 2.3 + 3, G * 2) * .3; }
+  function draw() {
+    var w = canvas.clientWidth, h = canvas.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (!w || !h) return;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    var color = getComputedStyle(document.documentElement).getPropertyValue("--contour").trim();
+    var step = 9, cols = Math.ceil(w / step) + 1, rows = Math.ceil(h / step) + 1, scale = 1 / 260;
+    var v = new Float32Array(cols * rows);
+    for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) v[y * cols + x] = field(x * step * scale + 1, y * step * scale + 1);
+    ctx.strokeStyle = color;
+    for (var L = 1; L < 20; L++) {
+      var level = L / 20;
+      ctx.lineWidth = L % 5 === 0 ? 1.6 : .8;
+      ctx.beginPath();
+      for (var y2 = 0; y2 < rows - 1; y2++) for (var x2 = 0; x2 < cols - 1; x2++) {
+        var a = v[y2 * cols + x2], b = v[y2 * cols + x2 + 1], c = v[(y2 + 1) * cols + x2 + 1], d = v[(y2 + 1) * cols + x2];
+        var idx = (a > level ? 8 : 0) | (b > level ? 4 : 0) | (c > level ? 2 : 0) | (d > level ? 1 : 0);
+        if (idx === 0 || idx === 15) continue;
+        var px = x2 * step, py = y2 * step;
+        var t = function (p, q) { return (level - p) / (q - p); };
+        var top = [px + step * t(a, b), py], right = [px + step, py + step * t(b, c)];
+        var bottom = [px + step * t(d, c), py + step], left = [px, py + step * t(a, d)];
+        var segs = {1: [[left, bottom]], 2: [[bottom, right]], 3: [[left, right]], 4: [[top, right]], 5: [[left, top], [bottom, right]],
+          6: [[top, bottom]], 7: [[left, top]], 8: [[left, top]], 9: [[top, bottom]], 10: [[top, right], [left, bottom]],
+          11: [[top, right]], 12: [[left, right]], 13: [[bottom, right]], 14: [[left, bottom]]}[idx];
+        segs.forEach(function (s) { ctx.moveTo(s[0][0], s[0][1]); ctx.lineTo(s[1][0], s[1][1]); });
+      }
+      ctx.stroke();
+    }
+  }
+  var pending;
+  function redraw() { cancelAnimationFrame(pending); pending = requestAnimationFrame(draw); }
+  redraw();
+  window.addEventListener("resize", redraw);
+  if (window.matchMedia) {
+    var mq = window.matchMedia("(prefers-color-scheme: dark)");
+    if (mq.addEventListener) mq.addEventListener("change", redraw);
+  }
+  new MutationObserver(redraw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+})();
+</script>
+</body>
+</html>
