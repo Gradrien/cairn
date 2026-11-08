@@ -1,0 +1,156 @@
+---
+import "../styles/global.css";
+import Logo from "../components/Logo.astro";
+import Icon from "../components/Icon.astro";
+import CopyCommand from "../components/CopyCommand.astro";
+import Demo from "../components/Demo.astro";
+import Panes from "../components/Panes.astro";
+import Guard from "../components/Guard.astro";
+import Review from "../components/Review.astro";
+import Keymap from "../components/Keymap.astro";
+import Trackers from "../components/Trackers.astro";
+import Install from "../components/Install.astro";
+import Closing from "../components/Closing.astro";
+
+const title = "cairn · know where every ticket stands";
+const description = "cairn sits next to herdr and shows where every ticket your coding agents work on stands: the phase, the plan, the proofs, the pull request, and what is waiting for your decision.";
+const repo = "https://github.com/Gradrien/cairn";
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <meta name="theme-color" content="#08090c" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content="/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="nav">
+    <div class="wrap navin">
+      <a class="brand" href="/" aria-label="cairn, home"><Logo />cairn</a>
+      <nav aria-label="Main">
+        <a class="hide-sm" href="#why">Why</a>
+        <a class="hide-sm" href="#guard">Push guard</a>
+        <a class="hide-sm" href="#trackers">Trackers</a>
+        <a href="#install">Install</a>
+      </nav>
+      <a class="btn btn-ghost gh" href={repo}><Icon name="github" /><span>GitHub</span></a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="wrap">
+        <div class="hero-copy">
+          <h1 class="display">
+            <span class="ln" style="--i:0">Know where every</span>
+            <span class="ln" style="--i:1">ticket stands.</span>
+          </h1>
+          <div class="hero-row">
+            <p class="lede rise" style="--i:2">Five agents on five tickets. herdr tells you which one is working. <strong>cairn tells you where the work is</strong>, and what is waiting for your decision.</p>
+            <div class="hero-cta rise" style="--i:3">
+              <CopyCommand id="cmd-hero" command="git clone https://github.com/Gradrien/cairn && cairn/install.sh --herdr" />
+              <div class="cta-row">
+                <a class="btn btn-ghost star" href={repo}><Icon name="github" />Star on GitHub</a>
+                <p class="small">For Claude Code in herdr. Works with Linear, or no tracker at all. <a href="#install">Install steps</a></p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <Demo />
+      </div>
+    </section>
+
+    <Panes />
+    <Guard />
+    <Review />
+    <Keymap />
+    <Trackers />
+    <Install />
+    <Closing />
+  </main>
+
+  <footer class="foot">
+    <div class="wrap footin">
+      <div class="fbrand">
+        <a class="brand" href="/"><Logo size={20} />cairn</a>
+        <p>Know where every ticket stands. A terminal companion for herdr, made by <a href="https://github.com/Gradrien">Gradrien</a>.</p>
+      </div>
+      <nav class="fcol" aria-label="Product">
+        <span>Product</span>
+        <a href="#why">Why cairn</a>
+        <a href="#guard">Push guard</a>
+        <a href="#review">Review loop</a>
+        <a href="#keys">Keys</a>
+      </nav>
+      <nav class="fcol" aria-label="Get started">
+        <span>Get started</span>
+        <a href="#install">Install</a>
+        <a href="#trackers">Trackers</a>
+        <a href={`${repo}#readme`}>README</a>
+        <a href={repo}>GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
+
+<style>
+  .skip { position: absolute; left: 1rem; top: -3rem; z-index: 50; background: var(--fg); color: var(--bg); padding: 0.5rem 0.9rem; border-radius: 0.5rem; }
+  .skip:focus { top: calc(env(safe-area-inset-top, 0px) + 0.75rem); }
+
+  /* Nav: sticky, and only gains a backdrop once there is content under it. */
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+  .nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: rgba(8, 9, 12, 0.72); backdrop-filter: saturate(140%) blur(14px); -webkit-backdrop-filter: saturate(140%) blur(14px); border-bottom: 1px solid var(--line); }
+  .navin { display: flex; align-items: center; gap: 1.5rem; height: 4rem; }
+  .brand { display: inline-flex; align-items: center; gap: 0.55rem; font-weight: 600; font-size: 1.15rem; letter-spacing: -0.02em; }
+  .nav nav { display: flex; gap: 1.6rem; margin-left: auto; font-size: 0.93rem; color: var(--fg-2); }
+  .nav nav a { transition: color 160ms ease; }
+  @media (hover: hover) and (pointer: fine) { .nav nav a:hover { color: var(--fg); } }
+  .gh { height: 2.25rem; padding: 0 0.85rem; font-size: 0.9rem; border-radius: 0.6rem; }
+  @media (max-width: 720px) { .hide-sm { display: none; } }
+  @media (max-width: 420px) { .gh span { display: none; } }
+
+  .hero { position: relative; isolation: isolate; padding-block: clamp(2.75rem, 5.5vw, 4.5rem) clamp(4rem, 8vw, 6rem); overflow: clip; }
+  /* Light falls on the headline from above, the way it falls on a stage. */
+  .hero::before {
+    content: ""; position: absolute; z-index: -1; pointer-events: none; left: 50%; top: -22rem; width: min(110rem, 160vw); height: 46rem; transform: translateX(-50%);
+    background: radial-gradient(closest-side, rgba(214, 200, 255, 0.11), rgba(189, 147, 249, 0.04) 55%, transparent);
+  }
+  .hero-copy { display: grid; gap: clamp(1.5rem, 2.6vw, 2.25rem); margin-bottom: clamp(1.75rem, 3vw, 2.5rem); }
+  .cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; }
+  .cta-row .small { flex: 1 1 16rem; }
+  .star { flex: none; }
+  .display .ln { display: block; }
+  .hero-row { display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr); align-items: end; }
+  @media (min-width: 980px) { .hero-row { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 3.5rem; } }
+  .hero-cta { display: grid; gap: 0.85rem; min-width: 0; }
+  .small { margin: 0; font-size: 0.88rem; color: var(--fg-3); }
+  .small a { color: var(--fg-2); text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 0.22em; }
+  @media (hover: hover) and (pointer: fine) { .small a:hover { color: var(--fg); } }
+
+  /* The one orchestrated entrance: headline lines rise out of a soft blur,
+     then the copy, then the product settles (Demo.astro). */
+  .display .ln, .rise { animation: rise 900ms var(--ease-out) both; animation-delay: calc(var(--i) * 90ms + 60ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); filter: blur(8px); } }
+
+  .foot { position: relative; }
+  .foot::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--line-2) 20%, var(--line-2) 80%, transparent); }
+  .footin { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2.5rem; padding-block: 3.5rem calc(3.5rem + env(safe-area-inset-bottom, 0px)); font-size: 0.92rem; }
+  @media (min-width: 760px) { .footin { grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.7fr) minmax(0, 0.7fr); } }
+  .fbrand { display: grid; gap: 0.9rem; align-content: start; }
+  .fbrand p { margin: 0; color: var(--fg-3); max-width: 32ch; }
+  .fbrand p a { color: var(--fg-2); text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 0.22em; }
+  .fcol { display: grid; gap: 0.6rem; align-content: start; }
+  .fcol span { color: var(--fg); font-weight: 500; margin-bottom: 0.2rem; }
+  .fcol a { color: var(--fg-3); transition: color 160ms ease; width: fit-content; }
+  @media (hover: hover) and (pointer: fine) { .fcol a:hover { color: var(--fg); } }
+</style>

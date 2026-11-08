@@ -1,0 +1,238 @@
+---
+import { initial, renderDetail, renderList, hint } from "../scripts/demo-model";
+const s = initial();
+const h = hint(s);
+---
+<figure class="demo" aria-label="A live example of cairn: press the keys to walk ticket ENG-412 from plan to shipped">
+  <div class="stage">
+    <div class="window" data-demo>
+      <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>cairn — herdr</span></div>
+      <div class="screen">
+        <div class="row head"><span><span class="t-acc t-b">cairn</span>  <span class="t-mut">eng · eido · adrien</span></span><span><span class="t-good">●</span> <span class="t-mut">herdr</span>  <span class="t-good">●</span> <span class="t-mut">Linear</span></span></div>
+        <div class="panes">
+          <div class="pane list" data-list set:html={renderList(s)} />
+          <div class="pane detail" data-detail aria-live="polite" set:html={renderDetail(s)} />
+        </div>
+        <div class="foot"><span class="t-mut">n new  s settings  t board  ctrl+k palette  ? help</span><span class="t-dim">example data</span></div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="hint" data-hint>
+    <span class="hint-in" data-hint-in>
+      {h.key && <span>Press</span>}
+      {h.key && <button type="button" class="kbd big" data-key={h.key} aria-label={`Press ${h.key}`}>{h.key.toUpperCase()}</button>}
+      <span>{h.text}</span>
+    </span>
+  </figcaption>
+</figure>
+
+<script>
+  import { initial, renderDetail, renderList, hint, type DemoState } from "../scripts/demo-model";
+
+  const root = document.querySelector<HTMLElement>("[data-demo]")!;
+  const detail = root.querySelector<HTMLElement>("[data-detail]")!;
+  const list = root.querySelector<HTMLElement>("[data-list]")!;
+  const hintEl = document.querySelector<HTMLElement>("[data-hint-in]")!;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  let s: DemoState = initial();
+  let timers: number[] = [];
+  const later = (ms: number, fn: () => void) => timers.push(window.setTimeout(fn, reduce ? 0 : ms));
+
+  function paint(pulse = false) {
+    detail.innerHTML = renderDetail(s);
+    list.innerHTML = renderList(s);
+    const h = hint(s);
+    hintEl.innerHTML = (h.key ? `<span>Press</span><button type="button" class="kbd big" data-key="${h.key}" aria-label="Press ${h.key}">${h.key.toUpperCase()}</button>` : "") +
+      `<span>${h.text}</span>`;
+    if (pulse && !reduce) {
+      // One step, one motion: the detail settles in from a soft blur.
+      detail.animate(
+        [{ filter: "blur(3px)", opacity: 0.55, transform: "translateY(4px)" }, { filter: "blur(0)", opacity: 1, transform: "none" }],
+        { duration: 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" },
+      );
+    }
+  }
+
+  function approve() {
+    if (s.step !== "plan") return;
+    s = { ...s, step: "build", answered: true };
+    paint(true);
+    const seq: Array<() => void> = [
+      () => (s.tasks = ["~", " ", " ", " "]),
+      () => ((s.tasks = ["x", "~", " ", " "]), (s.proofs = 1)),
+      () => ((s.tasks = ["x", "x", "~", " "]), (s.sides = [true, false])),
+      () => ((s.tasks = ["x", "x", "x", "~"]), (s.proofs = 2)),
+      () => ((s.tasks = ["x", "x", "x", "x"]), (s.sides = [true, true]), (s.proofs = 3)),
+      () => (s.step = "push"),
+    ];
+    seq.forEach((f, i) => later(700 * (i + 1), () => { f(); paint(i === seq.length - 1); }));
+  }
+
+  function allow() {
+    if (s.step !== "push") return;
+    s = { ...s, step: "review", ci: "run", review: "wait" };
+    paint(true);
+    later(1300, () => { s.ci = "ok"; paint(); });
+    later(2300, () => { s.review = "ok"; paint(true); });
+    later(4200, () => { s.merged = true; s.step = "shipped"; paint(true); });
+  }
+
+  function replay() {
+    timers.forEach(clearTimeout);
+    timers = [];
+    s = initial();
+    paint(true);
+  }
+
+  function press(key: string) {
+    if (key === "v") approve();
+    else if (key === "a") allow();
+    else if (key === "r") replay();
+  }
+
+  document.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>("[data-key]");
+    if (b && (root.contains(b) || hintEl.contains(b))) press(b.dataset.key!);
+  });
+
+  // A light that follows the pointer along the window's edge, eased so it
+  // trails the hand a little instead of snapping to it.
+  if (matchMedia("(hover: hover) and (pointer: fine)").matches && !reduce) {
+    let tx = 0.5, ty = -0.2, x = tx, y = ty, raf = 0;
+    const step = () => {
+      x += (tx - x) * 0.14; y += (ty - y) * 0.14;
+      root.style.setProperty("--mx", `${(x * 100).toFixed(2)}%`);
+      root.style.setProperty("--my", `${(y * 100).toFixed(2)}%`);
+      raf = Math.abs(tx - x) + Math.abs(ty - y) > 0.001 ? requestAnimationFrame(step) : 0;
+    };
+    root.addEventListener("pointermove", (e) => {
+      const r = root.getBoundingClientRect();
+      tx = (e.clientX - r.left) / r.width; ty = (e.clientY - r.top) / r.height;
+      if (!raf) raf = requestAnimationFrame(step);
+    });
+    root.addEventListener("pointerenter", () => root.classList.add("lit"));
+    root.addEventListener("pointerleave", () => root.classList.remove("lit"));
+  }
+
+  // Real keys, while the demo is on screen.
+  let visible = true;
+  new IntersectionObserver(([e]) => (visible = e.isIntersecting), { threshold: 0.25 }).observe(root);
+  document.addEventListener("keydown", (e) => {
+    if (!visible || e.metaKey || e.ctrlKey || e.altKey || /INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement).tagName)) return;
+    const key = e.key.toLowerCase();
+    if (key === "v" || key === "a" || key === "r") {
+      const cap = hintEl.querySelector<HTMLElement>(`[data-key="${key}"]`);
+      cap?.classList.add("down");
+      window.setTimeout(() => cap?.classList.remove("down"), 120);
+      press(key);
+    }
+  });
+</script>
+
+<style is:global>
+  @property --gr { syntax: "<length>"; inherits: false; initial-value: 0px; }
+</style>
+
+<style>
+  .demo { margin: 0; display: grid; gap: 1.6rem; justify-items: center; }
+  .hint { order: -1; }
+  .stage { width: 100%; perspective: 2200px; position: relative; }
+  /* One light behind the product, nothing else. */
+  .stage::before {
+    content: ""; position: absolute; inset: -18% -4% 4%; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(38% 46% at 50% 34%, rgba(189, 147, 249, 0.42), transparent 70%),
+      radial-gradient(60% 60% at 50% 45%, rgba(120, 90, 220, 0.2), transparent 72%);
+  }
+  /* The window rests on its own light. */
+  .stage::after {
+    content: ""; position: absolute; left: 8%; right: 8%; bottom: -5%; height: 16%; z-index: -1; pointer-events: none;
+    background: radial-gradient(50% 50% at 50% 50%, rgba(189, 147, 249, 0.3), transparent 72%);
+  }
+  .window {
+    position: relative; border-radius: 14px; color: #e6e6ef;
+    border: 1px solid transparent;
+    box-shadow: var(--lift);
+    font: 400 clamp(10.5px, 1.05vw, 13.5px)/1.62 var(--mono);
+    transform-origin: 50% 0%;
+    animation: settle 1100ms var(--ease-out) 380ms both;
+  }
+  @keyframes settle {
+    from { transform: rotateX(14deg) translateY(28px) scale(0.97); opacity: 0; }
+    to { transform: rotateX(5deg); opacity: 1; }
+  }
+  /* The tilt flattens as you scroll toward it, where supported. */
+  @supports (animation-timeline: view()) {
+    .stage { animation: flatten linear both; animation-timeline: view(); animation-range: entry 40% cover 45%; }
+    @keyframes flatten { to { transform: rotateX(-5deg); } }
+  }
+  /* The edge catches a light that follows the pointer: a third layer of the
+     border itself, whose radius grows in on hover. */
+  .window {
+    background:
+      linear-gradient(var(--term), var(--term)) padding-box,
+      radial-gradient(var(--gr) circle at var(--mx, 50%) var(--my, 0%), rgba(225, 210, 255, 0.85), transparent) border-box,
+      var(--edge) border-box;
+    transition: --gr 500ms var(--ease-out);
+  }
+  .window.lit { --gr: 380px; }
+  .window::before {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(calc(var(--gr) * 1.6) circle at var(--mx, 50%) var(--my, 0%), rgba(189, 147, 249, 0.07), transparent);
+  }
+  .chrome { display: flex; align-items: center; gap: 8px; padding: 12px 14px 4px; color: var(--t-dim); font-size: 0.85em; }
+  .chrome i { width: 11px; height: 11px; border-radius: 50%; background: #3a3c48; }
+  .chrome span { margin-left: auto; margin-right: auto; transform: translateX(-30px); }
+  .screen { padding: 8px 18px 14px; display: grid; gap: 10px; }
+  .head { margin-bottom: 2px; }
+  .panes { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 30.5em; }
+  @media (min-width: 820px) { .panes { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); } }
+  .pane { min-width: 0; }
+  .list { display: none; padding-right: 16px; border-right: 2px solid var(--lavender); }
+  @media (min-width: 820px) { .list { display: block; } .detail { padding-left: 18px; } }
+  .foot { display: flex; justify-content: space-between; gap: 1rem; white-space: nowrap; overflow: hidden; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 8px; }
+
+  .screen :global(.row) { display: flex; justify-content: space-between; gap: 1rem; white-space: nowrap; min-width: 0; }
+  .screen :global(.row > span) { overflow: hidden; text-overflow: ellipsis; }
+  .screen :global(.l) { white-space: pre; overflow: hidden; text-overflow: ellipsis; min-height: 1.62em; }
+  .screen :global(.l.sel) { background: #2c2e3c; }
+  .screen :global(.sec) { display: flex; align-items: center; gap: 1ch; white-space: pre; overflow: hidden; margin-top: 2px; min-height: 1.62em; }
+  .screen :global(.sec::after) { content: ""; flex: 1; border-top: 1px solid var(--t-line); }
+  .screen :global(.t-acc) { color: var(--lavender); }
+  .screen :global(.t-warn) { color: var(--amber); }
+  .screen :global(.t-good) { color: var(--green); }
+  .screen :global(.t-mut) { color: var(--t-muted); }
+  .screen :global(.t-dim) { color: var(--t-dim); }
+  .screen :global(.t-b) { font-weight: 600; color: #f4f4fa; }
+  .screen :global(.card) { border: 1.5px solid var(--t-line); border-radius: 6px; padding: 4px 10px 6px; margin: 8px 0 10px; display: grid; gap: 4px; }
+  .screen :global(.card.warn) { border-color: var(--amber); }
+  .screen :global(.card.good) { border-color: var(--green); }
+  .screen :global(.k) {
+    background: var(--t-line); color: #e6e6ef; border: 0; padding: 0 7px; margin-right: 5px; font: inherit; cursor: pointer;
+    transition: transform 140ms var(--ease-out), background-color 160ms ease;
+  }
+  .screen :global(.k b) { color: var(--lavender); font-weight: 400; }
+  .screen :global(.k.p) { background: var(--lavender); color: #15161d; }
+  .screen :global(.k.p b) { color: #15161d; }
+  .screen :global(.k:active) { transform: scale(0.96); }
+  @media (hover: hover) and (pointer: fine) {
+    .screen :global(.k:hover) { background: #4a4d63; }
+    .screen :global(.k.p:hover) { background: var(--lavender-2); }
+  }
+
+  .hint { color: var(--fg-2); font-size: 0.95rem; min-height: 2.75rem; display: grid; place-items: center; text-align: center; }
+  .hint :global(.hint-in) { display: inline-flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; justify-content: center; }
+  .hint :global(.kbd.big) {
+    font-size: 1.15rem; min-width: 2.6rem; height: 2.6rem; border: 0; cursor: pointer; border-radius: 0.6rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -3px 0 rgba(0, 0, 0, 0.4), 0 2px 0 #0a0b0e, 0 6px 16px rgba(189, 147, 249, 0.18);
+    color: var(--lavender-2);
+    transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+    animation: invite 2.4s ease-in-out 1.8s infinite;
+  }
+  .hint :global(.kbd.big:active), .hint :global(.kbd.big.down) {
+    transform: translateY(2px); animation: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 rgba(0, 0, 0, 0.4), 0 0 0 #0a0b0e, 0 2px 8px rgba(189, 147, 249, 0.2);
+  }
+  @keyframes invite { 0%, 70%, 100% { transform: none; } 80% { transform: translateY(2px); } 90% { transform: none; } }
+</style>

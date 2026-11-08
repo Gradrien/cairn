@@ -1,0 +1,48 @@
+---
+import CopyCommand from "./CopyCommand.astro";
+---
+<section class="section rule" id="trackers">
+  <div class="wrap">
+    <div class="head">
+      <h2 class="h2">Bring your tracker. <span class="dim">Or don't.</span></h2>
+      <p class="body">cairn follows as many repositories as you like, on one screen, each with its own tracker. The key says where a ticket comes from: <code>ENG-412</code> next to <code>EIDO-7</code>.</p>
+    </div>
+    <div class="cols">
+      <div class="col">
+        <h3 class="h3">Linear</h3>
+        <p class="body">Paste a personal API key in the settings. cairn checks it, finds your team, assigns the tickets you take and moves them to In Progress when the plan starts.</p>
+        <CopyCommand id="cmd-linear" size="md" command="cairn add --tracker linear --key ENG" />
+      </div>
+      <div class="col">
+        <h3 class="h3">No tracker at all</h3>
+        <p class="body">Type a title, get <code>EIDO-8</code>. The plan file is the ticket; the pull request is found by its branch. Made for side projects.</p>
+        <CopyCommand id="cmd-local" size="md" command="cairn add" />
+      </div>
+      <div class="col">
+        <h3 class="h3">Your in-house one</h3>
+        <p class="body">A tracker is a small Go interface: list your tickets, take one, start it. Sprintosaur, an in-house tracker, plugs in that way.</p>
+        <CopyCommand id="cmd-sp" size="md" command="cairn add --tracker sprintosaur --key OPS" />
+      </div>
+    </div>
+    <ul class="with" aria-label="What cairn works with">
+      <li><b>herdr</b><span>agents and workspaces</span></li>
+      <li><b>Claude Code</b><span>the agents and the push hook</span></li>
+      <li><b>GitHub</b><span>pull requests, CI and images, through gh</span></li>
+      <li><b>browsediff</b><span>or git diff, or your own diff</span></li>
+    </ul>
+  </div>
+</section>
+
+<style>
+  .head { display: grid; gap: 1.25rem; margin-bottom: clamp(2.5rem, 5vw, 3.5rem); }
+  .dim { color: var(--fg-3); }
+  code { font-size: 0.92em; color: var(--fg); }
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2.5rem; }
+  @media (min-width: 900px) { .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2rem; } }
+  .col { display: grid; grid-template-rows: auto 1fr auto; gap: 0.9rem; padding-top: 1.4rem; border-top: 1px solid var(--line-2); min-width: 0; }
+  .with { list-style: none; padding: 0; margin: clamp(3.5rem, 7vw, 5rem) 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.75rem 0; }
+  @media (min-width: 900px) { .with { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .with li { display: grid; gap: 0.3rem; padding-inline: 1.25rem; border-left: 1px solid var(--line-2); }
+  .with b { font-size: 1.15rem; font-weight: 600; letter-spacing: -0.02em; color: var(--fg-2); }
+  .with span { font-size: 0.85rem; color: var(--fg-3); }
+</style>

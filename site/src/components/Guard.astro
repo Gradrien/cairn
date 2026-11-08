@@ -1,0 +1,60 @@
+---
+// The push guard, shown doing its job on a real command sequence.
+---
+<section class="section rule" id="guard">
+  <div class="wrap grid">
+    <div class="copy">
+      <h2 class="h2">Nothing ships without you.</h2>
+      <p class="body">Agents never push or open a pull request on their own. A Claude Code hook blocks <code>git push</code> and <code>gh pr create</code> on a ticket's branch until you press <span class="kbd">a</span> on the commit you reviewed. <strong>Enforced, not requested.</strong></p>
+    </div>
+
+    <div class="tty" role="img" aria-label="An agent's push is blocked by cairn; the human allows commit 4f2a91c; the push and the pull request go through.">
+      <div class="ln"><span class="who">agent</span><span><span class="pr">$</span> git push -u origin adrien/eng-412-rate-limit</span></div>
+      <div class="ln"><span class="who no">cairn</span><span class="no">✗ ENG-412 needs a human approval before any push or PR.</span></div>
+      <div class="ln"><span class="who"></span><span class="mu">Do not work around this block. Set `attente: Prêt à pousser`,<br />run `cairn sync`, then stop: the human reviews in cairn.</span></div>
+      <div class="ln gap"><span class="who">agent</span><span class="mu">Ready to push: 3 commits, 7 files. Stopping here.</span></div>
+      <div class="ln you"><span class="who lv">you</span><span><span class="kbd">a</span> <span class="lv">Allow push</span> <span class="mu">· reviewed 3 commits · covers</span> 4f2a91c</span></div>
+      <div class="ln gap"><span class="who">agent</span><span><span class="pr">$</span> git push -u origin adrien/eng-412-rate-limit <span class="ok">✓</span></span></div>
+      <div class="ln"><span class="who">agent</span><span><span class="pr">$</span> gh pr create --fill <span class="ok">✓ #418</span></span></div>
+      <div class="ex">example session</div>
+    </div>
+
+    <dl class="facts">
+      <div><dt>Covers the commit you read</dt><dd>The go-ahead is for one commit. Push, PR and retries pass while the branch stays on it. New commits ask again.</dd></div>
+      <div><dt>Free once the PR is open</dt><dd>CI fixes and review feedback push without asking. From then on, you review on the pull request.</dd></div>
+      <div><dt>Merging stays yours</dt><dd><code>gh pr merge</code> stays blocked for agents. cairn never merges anything.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<style>
+  .grid { display: grid; gap: clamp(2.5rem, 5vw, 4rem); grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1000px) { .grid { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); align-items: center; } .facts { grid-column: 1 / -1; } }
+  .copy { display: grid; gap: 1.5rem; }
+  .body code { font-size: 0.9em; color: var(--fg); }
+
+  .tty {
+    border-radius: 14px; padding: 1.4rem 1.5rem; display: grid; gap: 0.15rem; min-width: 0; overflow-x: auto;
+    font: 400 0.84rem/1.7 var(--mono); color: #e6e6ef;
+    border: 1px solid transparent; background: linear-gradient(var(--term), var(--term)) padding-box, var(--edge) border-box; box-shadow: var(--lift);
+  }
+  .ln { display: grid; grid-template-columns: 4.2rem minmax(0, 1fr); gap: 0.5rem; white-space: nowrap; }
+  .ln.gap { margin-top: 0.7rem; }
+  .ex { margin-top: 0.9rem; text-align: right; color: var(--t-dim); font-size: 0.78rem; }
+  .ln.you { margin-top: 0.7rem; padding: 0.45rem 0.6rem; margin-inline: -0.6rem; border-radius: 8px; background: rgba(189, 147, 249, 0.09); box-shadow: inset 0 0 0 1px rgba(189, 147, 249, 0.25); }
+  .who { color: var(--t-dim); }
+  .pr { color: var(--t-dim); }
+  .no { color: var(--red); }
+  .mu { color: var(--t-muted); }
+  .lv { color: var(--lavender); }
+  .ok { color: var(--green); }
+  .tty .kbd { font-size: 0.86em; height: 1.55em; color: var(--lavender-2); }
+
+  /* Three rules, read as a list: term on the left, consequence on the right. */
+  .facts { margin: 0; display: grid; }
+  .facts > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.35rem 2rem; padding-block: 1.1rem; border-top: 1px solid var(--line); }
+  @media (min-width: 760px) { .facts > div { grid-template-columns: 16rem minmax(0, 1fr); align-items: baseline; } }
+  dt { font-weight: 600; letter-spacing: -0.01em; }
+  dd { margin: 0; color: var(--fg-2); font-size: 0.95rem; }
+  dd code { font-size: 0.9em; color: var(--fg); }
+</style>
