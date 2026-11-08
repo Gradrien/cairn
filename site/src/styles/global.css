@@ -121,3 +121,9 @@ body::after {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Scroll reveal (index.astro marks the groups): only with JS and motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .js [data-reveal] { transition: opacity 700ms ease, transform 900ms var(--ease-out), filter 700ms ease; transition-delay: calc(var(--ri, 0) * 90ms); }
+  .js [data-reveal]:not(.in) { opacity: 0; transform: translateY(18px); filter: blur(6px); }
+}

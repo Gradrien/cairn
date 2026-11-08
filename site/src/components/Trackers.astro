@@ -3,11 +3,11 @@ import CopyCommand from "./CopyCommand.astro";
 ---
 <section class="section rule" id="trackers">
   <div class="wrap">
-    <div class="head">
+    <div class="head" data-reveal-group>
       <h2 class="h2">Bring your tracker. <span class="dim">Or don't.</span></h2>
-      <p class="body">cairn follows as many repositories as you like, on one screen, each with its own tracker. The key says where a ticket comes from: <code>ENG-412</code> next to <code>EIDO-7</code>.</p>
+      <p class="body">cairn follows as many repositories as you like, on one screen, each with its own tracker. The key says where a ticket comes from: <code>ENG-412</code> next to <code>WEB-7</code>.</p>
     </div>
-    <div class="cols">
+    <div class="cols" data-reveal-group>
       <div class="col">
         <h3 class="h3">Linear</h3>
         <p class="body">Paste a personal API key in the settings. cairn checks it, finds your team, assigns the tickets you take and moves them to In Progress when the plan starts.</p>
@@ -15,16 +15,21 @@ import CopyCommand from "./CopyCommand.astro";
       </div>
       <div class="col">
         <h3 class="h3">No tracker at all</h3>
-        <p class="body">Type a title, get <code>EIDO-8</code>. The plan file is the ticket; the pull request is found by its branch. Made for side projects.</p>
+        <p class="body">Type a title, get <code>WEB-8</code>. The plan file is the ticket; the pull request is found by its branch. Made for side projects.</p>
         <CopyCommand id="cmd-local" size="md" command="cairn add" />
       </div>
       <div class="col">
-        <h3 class="h3">Your in-house one</h3>
-        <p class="body">A tracker is a small Go interface: list your tickets, take one, start it. Sprintosaur, an in-house tracker, plugs in that way.</p>
-        <CopyCommand id="cmd-sp" size="md" command="cairn add --tracker sprintosaur --key OPS" />
+        <h3 class="h3">Your own</h3>
+        <p class="body">Jira, GitLab, something built in-house: plug it in by writing one small Go interface. List your tickets, take one, start it.</p>
+        <pre class="iface" aria-label="The tracker interface in Go"><span class="kw">type</span> Tracker <span class="kw">interface</span> &#123;
+  Mine() ([]Issue, <span class="ty">error</span>)
+  Take(key <span class="ty">string</span>) <span class="ty">error</span>
+  Start(is Issue) (<span class="ty">bool</span>, <span class="ty">error</span>)
+  <span class="cm">// …and three more</span>
+&#125;</pre>
       </div>
     </div>
-    <ul class="with" aria-label="What cairn works with">
+    <ul class="with" aria-label="What cairn works with" data-reveal-group>
       <li><b>herdr</b><span>agents and workspaces</span></li>
       <li><b>Claude Code</b><span>the agents and the push hook</span></li>
       <li><b>GitHub</b><span>pull requests, CI and images, through gh</span></li>
@@ -40,6 +45,10 @@ import CopyCommand from "./CopyCommand.astro";
   .cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2.5rem; }
   @media (min-width: 900px) { .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2rem; } }
   .col { display: grid; grid-template-rows: auto 1fr auto; gap: 0.9rem; padding-top: 1.4rem; border-top: 1px solid var(--line-2); min-width: 0; }
+  .iface { margin: 0; padding: 0.75rem 0.95rem; border-radius: 0.8rem; font: 400 0.82rem/1.6 var(--mono); color: var(--fg); overflow-x: auto; border: 1px solid transparent; background: linear-gradient(180deg, #17191f, #111318) padding-box, var(--edge) border-box; }
+  .kw { color: var(--lavender); }
+  .ty { color: var(--t-muted); }
+  .cm { color: var(--fg-3); }
   .with { list-style: none; padding: 0; margin: clamp(3.5rem, 7vw, 5rem) 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.75rem 0; }
   @media (min-width: 900px) { .with { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
   .with li { display: grid; gap: 0.3rem; padding-inline: 1.25rem; border-left: 1px solid var(--line-2); }

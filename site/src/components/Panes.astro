@@ -2,19 +2,19 @@
 // Before / after: what herdr shows you (five panes to open), and what cairn
 // shows you (one list, the decisions first). Example data.
 const panes = [
-  { who: "claude · eng-412", st: "idle", line: "I wrote the plan in ~/.cairn/chantiers/ENG-412.md. Let me know if…" },
-  { who: "claude · eido-7", st: "blocked", line: "Before I continue: should the invoice PDF include the VAT…" },
-  { who: "claude · eng-398", st: "working", line: "Running go test ./webhooks/... (attempt 3)" },
-  { who: "codex · eido-5", st: "idle", line: "Pushed 2 commits. CI is running on #31." },
+  { who: "claude · eng-412", st: "idle", line: "I wrote the plan. Tell me if it looks right before I start…" },
+  { who: "claude · web-7", st: "blocked", line: "Before I continue: should the invoice PDF include the VAT…" },
+  { who: "claude · eng-398", st: "working", line: "Running go test ./webhooks/... (attempt 3)", logs: ["Running go test ./webhooks/... (attempt 3)", "Reading webhooks/retry.go", "Editing backoff: 1 s, 4 s, 16 s, then give up", "Running go test ./webhooks/... ✓ 22 passed"] },
+  { who: "codex · web-5", st: "idle", line: "Pushed 2 commits. CI is running on #31." },
   { who: "claude · eng-377", st: "done", line: "Done. The PR was merged into main." },
 ];
 ---
 <section class="section rule" id="why">
   <div class="wrap grid">
-    <div class="copy">
+    <div class="copy" data-reveal-group>
       <h2 class="h2"><span class="blk">Five agents. Five panes.</span> <span class="blk dim">One list.</span></h2>
-      <p class="body">herdr tells you an agent is idle. Not whether it finished, is waiting on your approval, or is stuck on a question. <strong>cairn reads every ticket's state and puts the answer on one screen</strong>, with the ones that need you first and the exact thing to decide.</p>
-      <p class="body">Each ticket becomes a <em>chantier</em>, French for a work site: the ticket, its git worktree, its herdr workspace, its agents, its plan and its pull request, moving from Plan to Build, Review and Shipped.</p>
+      <p class="body">Your terminal tells you an agent is idle. Not whether it finished, is waiting on your approval, or is stuck on a question. <strong>cairn reads every ticket's state and puts the answer on one screen</strong>, with the ones that need you first and the exact thing to decide.</p>
+      <p class="body">Each ticket gets its own work site: the ticket, its branch, its terminal workspace, its agents, its plan and its pull request, moving from Plan to Build, Review and Shipped.</p>
     </div>
 
     <div class="viz" aria-label="Five agent panes on the left; the same work as one list in cairn on the right">
@@ -22,7 +22,7 @@ const panes = [
         {panes.map((p) => (
           <div class={`pane st-${p.st}`}>
             <div class="ph"><span class="dot"></span>{p.who}<span class="st">{p.st}</span></div>
-            <div class="pl">{p.line}</div>
+            <div class="pl" data-logs={p.logs ? JSON.stringify(p.logs) : undefined}>{p.line}</div>
           </div>
         ))}
       </div>
@@ -33,10 +33,10 @@ const panes = [
         <div class="ch"><span class="lv">cairn</span><span class="mu">5 tickets · 2 waiting for you</span></div>
         <div class="grp warn" style="--n:0">Waiting for you</div>
         <div class="it" style="--n:1"><b>ENG-412</b> Rate-limit the public API<span class="why warn">Approve the plan · 12 min</span></div>
-        <div class="it" style="--n:2"><b>EIDO-7</b> Export invoices as PDF<span class="why warn">Answer 1 question · 3 min</span></div>
+        <div class="it" style="--n:2"><b>WEB-7</b> Export invoices as PDF<span class="why warn">Answer 1 question · 3 min</span></div>
         <div class="grp" style="--n:3">In progress</div>
         <div class="it" style="--n:4"><b>ENG-398</b> Retry failed webhooks<span class="why"><span class="lv">Build</span> 4/6</span></div>
-        <div class="it" style="--n:5"><b>EIDO-5</b> Dark mode for the editor<span class="why"><span class="lv">Review</span> · CI <span class="ok">✓</span></span></div>
+        <div class="it" style="--n:5"><b>WEB-5</b> Dark mode for the editor<span class="why"><span class="lv">Review</span> · CI <span class="ok">✓</span></span></div>
         <div class="grp" style="--n:6">Shipped</div>
         <div class="it done" style="--n:7"><b>ENG-377</b> Paginate the audit log<span class="why">cleaned up</span></div>
         <div class="ex">example data</div>
@@ -44,6 +44,23 @@ const panes = [
     </div>
   </div>
 </section>
+
+<script>
+  // The working pane keeps working: its last line changes every few seconds.
+  const pl = document.querySelector<HTMLElement>("[data-logs]");
+  if (pl && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const logs: string[] = JSON.parse(pl.dataset.logs!);
+    let i = 0;
+    window.setInterval(() => {
+      if (document.hidden) return;
+      i = (i + 1) % logs.length;
+      pl.animate([{ opacity: 1 }, { opacity: 0, transform: "translateY(-4px)", filter: "blur(2px)" }], { duration: 180, easing: "ease" }).onfinish = () => {
+        pl.textContent = logs[i];
+        pl.animate([{ opacity: 0, transform: "translateY(4px)", filter: "blur(2px)" }, { opacity: 1, transform: "none", filter: "blur(0)" }], { duration: 320, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+      };
+    }, 2600);
+  }
+</script>
 
 <style>
   .grid { display: grid; gap: clamp(3rem, 6vw, 5rem); }
@@ -58,8 +75,12 @@ const panes = [
   .ph { display: flex; align-items: center; gap: 0.5rem; color: var(--fg-2); }
   .st { margin-left: auto; color: var(--fg-3); }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: #5a5d6b; flex: none; }
-  .st-working .dot { background: var(--amber); }
-  .st-blocked .dot { background: var(--red); }
+  .st-working .dot { background: var(--amber); animation: beat 1.4s ease-in-out infinite; }
+  .st-blocked .dot { background: var(--red); animation: ring 2.4s ease-out infinite; }
+  @keyframes beat { 50% { opacity: 0.35; } }
+  @keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(255, 110, 110, 0.5); } 70%, 100% { box-shadow: 0 0 0 6px rgba(255, 110, 110, 0); } }
+  .st-working .pl::after { content: "▍"; color: var(--amber); margin-left: 0.2ch; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
   .st-done .dot { background: var(--green); }
   .pl { color: var(--fg-3); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .arrow { color: var(--fg-3); justify-self: center; width: 2.5rem; }
@@ -71,6 +92,9 @@ const panes = [
   .mu { color: var(--t-muted); }
   .grp { color: var(--t-muted); margin-top: 0.5rem; }
   .grp.warn { color: var(--amber); }
+  /* The decisions keep a quiet pulse: they are the ones waiting on you. */
+  .why.warn { animation: wait 2.8s ease-in-out infinite; }
+  @keyframes wait { 50% { opacity: 0.55; } }
   .it { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 0.7rem; padding: 0.15rem 0 0.15rem 1rem; color: #e6e6ef; }
   .it b { font-weight: 600; }
   .why { grid-column: 2; color: var(--t-muted); }

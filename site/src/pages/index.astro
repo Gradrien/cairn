@@ -29,6 +29,7 @@ const repo = "https://github.com/Gradrien/cairn";
   <meta property="og:description" content={description} />
   <meta property="og:image" content="/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
+  <script is:inline>document.documentElement.classList.add("js");</script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -55,7 +56,7 @@ const repo = "https://github.com/Gradrien/cairn";
             <span class="ln" style="--i:1">ticket stands.</span>
           </h1>
           <div class="hero-row">
-            <p class="lede rise" style="--i:2">Five agents on five tickets. herdr tells you which one is working. <strong>cairn tells you where the work is</strong>, and what is waiting for your decision.</p>
+            <p class="lede rise" style="--i:2">Five coding agents on five tickets. Your terminal tells you which one is busy. <strong>cairn tells you where the work is</strong>, and what is waiting for your decision.</p>
             <div class="hero-cta rise" style="--i:3">
               <CopyCommand id="cmd-hero" command="git clone https://github.com/Gradrien/cairn && cairn/install.sh --herdr" />
               <div class="cta-row">
@@ -82,7 +83,7 @@ const repo = "https://github.com/Gradrien/cairn";
     <div class="wrap footin">
       <div class="fbrand">
         <a class="brand" href="/"><Logo size={20} />cairn</a>
-        <p>Know where every ticket stands. A terminal companion for herdr, made by <a href="https://github.com/Gradrien">Gradrien</a>.</p>
+        <p>Know where every ticket stands. A terminal companion for herdr and Claude Code, open source.</p>
       </div>
       <nav class="fcol" aria-label="Product">
         <span>Product</span>
@@ -100,6 +101,33 @@ const repo = "https://github.com/Gradrien/cairn";
       </nav>
     </div>
   </footer>
+
+  <script>
+    // Sections settle in as they arrive: each marked group's children rise
+    // out of a soft blur, one after the other. Visible at rest without JS.
+    const groups = document.querySelectorAll<HTMLElement>("[data-reveal-group]");
+    groups.forEach((g) => Array.from(g.children).forEach((c, i) => {
+      (c as HTMLElement).dataset.reveal = "";
+      (c as HTMLElement).style.setProperty("--ri", String(i));
+    }));
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+      if (!e.isIntersecting) return;
+      e.target.classList.add("in");
+      io.unobserve(e.target);
+    }), { rootMargin: "0px 0px -12% 0px" });
+    document.querySelectorAll("[data-reveal]").forEach((el) => io.observe(el));
+
+    // The nav says where you are.
+    const links = new Map<string, HTMLElement>();
+    document.querySelectorAll<HTMLElement>(".nav nav a[href^='#']").forEach((a) => links.set(a.getAttribute("href")!.slice(1), a));
+    const spy = new IntersectionObserver((entries) => entries.forEach((e) => {
+      const a = links.get(e.target.id);
+      if (!a) return;
+      if (e.isIntersecting) { links.forEach((l) => l.removeAttribute("aria-current")); a.setAttribute("aria-current", "true"); }
+      else if (a.hasAttribute("aria-current")) a.removeAttribute("aria-current");
+    }), { rootMargin: "-45% 0px -50% 0px" });
+    links.forEach((_, id) => { const el = document.getElementById(id); if (el) spy.observe(el); });
+  </script>
 </body>
 </html>
 
@@ -113,7 +141,10 @@ const repo = "https://github.com/Gradrien/cairn";
   .navin { display: flex; align-items: center; gap: 1.5rem; height: 4rem; }
   .brand { display: inline-flex; align-items: center; gap: 0.55rem; font-weight: 600; font-size: 1.15rem; letter-spacing: -0.02em; }
   .nav nav { display: flex; gap: 1.6rem; margin-left: auto; font-size: 0.93rem; color: var(--fg-2); }
-  .nav nav a { transition: color 160ms ease; }
+  .nav nav a { position: relative; transition: color 160ms ease; }
+  .nav nav a::after { content: ""; position: absolute; left: 0; right: 0; bottom: -0.35rem; height: 1px; background: var(--lavender); transform: scaleX(0); transition: transform 320ms var(--ease-out); }
+  .nav nav a[aria-current] { color: var(--fg); }
+  .nav nav a[aria-current]::after { transform: scaleX(1); }
   @media (hover: hover) and (pointer: fine) { .nav nav a:hover { color: var(--fg); } }
   .gh { height: 2.25rem; padding: 0 0.85rem; font-size: 0.9rem; border-radius: 0.6rem; }
   @media (max-width: 720px) { .hide-sm { display: none; } }
@@ -124,7 +155,9 @@ const repo = "https://github.com/Gradrien/cairn";
   .hero::before {
     content: ""; position: absolute; z-index: -1; pointer-events: none; left: 50%; top: -22rem; width: min(110rem, 160vw); height: 46rem; transform: translateX(-50%);
     background: radial-gradient(closest-side, rgba(214, 200, 255, 0.11), rgba(189, 147, 249, 0.04) 55%, transparent);
+    animation: stagelight 11s ease-in-out infinite;
   }
+  @keyframes stagelight { 50% { opacity: 0.7; transform: translateX(-50%) scale(1.06); } }
   .hero-copy { display: grid; gap: clamp(1.5rem, 2.6vw, 2.25rem); margin-bottom: clamp(1.75rem, 3vw, 2.5rem); }
   .cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; }
   .cta-row .small { flex: 1 1 16rem; }

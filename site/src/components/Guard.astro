@@ -3,29 +3,64 @@
 ---
 <section class="section rule" id="guard">
   <div class="wrap grid">
-    <div class="copy">
+    <div class="copy" data-reveal-group>
       <h2 class="h2">Nothing ships without you.</h2>
       <p class="body">Agents never push or open a pull request on their own. A Claude Code hook blocks <code>git push</code> and <code>gh pr create</code> on a ticket's branch until you press <span class="kbd">a</span> on the commit you reviewed. <strong>Enforced, not requested.</strong></p>
     </div>
 
-    <div class="tty" role="img" aria-label="An agent's push is blocked by cairn; the human allows commit 4f2a91c; the push and the pull request go through.">
-      <div class="ln"><span class="who">agent</span><span><span class="pr">$</span> git push -u origin adrien/eng-412-rate-limit</span></div>
+    <div class="tty" data-tty role="img" aria-label="An agent's push is blocked by cairn; the human allows commit 4f2a91c; the push and the pull request go through.">
+      <div class="ln"><span class="who">agent</span><span><span class="pr">$</span> <span class="cmd" data-cmd="git push -u origin eng-412-rate-limit">git push -u origin eng-412-rate-limit</span></span></div>
       <div class="ln"><span class="who no">cairn</span><span class="no">✗ ENG-412 needs a human approval before any push or PR.</span></div>
-      <div class="ln"><span class="who"></span><span class="mu">Do not work around this block. Set `attente: Prêt à pousser`,<br />run `cairn sync`, then stop: the human reviews in cairn.</span></div>
+      <div class="ln"><span class="who"></span><span class="mu">Do not work around this block. Mark the ticket ready to push,<br />then stop: the human reviews in cairn.</span></div>
       <div class="ln gap"><span class="who">agent</span><span class="mu">Ready to push: 3 commits, 7 files. Stopping here.</span></div>
       <div class="ln you"><span class="who lv">you</span><span><span class="kbd">a</span> <span class="lv">Allow push</span> <span class="mu">· reviewed 3 commits · covers</span> 4f2a91c</span></div>
-      <div class="ln gap"><span class="who">agent</span><span><span class="pr">$</span> git push -u origin adrien/eng-412-rate-limit <span class="ok">✓</span></span></div>
-      <div class="ln"><span class="who">agent</span><span><span class="pr">$</span> gh pr create --fill <span class="ok">✓ #418</span></span></div>
+      <div class="ln gap"><span class="who">agent</span><span><span class="pr">$</span> <span class="cmd" data-cmd="git push -u origin eng-412-rate-limit">git push -u origin eng-412-rate-limit</span> <span class="ok res">✓</span></span></div>
+      <div class="ln"><span class="who">agent</span><span><span class="pr">$</span> <span class="cmd" data-cmd="gh pr create --fill">gh pr create --fill</span> <span class="ok res">✓ #418</span></span></div>
       <div class="ex">example session</div>
     </div>
 
-    <dl class="facts">
+    <dl class="facts" data-reveal-group>
       <div><dt>Covers the commit you read</dt><dd>The go-ahead is for one commit. Push, PR and retries pass while the branch stays on it. New commits ask again.</dd></div>
       <div><dt>Free once the PR is open</dt><dd>CI fixes and review feedback push without asking. From then on, you review on the pull request.</dd></div>
       <div><dt>Merging stays yours</dt><dd><code>gh pr merge</code> stays blocked for agents. cairn never merges anything.</dd></div>
     </dl>
   </div>
 </section>
+
+<script>
+  // The session plays back once, when it scrolls into view: commands type
+  // out, cairn answers, you decide, the push goes through.
+  const tty = document.querySelector<HTMLElement>("[data-tty]");
+  if (tty && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const lines = Array.from(tty.querySelectorAll<HTMLElement>(".ln"));
+    tty.classList.add("rec");
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return;
+      io.disconnect();
+      let t = 250;
+      lines.forEach((ln) => {
+        const cmd = ln.querySelector<HTMLElement>(".cmd");
+        window.setTimeout(() => {
+          ln.classList.add("on");
+          if (cmd) {
+            // Type the command, then show its result.
+            const full = cmd.dataset.cmd!;
+            cmd.textContent = "";
+            ln.classList.add("typing");
+            let n = 0;
+            const tick = window.setInterval(() => {
+              n += 2;
+              cmd.textContent = full.slice(0, n);
+              if (n >= full.length) { clearInterval(tick); ln.classList.remove("typing"); }
+            }, 22);
+          }
+        }, t);
+        t += cmd ? 300 + (cmd.dataset.cmd!.length / 2) * 22 : ln.classList.contains("you") ? 1100 : 520;
+      });
+    }, { threshold: 0.5 });
+    io.observe(tty);
+  }
+</script>
 
 <style>
   .grid { display: grid; gap: clamp(2.5rem, 5vw, 4rem); grid-template-columns: minmax(0, 1fr); }
@@ -40,6 +75,13 @@
   }
   .ln { display: grid; grid-template-columns: 4.2rem minmax(0, 1fr); gap: 0.5rem; white-space: nowrap; }
   .ln.gap { margin-top: 0.7rem; }
+  .rec .ln { opacity: 0; transform: translateY(6px); filter: blur(3px); transition: opacity 300ms ease, transform 420ms var(--ease-out), filter 300ms ease; }
+  .rec .ln.on { opacity: 1; transform: none; filter: none; }
+  .rec .ln .res { transition: opacity 240ms ease; }
+  .rec .ln.typing .res { opacity: 0; }
+  .rec .ln.typing .cmd::after { content: "▍"; color: var(--lavender); }
+  .rec .ln.you.on { animation: decide 1.2s var(--ease-out) 200ms; }
+  @keyframes decide { 0% { box-shadow: inset 0 0 0 1px rgba(189, 147, 249, 0.25), 0 0 0 0 rgba(189, 147, 249, 0.35); } 60% { box-shadow: inset 0 0 0 1px rgba(189, 147, 249, 0.6), 0 0 0 8px rgba(189, 147, 249, 0); } }
   .ex { margin-top: 0.9rem; text-align: right; color: var(--t-dim); font-size: 0.78rem; }
   .ln.you { margin-top: 0.7rem; padding: 0.45rem 0.6rem; margin-inline: -0.6rem; border-radius: 8px; background: rgba(189, 147, 249, 0.09); box-shadow: inset 0 0 0 1px rgba(189, 147, 249, 0.25); }
   .who { color: var(--t-dim); }

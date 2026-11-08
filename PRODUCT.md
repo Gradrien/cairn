@@ -23,7 +23,7 @@ cairn is a mouse-driven TUI that sits next to herdr. herdr says which agent is w
 - A ticket is a **chantier** (French for a work site): ticket + git worktree + herdr workspace + agents + plan file + pull request, moving through Plan → Build → Review → Shipped.
 - **Nothing ships without you, enforced**: a Claude Code hook (`cairn guard`) blocks `git push` and `gh pr create/ready/merge` on a chantier's branch until the human allows the exact commit they reviewed. Once the PR is open, fixes pass freely; merging stays human.
 - **Proofs, not claims**: agents record the commands they really ran, with results and dates.
-- **Tool-agnostic**: several repositories on one screen, each with its tracker: Linear, Sprintosaur (an in-house tracker), or none (tickets born in cairn from a title: EIDO-1, EIDO-2…). PRs are found on GitHub by branch.
+- **Tool-agnostic**: several repositories on one screen, each with its tracker: Linear, any tracker written against the small Go interface, or none (tickets born in cairn from a title: WEB-1, WEB-2…). The public site never names the author, an employer, a client or an in-house tool. PRs are found on GitHub by branch.
 
 ## Operating Context
 
@@ -51,7 +51,7 @@ cairn is a mouse-driven TUI that sits next to herdr. herdr says which agent is w
 
 ## Evidence on Hand
 
-- Screenshots in `docs/` (overview, plan, pr, comments, board): real cairn screens, but they show internal Yalink tickets (YAK-…, Yak GPT, Superforest). Do not publish them; recreate screens with example data instead.
+- Screenshots in `docs/` (overview, plan, pr, comments, board): real cairn screens rendered from invented example data (ENG-412, WEB-7…) by `TestExampleScreens` in `internal/tui/docs_shots_test.go` (`CAIRN_SHOTS=<dir> go test ./internal/tui -run TestExampleScreens` writes the ANSI output; it is then turned into PNG). Safe to publish.
 - No testimonials, users counts, stars, benchmarks or press. Do not invent any.
 
 ## Product Principles

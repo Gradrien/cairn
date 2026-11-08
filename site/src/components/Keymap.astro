@@ -8,20 +8,20 @@ const groups: Array<{ name: string; line: string; keys: Array<[string, string]> 
 ---
 <section class="section rule" id="keys">
   <div class="wrap">
-    <div class="head">
+    <div class="head" data-reveal-group>
       <h2 class="h2"><span class="blk">One command to remember.</span> <span class="blk dim">Everything else is a key.</span></h2>
       <p class="body">Type <code>cairn</code> once, or press <span class="kbd">prefix</span> <span class="kbd">a</span> in herdr. Every key is also a button, and everything works with the mouse.</p>
     </div>
     <div class="groups">
       {groups.map((g) => (
-        <div class="group">
+        <div class="group" data-reveal>
           <div class="gh">
             <h3 class="h3">{g.name}</h3>
             <p>{g.line}</p>
           </div>
           <ul class="caps">
-            {g.keys.map(([k, label]) => (
-              <li>
+            {g.keys.map(([k, label], i) => (
+              <li style={`--k:${i}`}>
                 <span class="keys">{k.split(" ").map((p) => <span class:list={["cap", { wide: p.length > 1 }]}>{p}</span>)}</span>
                 <span class="label">{label}</span>
               </li>
@@ -54,6 +54,13 @@ const groups: Array<{ name: string; line: string; keys: Array<[string, string]> 
     transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
   }
   .cap.wide { font-size: 0.95rem; }
+  /* As a group arrives, its keys are pressed once, left to right. */
+  @media (prefers-reduced-motion: no-preference) {
+    :global(.js) .group.in .cap { animation: press 420ms var(--ease-out) both; animation-delay: calc(500ms + var(--k) * 110ms); }
+    @keyframes press {
+      40% { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 rgba(0, 0, 0, 0.38), 0 0 0 #0a0b0e, 0 2px 6px rgba(0, 0, 0, 0.45), 0 0 16px rgba(189, 147, 249, 0.35); color: #fff; }
+    }
+  }
   @media (hover: hover) and (pointer: fine) {
     .caps li:hover .cap { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -2px 0 rgba(0, 0, 0, 0.38), 0 0 0 #0a0b0e, 0 3px 8px rgba(0, 0, 0, 0.45); }
   }
