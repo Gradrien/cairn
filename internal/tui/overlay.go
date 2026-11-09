@@ -82,6 +82,7 @@ func (m Model) paletteEntries() []palEntry {
 		{"s", i18n.T("Réglages : projets, dépôts, clés, trackers", "Settings: projects, repositories, keys, trackers"), true},
 		{"l", i18n.T("English", "Français"), true},
 		{"r", i18n.T("Rafraîchir", "Refresh"), true},
+		{"U", i18n.T("Mettre à jour cairn", "Update cairn"), m.canCheck()},
 		{"?", i18n.T("Aide : tous les raccourcis", "Help: every key"), true},
 		{"q", i18n.T("Retour à herdr / quitter", "Back to herdr / quit"), true},
 	} {
@@ -140,6 +141,8 @@ func (m Model) overlayKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "q":
 			m.overlay = ""
 		}
+	case "update":
+		return m.updateOverlayKey(k)
 	case "palette":
 		found := m.paletteFound()
 		switch k.Type {
@@ -228,6 +231,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 				{"s", i18n.T("réglages et projets", "settings and projects")},
 				{"l", i18n.T("English / Français", "Français / English")},
 				{"r", i18n.T("rafraîchir", "refresh")},
+				{"U", i18n.T("mettre à jour cairn", "update cairn")},
 				{"q", i18n.T("retour à herdr", "back to herdr")},
 			}),
 		}
@@ -393,6 +397,35 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 			{"enter", i18n.T("Fermer et supprimer le worktree", "Close and remove the worktree"), true},
 			{"esc", i18n.T("Annuler", "Cancel"), true},
 		}, true)
+	case "update":
+		color = fresh
+		w = min(m.width-4, 90)
+		u := m.upd
+		content = append(content, spread(sFresh.Bold(true).Render(i18n.T("Nouvelle version de cairn", "A new cairn is out")),
+			sMuted.Render(plural(u.st.Behind, i18n.T("commit sur main", "commit on main"), i18n.T("commits sur main", "commits on main"))), inner()), "")
+		lines, rows := m.changelog(inner()), m.changelogRows()
+		from := min(u.scroll, max(0, len(lines)-rows))
+		end := min(len(lines), from+rows)
+		if from > 0 {
+			content = append(content, sDim.Render(i18n.T("↑ plus récent", "↑ newer")))
+		}
+		content = append(content, lines[from:end]...)
+		if end < len(lines) {
+			content = append(content, sDim.Render(i18n.T("↓ j/k ou la molette pour la suite", "↓ j/k or the wheel for more")))
+		}
+		content = append(content, "", sLine.Render(strings.Repeat("─", inner())))
+		if u.SourceDir == "" {
+			content = append(content, wrap(sMuted.Render(i18n.T("Cette version ne connaît pas son clone : lance git pull && ./install.sh dedans.",
+				"This build does not know its clone: run git pull && ./install.sh there.")), inner(), "")...)
+		} else {
+			content = append(content, wrap(sMuted.Render(fmt.Sprintf(i18n.T("Mettre à jour tire main dans %s, lance install.sh (tests compris) puis relance cairn ici. Plus tard : redemandé demain.",
+				"Updating pulls main into %s, runs install.sh (tests included), then starts cairn again here. Later: asked again tomorrow."), tilde(u.SourceDir))), inner(), "")...)
+		}
+		content = append(content, "")
+		buttonsRow([]button{
+			{"U", i18n.T("Mettre à jour", "Update"), u.SourceDir != ""},
+			{"esc", i18n.T("Plus tard", "Later"), true},
+		}, true)
 	default:
 		return nil, 0, 0, nil, nil
 	}
@@ -452,6 +485,16 @@ func place(base, box []string, x0, y0, width int) []string {
 }
 
 func (m Model) overlayMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.overlay == "update" && ev.Action == tea.MouseActionPress {
+		switch ev.Button {
+		case tea.MouseButtonWheelUp:
+			m.scrollUpdate(-1)
+			return m, nil
+		case tea.MouseButtonWheelDown:
+			m.scrollUpdate(1)
+			return m, nil
+		}
+	}
 	if ev.Button != tea.MouseButtonLeft || ev.Action != tea.MouseActionPress {
 		return m, nil
 	}
@@ -471,6 +514,9 @@ func (m Model) overlayMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	// A click outside the box closes it.
 	if box != nil && (ev.Y < y0 || ev.Y >= y0+len(box) || ev.X < x0 || ev.X >= x0+lipgloss.Width(box[0])) {
+		if m.overlay == "update" {
+			return m.remindLater()
+		}
 		m.overlay = ""
 	}
 	return m, nil

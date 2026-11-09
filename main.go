@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -17,7 +19,16 @@ import (
 	"cairn/internal/i18n"
 	"cairn/internal/images"
 	"cairn/internal/tui"
+	"cairn/internal/update"
 )
+
+// sourceDir is the clone this build was installed from, set by install.sh;
+// U updates from it.
+var sourceDir string
+
+// buildRev is the commit install.sh built, empty when the clone had edits to
+// tracked files: only a clean build of a commit can tell whether main is ahead.
+var buildRev string
 
 func usage() string {
 	return i18n.T(`cairn — où en est chaque chantier, à côté de herdr.
@@ -95,12 +106,16 @@ func main() {
 
 	switch flag.Arg(0) {
 	case "":
-		m := tui.New(cfg)
+		m := tui.New(cfg).WithUpdates(updates())
 		if checkErr != nil {
 			m = m.StartInSettings(checkErr)
 		}
-		if _, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion(), tea.WithReportFocus()).Run(); err != nil {
+		final, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion(), tea.WithReportFocus()).Run()
+		if err != nil {
 			fail(err)
+		}
+		if fm, ok := final.(tui.Model); ok && fm.UpdateRequested() {
+			selfUpdate()
 		}
 	case "open":
 		if err := home.Toggle(); err != nil {
@@ -202,6 +217,40 @@ func listProjects(cfg config.Config) {
 	}
 	for _, p := range cfg.Projects {
 		fmt.Printf("%-10s %-8s %-12s %s\n", p.Name, p.Key+"-", p.Tracker, p.Repo)
+	}
+}
+
+// updates says how this build checks for updates. CAIRN_NO_UPDATE_CHECK turns
+// the check off.
+func updates() tui.Updates {
+	rev := buildRev
+	if sourceDir == "" {
+		if r, modified, stamped := update.Build(); stamped && !modified {
+			rev = r
+		}
+	}
+	if os.Getenv("CAIRN_NO_UPDATE_CHECK") != "" {
+		rev = ""
+	}
+	return tui.Updates{File: filepath.Join(config.Dir(), "cache", "update.json"), Rev: rev, SourceDir: sourceDir, Compare: update.GitHub}
+}
+
+// selfUpdate installs the latest main from the clone, then becomes the new
+// cairn in the same pane. On failure the installed cairn is unchanged, and it
+// starts again once the error is read.
+func selfUpdate() {
+	fmt.Println(i18n.T("↑ Mise à jour de cairn depuis ", "↑ Updating cairn from ") + sourceDir + "\n")
+	if err := update.Install(sourceDir, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "\n"+i18n.T("✗ mise à jour échouée : ", "✗ update failed: ")+err.Error())
+		fmt.Fprint(os.Stderr, i18n.T("cairn n'a pas changé. Entrée pour le relancer… ", "cairn was not changed. Enter to start it again… "))
+		fmt.Scanln()
+	}
+	self, err := os.Executable()
+	if err != nil {
+		fail(err)
+	}
+	if err := syscall.Exec(self, os.Args, os.Environ()); err != nil {
+		fail(fmt.Errorf(i18n.T("relance cairn à la main (%v)", "start cairn again by hand (%v)"), err))
 	}
 }
 

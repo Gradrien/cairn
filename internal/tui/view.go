@@ -113,6 +113,9 @@ func (m Model) header() string {
 	if n := m.newsCount(); n > 0 {
 		right = sFresh.Render("● "+plural(n, i18n.T("chantier a bougé", "ticket moved"), i18n.T("chantiers ont bougé", "tickets moved"))) + "   " + right
 	}
+	if b := m.updateBadge(); b != "" {
+		right = b + "   " + right
+	}
 	if n := m.waitingCount(); n > 0 && (m.view == "board" || (m.narrow() && m.detailFocus)) {
 		right = sWarn.Render("⚠ "+plural(n, i18n.T("attend ta décision", "waiting for you"), i18n.T("attendent ta décision", "waiting for you"))) + "   " + right
 	}

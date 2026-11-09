@@ -24,6 +24,7 @@ import (
 	"cairn/internal/progress"
 	"cairn/internal/prthread"
 	"cairn/internal/state"
+	"cairn/internal/update"
 )
 
 const (
@@ -92,7 +93,7 @@ type Model struct {
 	unfold      map[string]bool // "KEY:section" unfolded by hand, "KEY:*" for all
 	filter      string          // "/" filter of the list
 	filtering   bool            // typing the filter
-	overlay     string          // "", "help", "palette", "push"
+	overlay     string          // "", "help", "palette", "push", "close", "update"
 	palQuery    string
 	palCursor   int
 	pushKey     string   // chantier the push confirmation is about
@@ -110,6 +111,7 @@ type Model struct {
 	showShipped bool       // list them anyway
 	pick        *pickState // the "new ticket" view
 	settings    *settingsState
+	upd         *updState // the update check; nil turns it off
 
 	// The comments view ("" is the main screen).
 	view      string
@@ -146,7 +148,7 @@ type doneMsg struct {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadLocal(), m.loadIssues(), tea.SetWindowTitle("cairn"))
+	return tea.Batch(m.loadLocal(), m.loadIssues(), tea.SetWindowTitle("cairn"), m.checkUpdate(update.Fresh), every(update.Fresh, tickUpdate{}))
 }
 
 func every(d time.Duration, msg tea.Msg) tea.Cmd {
@@ -303,6 +305,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	next, cmd := m.update(msg)
 	nm := next.(Model)
+	nm.offerPending()
 	return nm, tea.Batch(cmd, nm.readProgress())
 }
 
@@ -360,6 +363,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(append(cmds, every(prsEvery, tickPRs{}))...)
 	case tickPRs:
 		return m, m.pollPRs()
+	case updateMsg:
+		return m.updateChecked(msg)
+	case tickUpdate:
+		return m, tea.Batch(m.checkUpdate(update.Fresh), every(update.Fresh, tickUpdate{}))
 	case pushLogMsg:
 		if msg.key == m.pushKey {
 			m.pushLog = msg.lines
@@ -615,6 +622,8 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openPush()
 	case "x":
 		return m.openClose()
+	case "U":
+		return m.updateKey()
 	}
 	return m, nil
 }

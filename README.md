@@ -177,6 +177,12 @@ fetch one, take it, start it.
 `install.sh` also installs the binary, the `cairn` skill for agents, the push guard hook, the herdr plugin, the sidebar
 button and `prefix+a`. Run it again after every `git pull`. It also restarts the running cairn.
 
+**Updates.** Every hour, cairn asks GitHub (through `gh`) whether `main` has moved past the commit it was installed from.
+If so, it shows what changed, commit by commit, and offers to update: `U` pulls `main` into your clone, runs
+`install.sh` (tests included) and starts the new cairn in the same pane; `Plus tard` asks again tomorrow, with a
+reminder in the header. Nothing installs without you. A clone off `main` or with local edits is never offered an update;
+`CAIRN_NO_UPDATE_CHECK=1` turns the check off.
+
 **2. Plan a ticket.** Open cairn from herdr's sidebar, pick one of your tickets and press `Planifier`, or press
 `Nouveau ticket` for any other (or, without a tracker, to write one).
 
@@ -198,6 +204,7 @@ review from the PR view.
 | `e` | Répondre | answer the plan's open questions; the answer goes to the agent |
 | `a` | Autoriser le push | review what will leave, then allow that commit to leave (push, PR, retries; free once the PR is open) |
 | `x` | Fermer le chantier | on a shipped ticket: see what would be lost, then remove its worktree and archive its plan |
+| `U` | Mettre à jour | see what changed on `main` since your install, then update and restart cairn |
 | `c` | Commentaires | PR conversation and images |
 | `f` | Corriger la CI | send the failing CI logs to the agent (shown when CI fails) |
 | `o` | Ticket | open the ticket in its tracker |

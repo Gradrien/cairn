@@ -12,7 +12,12 @@ gh auth status >/dev/null 2>&1 || echo "! gh n'est pas connecté : lance « gh a
 
 go vet ./...
 go test ./...
-go install .
+# The clone's path lets cairn update itself from it (U), and its commit tells
+# whether main has moved on. Go's own stamp counts untracked files as local
+# edits: only edits to tracked files leave the commit out.
+rev=
+[ -n "$(git status --porcelain --untracked-files=no)" ] || rev=$(git rev-parse HEAD)
+go install -ldflags "-X 'main.sourceDir=$(pwd -P)' -X 'main.buildRev=$rev'" .
 bindir="$(go env GOBIN)"; [ -n "$bindir" ] || bindir="$(go env GOPATH)/bin"
 cairn_bin="$bindir/cairn"
 echo "✓ cairn installé dans $bindir"
@@ -66,10 +71,15 @@ else:
     print("✓ hook Claude Code « cairn guard » déjà présent")
 PY
 
-# A cairn already open in herdr keeps running the old binary: restart it.
-if command -v herdr >/dev/null && pkill -fx '(.*/)?cairn' 2>/dev/null; then
-  sleep 0.5
-  "$cairn_bin" ensure && echo "✓ cairn relancé dans herdr avec la nouvelle version"
+# A cairn already open in herdr keeps running the old binary: restart it. The
+# cairn updating itself (U) is left alone: it starts the new build on its own.
+if command -v herdr >/dev/null; then
+  others=$(pgrep -fx '(.*/)?cairn' | grep -vx "${CAIRN_UPDATING_PID:-0}" || true)
+  if [[ -n "$others" ]]; then
+    kill $others 2>/dev/null || true
+    sleep 0.5
+    "$cairn_bin" ensure && echo "✓ cairn relancé dans herdr avec la nouvelle version"
+  fi
 fi
 
 if [[ "${1:-}" == "--herdr" ]]; then
