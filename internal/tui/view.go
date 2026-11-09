@@ -113,6 +113,9 @@ func (m Model) header() string {
 	if n := m.newsCount(); n > 0 {
 		right = sFresh.Render("● "+plural(n, i18n.T("chantier a bougé", "ticket moved"), i18n.T("chantiers ont bougé", "tickets moved"))) + "   " + right
 	}
+	if b := m.testBadges(); b != "" {
+		right = b + "   " + right
+	}
 	if b := m.updateBadge(); b != "" {
 		right = b + "   " + right
 	}
@@ -579,6 +582,7 @@ func (m Model) chantierButtons(c *chantier.Chantier) []button {
 	push(button{"e", i18n.T("Répondre", "Answer"), s != nil && len(s.OpenQuestions()) > 0})
 	push(button{"enter", i18n.T("Aller à l'agent", "Go to agent"), len(c.Agents) > 0 || len(c.Workspaces) > 0})
 	push(button{"d", "Diff", hasWT})
+	push(m.testButton(c))
 	push(button{"p", i18n.T("Planifier", "Plan"), c.Issue != nil && (!hasWT || c.Main)})
 	push(button{"v", i18n.T("Valider", "Approve"), s != nil && s.Waiting != "" && !isPushWait(s.Waiting)})
 	push(button{"a", i18n.T("Autoriser le push", "Allow push"), m.canAllowPush(c)})

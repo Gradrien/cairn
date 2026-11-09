@@ -12,6 +12,7 @@ import (
 	"cairn/internal/chantier"
 	"cairn/internal/config"
 	"cairn/internal/herdr"
+	"cairn/internal/localtest"
 	"cairn/internal/tracker"
 )
 
@@ -86,6 +87,7 @@ func (m Model) sources() []chantier.Source {
 
 type localMsg struct {
 	worktrees map[string][]herdr.Worktree // by project name
+	tests     map[string]localtest.Status // main checkouts under test, by project name
 	snap      herdr.Snapshot
 	err       error
 }
@@ -101,14 +103,19 @@ func (m Model) loadLocal() tea.Cmd {
 			return localMsg{err: err}
 		}
 		out := map[string][]herdr.Worktree{}
+		tests := map[string]localtest.Status{}
+		store := ltStore()
 		for name, repo := range repos {
+			if st, ok := store.Get(repo); ok {
+				tests[name] = st
+			}
 			wts, err := herdr.ListWorktrees(repo)
 			if err != nil {
 				return localMsg{err: err}
 			}
 			out[name] = wts
 		}
-		return localMsg{worktrees: out, snap: snap}
+		return localMsg{worktrees: out, tests: tests, snap: snap}
 	}
 }
 

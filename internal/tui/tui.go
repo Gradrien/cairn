@@ -21,6 +21,7 @@ import (
 	"cairn/internal/i18n"
 	"cairn/internal/images"
 	"cairn/internal/journal"
+	"cairn/internal/localtest"
 	"cairn/internal/progress"
 	"cairn/internal/prthread"
 	"cairn/internal/state"
@@ -111,7 +112,11 @@ type Model struct {
 	showShipped bool       // list them anyway
 	pick        *pickState // the "new ticket" view
 	settings    *settingsState
-	upd         *updState // the update check; nil turns it off
+	upd         *updState                   // the update check; nil turns it off
+	tests       map[string]localtest.Status // main checkouts under test, by project
+	ltKey       string                      // chantier the "test here" confirmation is about
+	ltPlan      *localtest.Plan
+	ltErr       error
 
 	// The comments view ("" is the main screen).
 	view      string
@@ -400,9 +405,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, p := range m.projects {
 				p.worktrees = msg.worktrees[p.cfg.Name]
 			}
+			m.tests = msg.tests
 		}
 		return m, tea.Batch(m.rebuild(), every(localEvery, tickLocal{}))
 
+	case ltPlanMsg:
+		if msg.key == m.ltKey {
+			m.ltPlan, m.ltErr = &msg.plan, msg.err
+		}
+		return m, nil
 	case closeRiskMsg:
 		if msg.key == m.closeKey {
 			m.closeRisk = &msg.risk
@@ -624,6 +635,8 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openClose()
 	case "U":
 		return m.updateKey()
+	case "h":
+		return m.testKey()
 	}
 	return m, nil
 }

@@ -143,6 +143,13 @@ func (m Model) overlayKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "update":
 		return m.updateOverlayKey(k)
+	case "localtest":
+		switch k.String() {
+		case "enter":
+			return m.startTest()
+		case "esc", "q":
+			m.overlay = ""
+		}
 	case "palette":
 		found := m.paletteFound()
 		switch k.Type {
@@ -219,6 +226,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 				{"e", i18n.T("répondre aux questions", "answer the questions")},
 				{"a", i18n.T("autoriser le push", "allow the push")},
 				{"x", i18n.T("fermer un chantier livré", "close a shipped ticket")},
+				{"h", i18n.T("tester dans le dépôt principal", "test in the main checkout")},
 				{"f", i18n.T("corriger la CI", "fix the CI")},
 				{"p", i18n.T("planifier", "plan")},
 				{"n", i18n.T("nouveau ticket", "new ticket")},
@@ -397,6 +405,15 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 			{"enter", i18n.T("Fermer et supprimer le worktree", "Close and remove the worktree"), true},
 			{"esc", i18n.T("Annuler", "Cancel"), true},
 		}, true)
+	case "localtest":
+		color = warn
+		w = min(m.width-4, 90)
+		c, bs := m.testOverlay(inner())
+		if c == nil {
+			return nil, 0, 0, nil, nil
+		}
+		content = append(content, c...)
+		buttonsRow(bs, true)
 	case "update":
 		color = fresh
 		w = min(m.width-4, 90)
