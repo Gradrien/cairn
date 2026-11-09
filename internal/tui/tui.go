@@ -125,6 +125,9 @@ type Model struct {
 	threadErr error
 	cscroll   int
 	showBots  bool
+	hscroll   int  // scroll of the "how it works" view
+	howAsk    bool // typing a question for the agent there
+	howText   string
 	tokens    map[string]string
 
 	width, height int
@@ -510,6 +513,8 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.overlayKey(k)
 	case m.view == "comments":
 		return m.commentsKey(k)
+	case m.view == "how":
+		return m.howKey(k)
 	case m.view == "pick":
 		return m.pickKeyPress(k)
 	case m.view == "settings":
@@ -623,6 +628,8 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "c":
 		return m.openComments()
+	case "i":
+		return m.openHow()
 	case "f":
 		return m.fixCI()
 	case "p":
@@ -705,6 +712,8 @@ func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m.overlayMouse(ev)
 	case m.view == "comments":
 		return m.commentsMouse(ev)
+	case m.view == "how":
+		return m.howMouse(ev)
 	case m.view == "pick":
 		return m.pickMouse(ev)
 	case m.view == "settings":
@@ -798,6 +807,8 @@ func (m Model) footerClick(x int) (tea.Model, tea.Cmd) {
 				return m.settingsKey(keyFor(h.key))
 			case "comments":
 				return m.commentsKey(keyFor(h.key))
+			case "how":
+				return m.howKey(keyFor(h.key))
 			}
 			return m.key(keyFor(h.key))
 		}
@@ -835,6 +846,8 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return doneMsg{text: "→ " + arg, err: herdr.FocusAgent(arg)} }
 	case "comments":
 		return m.openComments()
+	case "how":
+		return m.openHow()
 	case "fixci":
 		return m.fixCI()
 	case "attach":

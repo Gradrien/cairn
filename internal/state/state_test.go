@@ -116,3 +116,34 @@ func TestEnglishAliases(t *testing.T) {
 		t.Fatalf("waiting not cleared:\n%s", s.String())
 	}
 }
+
+func TestHowItWorks(t *testing.T) {
+	s := Parse("/x", `---
+ticket: YAK-854
+phase: review
+---
+# YAK-854 · Colonnes
+
+Objectif.
+
+- [x] hook
+
+## Comment ça marche
+
+### Largeur d'une colonne
+- Quoi : la largeur vit dans `+"`useColumnWidths`"+` (état React), écrite au relâchement.
+- [x] pas une tâche
+
+## Preuves
+- go test ✓
+`)
+	if !strings.HasPrefix(s.HowItWorks, "### Largeur d'une colonne") || !strings.Contains(s.HowItWorks, "pas une tâche") {
+		t.Fatalf("how: %q", s.HowItWorks)
+	}
+	if len(s.Tasks) != 1 || len(s.Proofs) != 1 || len(s.Summary) != 1 {
+		t.Fatalf("tasks %d proofs %d summary %q", len(s.Tasks), len(s.Proofs), s.Summary)
+	}
+	if Parse("/x", "## How it works\nIt syncs on save.\n").HowItWorks != "It syncs on save." {
+		t.Fatal("english heading")
+	}
+}

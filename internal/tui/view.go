@@ -61,6 +61,8 @@ func (m Model) View() string {
 	switch m.view {
 	case "comments":
 		return m.commentsView()
+	case "how":
+		return m.howView()
 	case "pick":
 		return m.pickView()
 	case "settings":
@@ -526,6 +528,8 @@ func (m Model) buttons() []button {
 	switch m.view {
 	case "comments":
 		return m.commentsButtons()
+	case "how":
+		return m.howButtons()
 	case "pick":
 		return m.pickButtons()
 	case "settings":
@@ -588,6 +592,7 @@ func (m Model) chantierButtons(c *chantier.Chantier) []button {
 	push(button{"a", i18n.T("Autoriser le push", "Allow push"), m.canAllowPush(c)})
 	push(button{"f", i18n.T("Corriger la CI", "Fix CI"), m.ciFailed(c)})
 	push(button{"c", i18n.T("Commentaires", "Comments"), len(c.PRs) > 0})
+	push(button{"i", howTitle(), s != nil && (s.HowItWorks != "" || c.Phase >= chantier.Build)})
 	push(button{"o", "Ticket", c.Issue != nil && c.Issue.URL != ""})
 	push(button{"x", i18n.T("Fermer", "Close"), c.Phase == chantier.Shipped})
 	return bs

@@ -10,7 +10,9 @@
 //	tasks "- [ ]" todo, "- [~]" in progress, "- [x]" done;
 //	"## Effets de bord": tasks that check what the change may break elsewhere;
 //	"## Questions": open questions ("- [x]" once answered);
-//	"## Preuves": every list item is a proof.
+//	"## Preuves": every list item is a proof;
+//	"## Comment ça marche": how the change works, kept as markdown for the
+//	human to read (where things live, when they run, what is stored).
 package state
 
 import (
@@ -40,6 +42,7 @@ type State struct {
 	Questions   []Task
 	Proofs      []string
 	Summary     []string
+	HowItWorks  string // the "## Comment ça marche" section, raw markdown
 	UpdatedAt   time.Time
 	front       []string // raw frontmatter lines, kept for round-trips
 	body        string
@@ -51,8 +54,10 @@ var (
 	proofHd = regexp.MustCompile(`(?i)^#{1,6}\s+(preuves?|proofs?)\b`)
 	sideHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(effets? de bord|side[ -]effects?)`)
 	questHd = regexp.MustCompile(`(?i)^#{1,6}\s+questions?`)
+	howHd   = regexp.MustCompile(`(?i)^##\s+(comment [çc]a marche|how it works)\b`)
 	headRe  = regexp.MustCompile(`^#{1,6}\s`)
 	h2Re    = regexp.MustCompile(`^#{2,6}\s`)
+	h12Re   = regexp.MustCompile(`^#{1,2}\s`)
 )
 
 func PathFor(dir, key string) string { return filepath.Join(dir, strings.ToUpper(key)+".md") }
@@ -102,9 +107,20 @@ func Parse(path, text string) *State {
 			s.Push = v
 		}
 	}
-	section := "" // "", "proofs", "side", "questions", "other"
+	section := "" // "", "proofs", "side", "questions", "how", "other"
 	seenH2 := false
+	var how []string
 	for _, l := range strings.Split(s.body, "\n") {
+		// "Comment ça marche" is prose with its own "###" headings: it runs
+		// to the next "#" or "##" heading and is kept whole.
+		if section == "how" && !h12Re.MatchString(l) {
+			how = append(how, l)
+			continue
+		}
+		if howHd.MatchString(l) {
+			section, seenH2 = "how", true
+			continue
+		}
 		if headRe.MatchString(l) {
 			if t, ok := strings.CutPrefix(l, "# "); ok && s.Title == "" {
 				s.Title = strings.TrimSpace(t)
@@ -155,6 +171,7 @@ func Parse(path, text string) *State {
 			s.Summary = append(s.Summary, t)
 		}
 	}
+	s.HowItWorks = strings.TrimSpace(strings.Join(how, "\n"))
 	return s
 }
 

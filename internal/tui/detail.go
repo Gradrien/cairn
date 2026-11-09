@@ -374,6 +374,7 @@ func (m Model) detailLayout(w int) detail {
 	switch {
 	case s != nil && isPushWait(s.Waiting):
 		m.secSide(b, c)
+		m.secHow(b, c)
 		m.secCode(b, c)
 		m.secProofs(b, c)
 		m.secQuestions(b, c)
@@ -392,6 +393,7 @@ func (m Model) detailLayout(w int) detail {
 	case prOpen || c.Phase == chantier.Review:
 		m.secPR(b, c, true)
 		m.secQuestions(b, c)
+		m.secHow(b, c)
 		m.secSide(b, c)
 		m.secCode(b, c)
 		m.secProofs(b, c)
@@ -400,6 +402,7 @@ func (m Model) detailLayout(w int) detail {
 	case c.Phase == chantier.Build:
 		m.secQuestions(b, c)
 		m.secTasks(b, c)
+		m.secHow(b, c)
 		m.secProofs(b, c)
 		m.secSide(b, c)
 		m.secGoal(b, c)
@@ -410,6 +413,7 @@ func (m Model) detailLayout(w int) detail {
 		m.secTasks(b, c)
 		m.secSide(b, c)
 		m.secGoal(b, c)
+		m.secHow(b, c)
 		m.secProofs(b, c)
 		m.secCode(b, c)
 		m.secPR(b, c, false)

@@ -109,6 +109,12 @@ on a chantier's branch until you allow it. Unfinished work stays off the CI pipe
   shows what would be lost (uncommitted files, commits not on GitHub, agents still working), then removes the worktree,
   the herdr workspace and its agents, and archives the plan. Shipped chantiers stay one click away (`› N livré(s)`).
 
+**Know how it was built.** The agent keeps a `## Comment ça marche` section in the plan while it builds: the overall
+flow, then each mechanism with what you see, where it lives in the code, when it runs, and where its data lives
+(persisted or not). `i` opens it full screen, so you can answer questions on the ticket without reading the diff. Missing
+something? Type a question there: the agent checks the code and answers in that section, so the answer stays with the
+ticket.
+
 ---
 
 <sub>THE REVIEW LOOP</sub>

@@ -234,6 +234,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 			helpCol(i18n.T("Voir", "See"), [][2]string{
 				{"d", i18n.T("diff de la branche", "branch diff")},
 				{"c", i18n.T("commentaires de la PR", "PR comments")},
+				{"i", i18n.T("comment ça marche, poser une question", "how it works, ask a question")},
 				{"o", i18n.T("ticket dans son tracker", "ticket in its tracker")},
 				{"t", i18n.T("vue tableau", "board view")},
 				{"s", i18n.T("réglages et projets", "settings and projects")},

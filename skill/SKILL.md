@@ -33,6 +33,16 @@ attente: Valider le plan   # seulement quand tu as besoin d'une décision humain
 ## Effets de bord
 - [ ] l'export CSV lit aussi `freelance.model` : vérifier qu'il ne change pas
 
+## Comment ça marche
+La largeur se règle à la souris et n'est sauvée nulle part : elle vit en mémoire jusqu'au rechargement.
+
+### Largeur d'une colonne
+- **Ce qu'on voit** : glisser le bord d'un en-tête, double-clic pour revenir à la largeur automatique.
+- **Où** : hook `usePointerResize` (geste), `useColumnWidths` dans `AdvDataTable` (état).
+- **Quand** : pendant le geste, seule une variable CSS change ; l'état React est écrit au relâchement.
+- **Données** : état React local, ni URL, ni localStorage, ni serveur. Perdu au changement d'onglet.
+- **Pas fait** : la mémoire des largeurs (YAK-851).
+
 ## Preuves
 - `pnpm test --filter yak-query` ✓ 42 tests (2026-11-03 14:20)
 - capture : /chemin/vers/capture.png
@@ -43,7 +53,8 @@ cairn affiche tout ce fichier :
 - `- [~]` marque la tâche **en cours** : il n'y en a qu'une à la fois, et c'est celle sur laquelle tu travailles maintenant ;
 - sous `## Questions`, les questions sans `[x]` sont affichées comme **ouvertes** ;
 - `## Effets de bord` est suivi à part (« 2/3 vérifiés ») ;
-- sous `## Preuves`, chaque élément de liste est une preuve.
+- sous `## Preuves`, chaque élément de liste est une preuve ;
+- `## Comment ça marche` s'ouvre en plein écran (`i`) : c'est là que l'humain lit comment le ticket est construit.
 - Les clés et titres restent en français même si tu écris le plan en anglais. cairn accepte aussi `waiting:`,
   `## Side effects` et `## Proofs`.
 
@@ -74,6 +85,17 @@ L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directe
   Mets `attente: Prêt à pousser — <ce qui partira, en une ligne>`, lance `cairn sync` et arrête-toi. L'humain relit le diff et clique sur « Autoriser le push » : cairn écrit alors `push: autorisé <commit>` et te relance. L'autorisation vaut pour **ce commit** : push, création de la PR, liaison et nouvelles tentatives passent autant qu'il le faut. Une fois la PR ouverte, tes pushes suivants (correctifs de CI, retours de review) passent sans redemander : la relecture se fait sur la PR. Ne merge jamais toi-même. Un hook bloque tout push non autorisé : si tu le rencontres, ne le contourne pas, demande l'autorisation. Le but est de ne jamais envoyer de travail inachevé dans la pipeline de la PR.
 - **Images dans une PR : jamais de chemin relatif.** `![avant](./before.png)` est résolu par GitHub en `/pull/before.png`, c'est un lien mort. N'utilise que des URLs d'images réellement hébergées, par exemple des pièces jointes GitHub (`https://github.com/user-attachments/assets/…`) téléversées via le navigateur, puis vérifie qu'elles s'affichent. Si tu ne peux pas téléverser, n'insère pas d'image : garde les captures en local et cite leur chemin absolu sous `## Preuves`, cairn les affiche.
 - **`attente:`** n'apparaît que quand une décision humaine bloque. Écris-la en quelques mots (« Choisir entre migration et script »), pose la question dans ta réponse, puis attends. Retire la ligne une fois la réponse obtenue.
+- **`## Comment ça marche` explique le code à l'humain.** Il doit pouvoir répondre seul aux questions sur le ticket
+  (« où est sauvée la taille ? », « quand tourne la synchro ? ») sans lire le diff. Écris-la pendant le build, dès
+  qu'un mécanisme existe, et garde-la vraie jusqu'à la PR (après un retour de review aussi). Le format :
+  - 2 ou 3 lignes sur le parcours d'ensemble ;
+  - un `###` par mécanisme, avec les puces qui s'appliquent : **Ce qu'on voit**, **Où** (fichiers, fonctions, hooks,
+    composants, en `code`), **Quand** (ce qui déclenche : montage, clic, sauvegarde, job, webhook…), **Données** (où vit
+    l'état, persisté ou non, envoyé au serveur ou non), **Pas fait / limites** ;
+  - des faits vérifiés dans le code, pas des intentions ni la liste des fichiers touchés.
+
+  La taille suit le ticket : un XS tient en 2 lignes. Quand l'humain pose une question depuis cairn, vérifie dans le
+  code, complète le mécanisme concerné et note la question avec sa réponse courte sous `### Questions posées`.
 - **Les preuves** sont des choses réellement exécutées : la commande, son résultat et la date. Jamais une affirmation sans exécution.
 - **Après chaque modification du fichier**, lance `cairn sync` pour mettre à jour la barre latérale de herdr. S'il échoue, ce n'est pas grave : continue.
 - **Le ticket vit là où le projet le range.** Avec Linear ou Sprintosaur, ses règles s'appliquent toujours (PR liée au
