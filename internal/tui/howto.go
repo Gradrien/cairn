@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -13,6 +14,7 @@ import (
 	"cairn/internal/herdr"
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
+	"cairn/internal/state"
 )
 
 // The "how it works" view: the chantier file's "## Comment ça marche"
@@ -55,9 +57,69 @@ func howPrompt(key, path, question string) string {
 		"Do not change the code, the phase or the plan's waiting line. Run `cairn sync`, then resume where you were, or stop if you were waiting.")
 }
 
-func (m Model) openHow() (tea.Model, tea.Cmd) {
+// howSubject is what the view explains: the selected chantier, or a shipped
+// ticket's archived plan (opened from ctrl+k).
+type howSubject struct {
+	key, title string
+	plan       *state.State
+	c          *chantier.Chantier // nil for an archived plan
+	archivedAt time.Time          // zero unless the plan comes from the archive
+}
+
+// archivedPlan is the latest archived plan of key, nil if none.
+func (m Model) archivedPlan(key string) *state.Archived {
+	for i := range m.archive {
+		if m.archive[i].Key == key {
+			return &m.archive[i]
+		}
+	}
+	return nil
+}
+
+// planOf is c's plan, or its archived one once it shipped and was put away.
+func (m Model) planOf(c *chantier.Chantier) (*state.State, time.Time) {
+	if c.State != nil {
+		return c.State, time.Time{}
+	}
+	if a := m.archivedPlan(c.Key); a != nil && c.Phase == chantier.Shipped {
+		return a.State, a.ArchivedAt
+	}
+	return nil, time.Time{}
+}
+
+func (m Model) howSubj() *howSubject {
+	if m.howArch != "" {
+		if a := m.archivedPlan(m.howArch); a != nil {
+			title := a.Title
+			if k, rest, ok := strings.Cut(title, " · "); ok && strings.EqualFold(k, a.Key) {
+				title = rest
+			}
+			return &howSubject{key: a.Key, title: title, plan: a.State, archivedAt: a.ArchivedAt}
+		}
+		return nil
+	}
 	c := m.selected()
-	if c == nil || c.State == nil {
+	if c == nil {
+		return nil
+	}
+	plan, at := m.planOf(c)
+	if plan == nil {
+		return nil
+	}
+	return &howSubject{key: c.Key, title: c.Title(), plan: plan, c: c, archivedAt: at}
+}
+
+// agent is the pane to ask, "" when nobody can answer (shipped, archived).
+func (h *howSubject) agent() string {
+	if h == nil || h.c == nil || !h.archivedAt.IsZero() {
+		return ""
+	}
+	return agentPane(h.c)
+}
+
+func (m Model) openHow() (tea.Model, tea.Cmd) {
+	m.howArch = ""
+	if m.howSubj() == nil {
 		m.say(i18n.T("Pas de plan cairn pour ce chantier.", "No cairn plan for this ticket."), nil)
 		return m, nil
 	}
@@ -65,18 +127,29 @@ func (m Model) openHow() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// openArchivedHow shows how a shipped ticket was built, from its archived plan.
+func (m Model) openArchivedHow(key string) (tea.Model, tea.Cmd) {
+	m.howArch, m.overlay = key, ""
+	m.view, m.hscroll, m.howAsk, m.howText = "how", 0, false, ""
+	return m, nil
+}
+
 // requestHow sends the agent a request to explain, or to answer question.
 func (m Model) requestHow(question string) (tea.Model, tea.Cmd) {
-	c := m.selected()
-	if c == nil {
+	h := m.howSubj()
+	if h == nil {
 		return m, nil
 	}
-	pane := agentPane(c)
+	pane := h.agent()
 	if pane == "" {
-		m.say(fmt.Sprintf(i18n.T("Aucun agent sur %s pour expliquer : relance-le depuis son espace herdr.", "No agent on %s to explain: restart it from its herdr workspace."), c.Key), nil)
+		why := i18n.T("Aucun agent sur %s pour expliquer : relance-le depuis son espace herdr.", "No agent on %s to explain: restart it from its herdr workspace.")
+		if !h.archivedAt.IsZero() {
+			why = i18n.T("%s est livré et rangé : plus d'agent pour répondre.", "%s shipped and was put away: no agent left to answer.")
+		}
+		m.say(fmt.Sprintf(why, h.key), nil)
 		return m, nil
 	}
-	prompt, key := howPrompt(c.Key, planPath(c), question), c.Key
+	prompt, key := howPrompt(h.key, planPath(h.c), question), h.key
 	text, event := i18n.T("Explication demandée à l'agent de %s.", "Explanation asked from %s's agent."), "explication demandée"
 	if question != "" {
 		text, event = i18n.T("Question envoyée à l'agent de %s : la réponse arrivera ici.", "Question sent to %s's agent: the answer will show here."), "question sur l'implémentation"
@@ -89,18 +162,30 @@ func (m Model) requestHow(question string) (tea.Model, tea.Cmd) {
 
 func howTitle() string { return i18n.T("Comment ça marche", "How it works") }
 
-// howLayout renders the section, or says how to get it.
+// howLayout renders the section, or says how to get it. A shipped ticket
+// explained by nobody shows its whole plan instead: what was done.
 func (m Model) howLayout(w int) []string {
-	c := m.selected()
-	if c == nil || c.State == nil {
+	h := m.howSubj()
+	if h == nil {
 		return nil
 	}
-	if body := c.State.HowItWorks; body != "" {
+	if body := h.plan.HowItWorks; body != "" {
 		return renderMarkdown(body, w)
 	}
+	if !h.archivedAt.IsZero() {
+		note := sMuted.Render("  " + i18n.T("Livré avant que l'agent l'explique : voici son plan, ce qui a été fait.", "Shipped before the agent explained it: here is its plan, what was done."))
+		body := h.plan.Body()
+		if k, _, ok := strings.Cut(strings.TrimSpace(body), "\n"); ok && strings.HasPrefix(k, "# ") {
+			body = strings.TrimSpace(body)[len(k):] // the title is already in the header
+		}
+		return append([]string{note, ""}, renderMarkdown(body, w)...)
+	}
 	lines := []string{"", sMuted.Render("  " + i18n.T("L'agent n'a pas encore expliqué comment ce ticket est construit.", "The agent has not explained yet how this ticket is built."))}
-	if c.Phase < chantier.Build {
+	if h.c.Phase < chantier.Build {
 		lines = append(lines, sMuted.Render("  "+i18n.T("Il l'écrira pendant le build, avec le code.", "It will write it during the build, along with the code.")))
+	}
+	if h.agent() == "" {
+		return append(lines, "", sMuted.Render("  "+i18n.T("Aucun agent sur ce chantier pour l'écrire.", "No agent on this ticket to write it.")))
 	}
 	return append(lines, "", "  "+sKey.Render("g")+sMuted.Render(i18n.T(" demander l'explication à l'agent maintenant", " ask the agent for it now")))
 }
@@ -122,8 +207,11 @@ func (m Model) howAskBox(w int) []string {
 
 func (m Model) howView() string {
 	head := sKey.Render(backLabel()) + "   " + sTitle.Render(howTitle())
-	if c := m.selected(); c != nil {
-		head += sMuted.Render(" · " + c.Key + " · " + trunc(c.Title(), max(10, m.width/2)))
+	if h := m.howSubj(); h != nil {
+		head += sMuted.Render(" · " + h.key + " · " + trunc(h.title, max(10, m.width/2)))
+		if !h.archivedAt.IsZero() {
+			head += sGood.Render(fmt.Sprintf(i18n.T(" · livré, rangé le %s", " · shipped, put away on %s"), h.archivedAt.Format("02/01/2006")))
+		}
 	}
 	bodyH := m.bodyHeight()
 	var box []string
@@ -148,17 +236,17 @@ func (m Model) howView() string {
 }
 
 func (m Model) howButtons() []button {
-	c := m.selected()
-	agent := c != nil && agentPane(c) != ""
+	h := m.howSubj()
+	agent := h.agent() != ""
 	explain := i18n.T("Demander l'explication", "Ask for it")
-	if c != nil && c.State != nil && c.State.HowItWorks != "" {
+	if h != nil && h.plan.HowItWorks != "" {
 		explain = i18n.T("Mettre à jour", "Refresh it")
 	}
 	return []button{
 		{"esc", i18n.T("Retour", "Back"), true},
 		{"e", i18n.T("Poser une question", "Ask a question"), agent},
 		{"g", explain, agent},
-		{"d", "Diff", c != nil && c.Worktree != ""},
+		{"d", "Diff", h != nil && h.c != nil && h.c.Worktree != ""},
 	}
 }
 
@@ -198,7 +286,7 @@ func (m Model) howKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "esc", "q", "left", "i":
-		m.view = ""
+		m.view, m.howArch = "", ""
 	case "up", "k":
 		m.scrollHow(-1)
 	case "down", "j":
@@ -208,15 +296,17 @@ func (m Model) howKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "pgdown", " ":
 		m.scrollHow(m.bodyHeight() / 2)
 	case "e":
-		if c := m.selected(); c != nil && agentPane(c) != "" {
+		if m.howSubj().agent() != "" {
 			m.howAsk, m.howText = true, ""
 		} else {
-			return m.requestHow("?") // says there is no agent
+			return m.requestHow("?") // says why nobody can answer
 		}
 	case "g":
 		return m.requestHow("")
 	case "d":
-		return m, m.diff()
+		if h := m.howSubj(); h != nil && h.c != nil {
+			return m, m.diff()
+		}
 	}
 	return m, nil
 }
@@ -239,7 +329,7 @@ func (m Model) howMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	switch {
 	case ev.Y == 0 && ev.X < lipgloss.Width(backLabel())+1:
-		m.view, m.howAsk = "", false
+		m.view, m.howAsk, m.howArch = "", false, ""
 	case ev.Y == 2+m.bodyHeight():
 		return m.footerClick(ev.X)
 	}
@@ -249,7 +339,7 @@ func (m Model) howMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 // secHow previews the section in the detail pane; the whole of it is one
 // click (or i) away.
 func (m Model) secHow(b *detailBuilder, c *chantier.Chantier) {
-	s := c.State
+	s, _ := m.planOf(c)
 	if s == nil || (s.HowItWorks == "" && c.Phase < chantier.Build) {
 		return
 	}

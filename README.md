@@ -113,7 +113,8 @@ on a chantier's branch until you allow it. Unfinished work stays off the CI pipe
 flow, then each mechanism with what you see, where it lives in the code, when it runs, and where its data lives
 (persisted or not). `i` opens it full screen, so you can answer questions on the ticket without reading the diff. Missing
 something? Type a question there: the agent checks the code and answers in that section, so the answer stays with the
-ticket.
+ticket. Once a ticket ships and its plan is archived, it stays readable: `ctrl+k`, its number or `livré`, and
+you get how it was built (or, for older tickets, the plan of what was done).
 
 ---
 

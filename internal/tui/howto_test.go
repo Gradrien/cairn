@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -103,5 +104,71 @@ func TestHowPromptAsksForTheSection(t *testing.T) {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt misses %q", want)
 		}
+	}
+}
+
+func TestHowItWorksArchived(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CAIRN_HOME", home)
+	arch := filepath.Join(home, "archive")
+	if err := os.MkdirAll(arch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(arch, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("YAK-854-20261109-120000.md", strings.Replace(howPlan, "YAK-712 · Colonnes", "YAK-854 · Largeur des colonnes", 1))
+	write("YAK-700-20261001-090000.md", "---\nticket: YAK-700\n---\n# YAK-700 · Ancien export\n\nExport en CSV.\n\n- [x] Bouton export\n")
+	write("YAK-712-20261001-090000.md", "---\nticket: YAK-712\n---\n# YAK-712 · Encore en cours\n")
+
+	m := fixture(t, 120, 40)
+	m.all = m.chantiers
+	m.refreshArchive()
+	if len(m.archive) != 3 {
+		t.Fatalf("archive: %d", len(m.archive))
+	}
+
+	m.overlay, m.palQuery = "palette", "854"
+	found := m.paletteFound()
+	if len(found) != 1 || !strings.Contains(found[0].label, "Largeur des colonnes · livré, comment ça marche") {
+		t.Fatalf("palette finds the shipped ticket: %+v", found)
+	}
+	m.palQuery = "712 livré"
+	if f := m.paletteFound(); len(f) != 0 {
+		t.Errorf("a live chantier is not listed from its old archive: %d", len(f))
+	}
+	m.palQuery = "tickets livrés"
+	f := m.paletteFound()
+	if len(f) != 1 {
+		t.Fatalf("narrowing entry: %d", len(f))
+	}
+	next, _ := f[0].run(m)
+	if n := next.(Model); n.overlay != "palette" || len(n.paletteFound()) != 2 {
+		t.Fatalf("it narrows to the shipped tickets: %q %d", n.palQuery, len(n.paletteFound()))
+	}
+
+	m.palQuery = "854"
+	next, _ = m.paletteFound()[0].run(m)
+	v := next.(Model)
+	text := strings.Join(screen(v), "\n")
+	for _, want := range []string{"YAK-854 · Largeur des colonnes · livré, rangé le 09/11/2026", "useColumnWidths", "Retour"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("archived view misses %q:\n%s", want, text)
+		}
+	}
+	if v.howSubj().agent() != "" {
+		t.Error("nobody to ask about an archived ticket")
+	}
+	if back := press(t, v, "esc"); back.view != "" || back.howArch != "" {
+		t.Error("esc leaves the archived view")
+	}
+
+	m.palQuery = "700"
+	next, _ = m.paletteFound()[0].run(m)
+	text = strings.Join(screen(next.(Model)), "\n")
+	if !strings.Contains(text, "Livré avant que l'agent l'explique") || !strings.Contains(text, "Bouton export") || strings.Contains(text, "# YAK-700") {
+		t.Errorf("unexplained ticket shows its plan:\n%s", text)
 	}
 }

@@ -76,6 +76,34 @@ func (m Model) paletteEntries() []palEntry {
 			return m, nil
 		}})
 	}
+	// Shipped and put away: how each was built, from its archived plan.
+	live := map[string]bool{}
+	for _, c := range m.all {
+		live[c.Key] = true
+	}
+	for _, a := range m.archive {
+		if live[a.Key] {
+			continue
+		}
+		key, title := a.Key, a.Title
+		if k, rest, ok := strings.Cut(title, " · "); ok && strings.EqualFold(k, key) {
+			title = rest
+		}
+		hint := i18n.T("livré", "shipped")
+		if a.HowItWorks == "" {
+			hint = i18n.T("livré · plan", "shipped · plan")
+		}
+		out = append(out, palEntry{sGood.Render("✓"), key + " · " + title + " · " + i18n.T("livré, comment ça marche", "shipped, how it works"), hint,
+			func(m Model) (tea.Model, tea.Cmd) { return m.openArchivedHow(key) }})
+	}
+	if n := len(out); n > 0 && len(m.archive) > 0 {
+		// One entry narrows the palette to them.
+		out = append(out, palEntry{sDim.Render("›"), fmt.Sprintf(i18n.T("Tickets livrés : comment ils marchent (%d)", "Shipped tickets: how they work (%d)"), len(m.archive)), "",
+			func(m Model) (tea.Model, tea.Cmd) {
+				m.palQuery, m.palCursor = i18n.T("livré, ", "shipped, "), 0
+				return m, nil
+			}})
+	}
 	for _, g := range []button{
 		{"n", i18n.T("Nouveau ticket", "New ticket"), len(m.projects) > 0},
 		{"t", i18n.T("Vue tableau / liste", "Board / list view"), true},
@@ -235,6 +263,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 				{"d", i18n.T("diff de la branche", "branch diff")},
 				{"c", i18n.T("commentaires de la PR", "PR comments")},
 				{"i", i18n.T("comment ça marche, poser une question", "how it works, ask a question")},
+				{"ctrl+k", i18n.T("« livré » : comment marchent les tickets livrés", "\"shipped\": how shipped tickets work")},
 				{"o", i18n.T("ticket dans son tracker", "ticket in its tracker")},
 				{"t", i18n.T("vue tableau", "board view")},
 				{"s", i18n.T("réglages et projets", "settings and projects")},

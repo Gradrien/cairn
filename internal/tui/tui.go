@@ -128,6 +128,9 @@ type Model struct {
 	hscroll   int  // scroll of the "how it works" view
 	howAsk    bool // typing a question for the agent there
 	howText   string
+	howArch   string           // archived ticket the view shows, "" for the selection
+	archive   []state.Archived // shipped tickets' plans, latest first
+	archMod   time.Time        // when the archive was last read
 	tokens    map[string]string
 
 	width, height int
@@ -175,6 +178,7 @@ func (m *Model) rebuild() tea.Cmd {
 	})
 	// A shipped chantier leaves the list (cairn cleans it up), unless
 	// something keeps it: it then stays in view with the reason.
+	m.refreshArchive()
 	m.rebuildOrder()
 	m.all = append([]*chantier.Chantier(nil), m.chantiers...)
 	m.shipped = 0
@@ -1124,4 +1128,14 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 		})
 	}
 	return m, cmd
+}
+
+// refreshArchive rereads the archived plans when a chantier was put away.
+func (m *Model) refreshArchive() {
+	dir := config.ArchiveDir()
+	fi, err := os.Stat(dir)
+	if err != nil || fi.ModTime().Equal(m.archMod) {
+		return
+	}
+	m.archive, m.archMod = state.LoadArchive(dir), fi.ModTime()
 }

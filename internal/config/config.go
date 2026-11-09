@@ -79,6 +79,9 @@ func Dir() string {
 // ChantiersDir holds one <KEY>.md per chantier.
 func ChantiersDir() string { return filepath.Join(Dir(), "chantiers") }
 
+// ArchiveDir holds the plans of closed chantiers, "<KEY>-<date>-<time>.md".
+func ArchiveDir() string { return filepath.Join(Dir(), "archive") }
+
 // Path is the config file.
 func Path() string { return filepath.Join(Dir(), "config.json") }
 
