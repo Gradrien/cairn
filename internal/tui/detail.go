@@ -74,7 +74,7 @@ func (m Model) cardFor(c *chantier.Chantier) *card {
 			{"d", i18n.T("Relire le diff", "Review the diff"), hasWT},
 			agent,
 		}}
-	case s != nil && isPushWait(s.Waiting):
+	case s != nil && (isPushWait(s.Waiting) || isPRWait(s.Waiting)):
 		var sub []string
 		if len(s.Tasks) > 0 {
 			sub = append(sub, fmt.Sprintf(i18n.T("tâches %d/%d", "tasks %d/%d"), s.DoneCount(), len(s.Tasks)))
@@ -85,9 +85,15 @@ func (m Model) cardFor(c *chantier.Chantier) *card {
 		if g, ok := m.gits[c.Key]; ok && g.Ahead > 0 {
 			sub = append(sub, plural(g.Ahead, i18n.T("commit prêt", "commit ready"), i18n.T("commits prêts", "commits ready")))
 		}
+		openPR := button{"P", i18n.T("Ouvrir la PR", "Open the PR"), c.OpenPR() == nil && !s.PRAllowed()}
+		if isPRWait(s.Waiting) {
+			return &card{color: warn, title: "⚠ " + i18n.T("À toi : ouvrir la PR", "Your call: open the PR"), since: since,
+				sub: strings.Join(sub, " · "), primary: true, actions: []button{openPR, {"d", i18n.T("Relire le diff", "Review the diff"), hasWT}, agent}}
+		}
 		return &card{color: warn, title: "⚠ " + i18n.T("À toi : autoriser le push", "Your call: allow the push"), since: since,
 			sub: strings.Join(sub, " · "), primary: true, actions: []button{
 				{"a", i18n.T("Autoriser le push", "Allow push"), true},
+				openPR,
 				{"d", i18n.T("Relire le diff", "Review the diff"), hasWT},
 				agent,
 			}}
@@ -350,18 +356,25 @@ func (m Model) detailLayout(w int) detail {
 		switch {
 		case m.prs[c.Key].State == "OPEN":
 			b.add(lbl("Push") + sGood.Render(i18n.T("libre", "free")) + sMuted.Render(i18n.T(" : PR ouverte, la relecture se fait dessus", ": the PR is open, review happens there")))
+		case m.pushValid(c) && s.PushCommit() == "":
+			b.add(lbl("Push") + sGood.Render(i18n.T("autorisé à ta demande", "allowed on your request")) + sMuted.Render(i18n.T(" : le prochain push fixe le commit", ": the next push pins the commit")))
 		case m.pushValid(c):
-			on := ""
-			if sha := s.PushCommit(); sha != "" {
-				on = fmt.Sprintf(i18n.T(" pour %s", " for %s"), shortSHA(sha))
-			}
-			b.add(lbl("Push") + sGood.Render(i18n.T("autorisé", "allowed")+on) + sMuted.Render(i18n.T(" : push et PR libres jusqu'à l'ouverture de la PR", ": pushes and PR are free until the PR is open")))
+			b.add(lbl("Push") + sGood.Render(fmt.Sprintf(i18n.T("autorisé pour %s", "allowed for %s"), shortSHA(s.PushCommit()))) + sMuted.Render(i18n.T(" : ce commit et ses nouvelles tentatives passent", ": this commit and its retries pass")))
 		case s.PushAllowed():
 			b.add(lbl("Push") + sWarn.Render(fmt.Sprintf(i18n.T("nouveaux commits depuis l'autorisation (%s) : à réautoriser", "new commits since the allowance (%s): allow again"), shortSHA(s.PushCommit()))))
 		case isPushWait(s.Waiting):
 			b.add(lbl("Push") + sWarn.Render(i18n.T("bloqué : l'agent attend ton feu vert", "blocked: the agent waits for your go-ahead")))
 		default:
-			b.add(lbl("Push") + sMuted.Render(i18n.T("bloqué jusqu'à ton feu vert", "blocked until you allow it")))
+			b.add(lbl("Push") + sMuted.Render(i18n.T("bloqué jusqu'à ton feu vert, ici ou demandé dans le chat", "blocked until you allow it, here or by asking in the chat")))
+		}
+		switch {
+		case m.prs[c.Key].State == "OPEN" || c.OpenPR() != nil || c.Phase == chantier.Shipped:
+		case s.PRAllowed():
+			b.add(lbl("PR") + sGood.Render(i18n.T("ouverture autorisée", "opening allowed")) + sMuted.Render(i18n.T(" : l'agent l'ouvre", ": the agent opens it")))
+		case isPRWait(s.Waiting):
+			b.add(lbl("PR") + sWarn.Render(i18n.T("l'agent attend ton feu vert pour l'ouvrir", "the agent waits for your go-ahead to open it")))
+		case c.Phase >= chantier.Build:
+			b.add(lbl("PR") + sMuted.Render(i18n.T("pas encore : Ouvrir la PR (P) quand tu veux", "not yet: Open the PR (P) when you want")))
 		}
 	}
 	if s == nil && c.Phase != chantier.ToPlan {
@@ -372,7 +385,7 @@ func (m Model) detailLayout(w int) detail {
 	_, prOpen := m.prs[c.Key]
 	prOpen = prOpen && c.OpenPR() != nil
 	switch {
-	case s != nil && isPushWait(s.Waiting):
+	case s != nil && (isPushWait(s.Waiting) || isPRWait(s.Waiting)):
 		m.secSide(b, c)
 		m.secHow(b, c)
 		m.secCode(b, c)

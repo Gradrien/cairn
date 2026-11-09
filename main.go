@@ -42,8 +42,12 @@ func usage() string {
                    d'avant s'il est déjà devant (c'est la touche herdr prefix+a)
   cairn sync       pousse la phase de chaque chantier dans la barre latérale herdr
                    (appelé par les agents après avoir modifié leur fichier de chantier)
-  cairn guard      hook Claude Code (PreToolUse) : bloque git push / gh pr create sur un
-                   chantier tant que le push n'a pas été autorisé dans cairn
+  cairn guard      hook Claude Code (PreToolUse) : sur un chantier, bloque git push tant que
+                   le push n'est pas autorisé, gh pr create tant que la PR ne l'est pas,
+                   et gh pr merge toujours
+  cairn guard prompt
+                   hook Claude Code (UserPromptSubmit) : quand tu demandes un push dans
+                   le chat, l'autorise comme le bouton de cairn
   cairn ensure     crée l'espace cairn s'il manque et y lance cairn, sans changer le focus
                    (hook de démarrage du plugin herdr : le bouton reste dans la barre latérale)
 
@@ -59,8 +63,11 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
                    workspace if cairn is already in front (herdr key prefix+a)
   cairn sync       pushes each ticket's phase to herdr's sidebar
                    (called by agents after they edit their ticket file)
-  cairn guard      Claude Code hook (PreToolUse): blocks git push / gh pr create on a
-                   ticket until the push is allowed in cairn
+  cairn guard      Claude Code hook (PreToolUse): on a ticket, blocks git push until the
+                   push is allowed, gh pr create until the PR is, and gh pr merge always
+  cairn guard prompt
+                   Claude Code hook (UserPromptSubmit): when you ask for a push in the
+                   chat, allows it like cairn's button
   cairn ensure     creates the cairn workspace if missing and runs cairn in it, without
                    moving focus (herdr plugin startup hook: the button stays in the sidebar)
 
@@ -77,6 +84,13 @@ func main() {
 		fail(err)
 	}
 	i18n.Set(cfg.Lang)
+	if flag.Arg(0) == "guard" && flag.Arg(1) == "prompt" {
+		// Claude Code UserPromptSubmit hook: what it prints joins the agent's context.
+		if note := guard.CheckPrompt(os.Stdin, cfg.Keys(), config.ChantiersDir(), config.Dir()); note != "" {
+			fmt.Println(note)
+		}
+		return
+	}
 	if flag.Arg(0) == "guard" {
 		// Claude Code PreToolUse hook: exit 2 blocks the command and shows the reason to the agent.
 		if reason := guard.Check(os.Stdin, cfg.Keys(), config.ChantiersDir()); reason != "" {

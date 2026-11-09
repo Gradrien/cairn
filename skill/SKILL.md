@@ -78,11 +78,19 @@ L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directe
   - `build` : l'humain a validé. Passe une tâche en `[~]` quand tu la commences, puis en `[x]` dès qu'elle est finie. Ajoute le travail découvert en cours de route et retire ce qui s'est révélé inutile.
   - `review` : la PR est ouverte. Si on te demande des changements, fais-les en local, puis redemande le push comme ci-dessous.
   - « Livré » est détecté seul quand la PR est mergée : ne l'écris pas.
-- **Jamais de push ni de PR sans feu vert humain.** Ne lance pas `git push`, `gh pr create`, `gh pr ready` ni `gh pr merge` de toi-même. Quand le travail est prêt, dans les deux cas suivants :
-  - avant la première PR ;
-  - avant chaque nouvelle série de changements sur une PR existante.
-
-  Mets `attente: Prêt à pousser — <ce qui partira, en une ligne>`, lance `cairn sync` et arrête-toi. L'humain relit le diff et clique sur « Autoriser le push » : cairn écrit alors `push: autorisé <commit>` et te relance. L'autorisation vaut pour **ce commit** : push, création de la PR, liaison et nouvelles tentatives passent autant qu'il le faut. Une fois la PR ouverte, tes pushes suivants (correctifs de CI, retours de review) passent sans redemander : la relecture se fait sur la PR. Ne merge jamais toi-même. Un hook bloque tout push non autorisé : si tu le rencontres, ne le contourne pas, demande l'autorisation. Le but est de ne jamais envoyer de travail inachevé dans la pipeline de la PR.
+- **Jamais de push ni de PR sans feu vert humain, et deux feux verts distincts.** Ne lance pas `git push`,
+  `gh pr create` ni `gh pr ready` sans autorisation, et **jamais** `gh pr merge` : le merge est à l'humain. Un hook
+  bloque ce qui n'est pas autorisé : si tu le rencontres, ne le contourne pas, demande.
+  - **Le push.** Quand le travail est prêt à partir sur sa branche, mets `attente: Prêt à pousser — <ce qui partira, en
+    une ligne>`, lance `cairn sync` et arrête-toi. L'humain clique sur « Autoriser le push » (cairn écrit
+    `push: autorisé <commit>`), ou te demande simplement de pousser dans le chat (« push », « pousse ») : un hook l'écrit
+    alors pour toi, sans commit, et ton premier push le fixe. L'autorisation vaut pour **ce commit** et ses nouvelles
+    tentatives ; un nouveau commit redemande. **Pousser n'ouvre pas la PR.**
+  - **La PR.** Ne l'ouvre que si le plan porte `pr: autorisée`. Quand tu juges le travail prêt pour la relecture, mets
+    `attente: Prêt à ouvrir la PR — <ce qu'elle contient>`, lance `cairn sync` et arrête-toi : l'humain clique sur
+    « Ouvrir la PR » et te relance. Ouvre-la alors, lie-la au ticket et passe en `phase: review`.
+  - **Une fois la PR ouverte**, tes pushes suivants (correctifs de CI, retours de review) passent sans redemander : la
+    relecture se fait sur la PR.
 - **Images dans une PR : jamais de chemin relatif.** `![avant](./before.png)` est résolu par GitHub en `/pull/before.png`, c'est un lien mort. N'utilise que des URLs d'images réellement hébergées, par exemple des pièces jointes GitHub (`https://github.com/user-attachments/assets/…`) téléversées via le navigateur, puis vérifie qu'elles s'affichent. Si tu ne peux pas téléverser, n'insère pas d'image : garde les captures en local et cite leur chemin absolu sous `## Preuves`, cairn les affiche.
 - **`attente:`** n'apparaît que quand une décision humaine bloque. Écris-la en quelques mots (« Choisir entre migration et script »), pose la question dans ta réponse, puis attends. Retire la ligne une fois la réponse obtenue.
 - **`## Comment ça marche` explique le code à l'humain.** Il doit pouvoir répondre seul aux questions sur le ticket

@@ -10,7 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	"cairn/internal/config"
 	"cairn/internal/i18n"
+	"cairn/internal/prompted"
 )
 
 type Agent struct {
@@ -202,6 +204,8 @@ func StartAgent(name, kind, paneID string) error {
 
 // Prompt submits text to an agent without waiting for its turn.
 func Prompt(target, text string) error {
+	// Remembered so the chat hook never takes cairn's words for the human's.
+	prompted.Record(config.Dir(), text)
 	_, err := run("agent", "prompt", target, text)
 	return err
 }

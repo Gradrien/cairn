@@ -4,7 +4,10 @@
 //	ticket: YAK-788
 //	phase: plan | build | review
 //	attente: Valider le plan        (optional: a decision waiting for a human)
-//	push: autorisé <commit>         (set by cairn: pushes and PRs pass while HEAD is <commit>)
+//	push: autorisé [<commit>]       (set by cairn or by the human's request in the chat:
+//	                                 pushes pass while HEAD is <commit>; without one, the
+//	                                 next push pins it)
+//	pr: autorisée                   (set by cairn: the agent may open the pull request)
 //	---
 //	a short summary (objective, decisions) before the first "##" heading;
 //	tasks "- [ ]" todo, "- [~]" in progress, "- [x]" done;
@@ -36,6 +39,7 @@ type State struct {
 	Phase       string
 	Waiting     string
 	Push        string // "autorisé <commit>" once a human allowed pushing that commit
+	PR          string // "autorisée" once a human allowed opening the pull request
 	Title       string // the first "# " heading, without its "KEY · " prefix
 	Tasks       []Task
 	SideEffects []Task
@@ -105,6 +109,8 @@ func Parse(path, text string) *State {
 			s.Waiting = v
 		case "push":
 			s.Push = v
+		case "pr":
+			s.PR = v
 		}
 	}
 	section := "" // "", "proofs", "side", "questions", "how", "other"
@@ -226,6 +232,8 @@ func (s *State) Set(key, value string) {
 		s.Waiting = value
 	case "push":
 		s.Push = value
+	case "pr":
+		s.PR = value
 	}
 }
 
@@ -242,6 +250,12 @@ func (s *State) PushAllowed() bool {
 		return false
 	}
 	return strings.EqualFold(f[0], "autorisé") || strings.EqualFold(f[0], "autorise") || strings.EqualFold(f[0], "allowed")
+}
+
+// PRAllowed reports whether a human allowed opening the pull request.
+func (s *State) PRAllowed() bool {
+	f := strings.Fields(strings.ToLower(s.PR))
+	return len(f) > 0 && (strings.HasPrefix(f[0], "autoris") || f[0] == "allowed")
 }
 
 // PushCommit is the commit the allowance covers, "" if none was recorded.

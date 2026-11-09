@@ -70,16 +70,21 @@ merge checklist.
 
 <sub>NOTHING SHIPS WITHOUT YOU</sub>
 
-### A human go-ahead before every push.
+### A human go-ahead before every push, and another for the PR.
 
 Agents never push or open a PR on their own. When the work is ready, the agent stops and asks
 (*Prêt à pousser*, "ready to push"). You press **Autoriser le push** ("allow the push"), check what will leave (commits,
-files, side effects still open), and confirm. The go-ahead covers **the commit you reviewed**: the push, the PR, and any
-retry go through. Once the PR is open, later pushes (CI fixes, review feedback) pass freely: from then on you review on
-the PR, and merging stays yours. One go-ahead per ticket, at the moment the code first leaves.
+files, side effects still open), and confirm. Or just tell the agent in the chat: "push". A hook reads your message and
+allows it the same way (cairn's own messages to the agent never count). The go-ahead covers **the commit you
+reviewed** and its retries.
 
-This is enforced, not just requested. A Claude Code hook (`cairn guard`) blocks `git push` and `gh pr create/ready/merge`
-on a chantier's branch until you allow it. Unfinished work stays off the CI pipeline and out of your reviewers' inbox.
+**Pushing does not open the PR.** You can push a branch early (to share it, run a preview, try the CI) and open the PR
+later with its own button, **Ouvrir la PR** (`P`, "open the PR"), or when the agent asks for it (*Prêt à ouvrir la PR*).
+Once the PR is open, later pushes (CI fixes, review feedback) pass freely: from then on you review on the PR. Merging
+is always yours.
+
+This is enforced, not just requested. Claude Code hooks (`cairn guard`) block `git push` until the push is allowed,
+`gh pr create/ready` until the PR is, and `gh pr merge` always. Unfinished work stays off your reviewers' inbox.
 
 ---
 

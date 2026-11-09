@@ -99,6 +99,7 @@ type Model struct {
 	palCursor   int
 	pushKey     string   // chantier the push confirmation is about
 	pushLog     []string // its commits, "<hash> <subject>"
+	pushPR      bool     // the confirmation opens the PR, not just the push
 	closeKey    string   // chantier the close confirmation is about
 	closeRisk   *closeRisk
 	answerQ     string // open question being answered, "" if none
@@ -642,6 +643,8 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.validate()
 	case "a":
 		return m.openPush()
+	case "P":
+		return m.openPR()
 	case "x":
 		return m.openClose()
 	case "U":
@@ -1024,8 +1027,8 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 	}
 }
 
-// allowPush lets the agent push the commit the human just reviewed: pushes,
-// PR creation and retries pass while the branch stays on it.
+// allowPush lets the agent push the commit the human just reviewed: the push
+// and its retries pass while the branch stays on it. The PR is apart (allowPR).
 func (m Model) allowPush() (tea.Model, tea.Cmd) {
 	c := m.selected()
 	if c == nil || c.State == nil {
@@ -1047,11 +1050,47 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 	cmd := m.rebuild()
 	if len(c.Agents) > 0 {
 		pane := c.Agents[0].PaneID
-		prompt := fmt.Sprintf(i18n.T("Push autorisé dans cairn pour %s, sur le commit %s : pousse maintenant, ouvre la PR si elle n'existe pas encore "+
-			"et lie-la au ticket. Push, PR et nouvelles tentatives passent autant qu'il le faut. "+
+		prompt := fmt.Sprintf(i18n.T("Push autorisé dans cairn pour %s, sur le commit %s : pousse maintenant (les nouvelles tentatives passent). "+
+			"N'ouvre pas de PR : son ouverture s'autorise à part dans cairn ; si elle est déjà ouverte, rien à faire de plus.",
+			"Push allowed in cairn for %s, on commit %s: push now (retries pass). "+
+				"Do not open a PR: opening it is allowed separately in cairn; if it is already open, nothing more to do."), c.Key, shortSHA(head))
+		cmd = tea.Batch(cmd, func() tea.Msg {
+			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(pane, prompt)}
+		})
+	}
+	m.say(text, nil)
+	return m, cmd
+}
+
+// allowPR lets the agent open the pull request, pushing the reviewed commit
+// first if it has not left yet.
+func (m Model) allowPR() (tea.Model, tea.Cmd) {
+	c := m.selected()
+	if c == nil || c.State == nil {
+		return m, nil
+	}
+	s := c.State
+	head := headOf(c.Worktree)
+	s.Set("pr", "autorisée")
+	if !m.pushValid(c) {
+		s.Set("push", strings.TrimSpace("autorisé "+head))
+	}
+	if isPushWait(s.Waiting) || isPRWait(s.Waiting) {
+		s.Set("attente", "")
+	}
+	if err := s.Save(); err != nil {
+		m.say("", err)
+		return m, nil
+	}
+	_ = journal.Append(config.ChantiersDir(), c.Key, "PR autorisée")
+	text := fmt.Sprintf(i18n.T("Ouverture de la PR autorisée pour %s.", "Opening the PR allowed for %s."), c.Key)
+	cmd := m.rebuild()
+	if pane := agentPane(c); pane != "" {
+		prompt := fmt.Sprintf(i18n.T("Ouverture de la PR autorisée dans cairn pour %s : pousse la branche si ce n'est pas fait (le commit %s est autorisé), "+
+			"ouvre la PR, lie-la au ticket et passe le plan en `phase: review`. Ne la merge pas. "+
 			"Une fois la PR ouverte, tes pushes suivants (correctifs de CI ou de review) passent sans redemander.",
-			"Push allowed in cairn for %s, on commit %s: push now, open the PR if it does not exist yet "+
-				"and link it to the ticket. Pushes, the PR and retries pass as often as needed. "+
+			"Opening the PR allowed in cairn for %s: push the branch if not done yet (commit %s is allowed), "+
+				"open the PR, link it to the ticket and set the plan to `phase: review`. Do not merge it. "+
 				"Once the PR is open, your next pushes (CI or review fixes) pass without asking again."), c.Key, shortSHA(head))
 		cmd = tea.Batch(cmd, func() tea.Msg {
 			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(pane, prompt)}
@@ -1080,18 +1119,25 @@ func shortSHA(sha string) string {
 	return sha
 }
 
-// pushValid: an allowance exists and still covers the branch's commit.
+// pushValid: an allowance exists and still covers the branch's commit. One
+// asked in the chat has no commit until the first push pins it: it is valid.
 func (m Model) pushValid(c *chantier.Chantier) bool {
 	if pr, ok := m.prs[c.Key]; ok && pr.State == "OPEN" {
 		return true // the PR is where review happens: pushes are free
 	}
 	s := c.State
-	return s != nil && s.PushCommit() != "" && s.PushCovers(m.gits[c.Key].Head)
+	return s != nil && s.PushAllowed() && s.PushCovers(m.gits[c.Key].Head)
 }
 
 func isPushWait(w string) bool {
 	l := strings.ToLower(w)
-	return strings.Contains(l, "pousser") || strings.Contains(l, "push")
+	return !isPRWait(w) && (strings.Contains(l, "pousser") || strings.Contains(l, "push"))
+}
+
+// isPRWait: the agent waits for the go-ahead to open the PR.
+func isPRWait(w string) bool {
+	l := strings.ToLower(w)
+	return (strings.Contains(l, "ouvrir") || strings.Contains(l, "open")) && (strings.Contains(l, "pr") || strings.Contains(l, "pull request"))
 }
 
 func (m Model) validate() (tea.Model, tea.Cmd) {

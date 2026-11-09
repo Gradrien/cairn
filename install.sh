@@ -56,19 +56,27 @@ mkdir -p ~/.claude/skills
 ln -sfn "$PWD/skill" ~/.claude/skills/cairn
 echo "✓ skill cairn lié dans ~/.claude/skills/cairn"
 
-# Claude Code hook: no push / PR on a cairn chantier without a human's go-ahead.
+# Claude Code hooks: no push / PR on a cairn chantier without a human's go-ahead,
+# given in cairn or, for a push, asked in the chat.
 python3 - "$cairn_bin" <<'PY'
 import json, os, sys
 path = os.path.expanduser("~/.claude/settings.json")
 d = json.load(open(path)) if os.path.exists(path) else {}
-cmd = sys.argv[1] + " guard"
-pre = d.setdefault("hooks", {}).setdefault("PreToolUse", [])
-if not any(h.get("command", "").endswith("cairn guard") for e in pre for h in e.get("hooks", [])):
-    pre.append({"matcher": "Bash", "hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
+hooks = d.setdefault("hooks", {})
+changed = False
+for event, suffix, entry in [
+    ("PreToolUse", "cairn guard", {"matcher": "Bash"}),
+    ("UserPromptSubmit", "cairn guard prompt", {}),
+]:
+    lst = hooks.setdefault(event, [])
+    if any(h.get("command", "").endswith(suffix) for e in lst for h in e.get("hooks", [])):
+        print(f"✓ hook Claude Code « {suffix} » déjà présent")
+        continue
+    lst.append({**entry, "hooks": [{"type": "command", "command": sys.argv[1] + suffix[len("cairn"):], "timeout": 10}]})
+    changed = True
+    print(f"✓ hook Claude Code « {suffix} » ajouté dans ~/.claude/settings.json")
+if changed:
     json.dump(d, open(path, "w"), indent=2, ensure_ascii=False)
-    print("✓ hook Claude Code « cairn guard » ajouté dans ~/.claude/settings.json")
-else:
-    print("✓ hook Claude Code « cairn guard » déjà présent")
 PY
 
 # A cairn already open in herdr keeps running the old binary: restart it. The

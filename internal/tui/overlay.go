@@ -33,12 +33,35 @@ func (m Model) openPush() (tea.Model, tea.Cmd) {
 		m.say(i18n.T("Ce commit est déjà autorisé : push et PR passent.", "This commit is already allowed: pushes and PR go through."), nil)
 		return m, nil
 	}
-	m.overlay, m.pushKey, m.pushLog = "push", c.Key, nil
-	wt, base, key := c.Worktree, m.base(c), c.Key
-	if wt == "" {
+	m.overlay, m.pushKey, m.pushLog, m.pushPR = "push", c.Key, nil, false
+	return m, m.loadPushLog(c)
+}
+
+// openPR asks for confirmation before allowing the PR to open, apart from
+// the push: the agent may push the branch, it opens the PR only after this.
+func (m Model) openPR() (tea.Model, tea.Cmd) {
+	c := m.selected()
+	switch {
+	case c == nil || c.State == nil:
+		m.say(i18n.T("Ce chantier n'a pas de plan cairn : sa PR n'est pas bloquée.", "This ticket has no cairn plan: its PR is not blocked."), nil)
+		return m, nil
+	case c.OpenPR() != nil:
+		m.say(fmt.Sprintf(i18n.T("La PR #%d est déjà ouverte.", "PR #%d is already open."), c.OpenPR().Number), nil)
+		return m, nil
+	case c.State.PRAllowed():
+		m.say(i18n.T("L'ouverture de la PR est déjà autorisée.", "Opening the PR is already allowed."), nil)
 		return m, nil
 	}
-	return m, func() tea.Msg {
+	m.overlay, m.pushKey, m.pushLog, m.pushPR = "push", c.Key, nil, true
+	return m, m.loadPushLog(c)
+}
+
+func (m Model) loadPushLog(c *chantier.Chantier) tea.Cmd {
+	wt, base, key := c.Worktree, m.base(c), c.Key
+	if wt == "" {
+		return nil
+	}
+	return func() tea.Msg {
 		out, _ := exec.Command("git", "-C", wt, "log", "--format=%h %s", "-n", "8", base+"..HEAD").Output()
 		return pushLogMsg{key: key, lines: strings.Split(strings.TrimSpace(string(out)), "\n")}
 	}
@@ -149,10 +172,13 @@ func (m Model) overlayKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.overlay = ""
 	case "push":
 		switch k.String() {
-		case "enter", "a":
+		case "enter", "a", "P":
 			m.overlay = ""
 			if c := m.selected(); c == nil || c.Key != m.pushKey {
 				return m, nil
+			}
+			if m.pushPR {
+				return m.allowPR()
 			}
 			return m.allowPush()
 		case "d":
@@ -253,6 +279,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 				{"v", i18n.T("valider ce qui attend", "approve what waits")},
 				{"e", i18n.T("répondre aux questions", "answer the questions")},
 				{"a", i18n.T("autoriser le push", "allow the push")},
+				{"P", i18n.T("ouvrir la PR", "open the PR")},
 				{"x", i18n.T("fermer un chantier livré", "close a shipped ticket")},
 				{"h", i18n.T("tester dans le dépôt principal", "test in the main checkout")},
 				{"f", i18n.T("corriger la CI", "fix the CI")},
@@ -330,9 +357,15 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 		}
 		s := c.State
 		row := func(k, v string) { content = append(content, hang(lbl(k), v, inner())...) }
-		content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("Autoriser le push de %s ?", "Allow pushing %s?"), c.Key)))
-		content = append(content, wrap(sMuted.Render(i18n.T("Tu autorises ce commit à partir : push, PR et nouvelles tentatives passent. Une fois la PR ouverte, les correctifs suivants poussent librement : la relecture se fait sur la PR.",
-			"You let this commit leave: pushes, the PR and retries go through. Once the PR is open, later fixes push freely: review happens on the PR.")), inner(), "")...)
+		if m.pushPR {
+			content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("Ouvrir la PR de %s ?", "Open %s's PR?"), c.Key)))
+			content = append(content, wrap(sMuted.Render(i18n.T("L'agent pousse ce commit si besoin, ouvre la PR et la lie au ticket : elle part en relecture et la CI tourne. Ensuite, les correctifs poussent librement. Le merge reste à toi.",
+				"The agent pushes this commit if needed, opens the PR and links it to the ticket: it goes to review and CI runs. Then fixes push freely. Merging stays yours.")), inner(), "")...)
+		} else {
+			content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("Autoriser le push de %s ?", "Allow pushing %s?"), c.Key)))
+			content = append(content, wrap(sMuted.Render(i18n.T("Tu autorises ce commit à partir sur sa branche : le push et ses nouvelles tentatives passent. La PR ne s'ouvre pas : elle a son propre bouton.",
+				"You let this commit leave on its branch: the push and its retries go through. The PR does not open: it has its own button.")), inner(), "")...)
+		}
 		content = append(content, "")
 		if c.Branch != "" {
 			row(i18n.T("Branche", "Branch"), c.Branch)
@@ -382,7 +415,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 		}
 		content = append(content, "")
 		buttonsRow([]button{
-			{"enter", i18n.T("Autoriser ce commit", "Allow this commit"), true},
+			{"enter", map[bool]string{false: i18n.T("Autoriser ce commit", "Allow this commit"), true: i18n.T("Ouvrir la PR", "Open the PR")}[m.pushPR], true},
 			{"d", i18n.T("Relire le diff", "Review the diff"), c.Worktree != ""},
 			{"esc", i18n.T("Annuler", "Cancel"), true},
 		}, true)
