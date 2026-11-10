@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"cairn/internal/config"
 	"cairn/internal/i18n"
@@ -197,9 +198,32 @@ func CreateWorktree(repo, branch, base, path, label string) (workspaceID, paneID
 	return res.Result.Workspace.ID, res.Result.RootPane.ID, nil
 }
 
-func StartAgent(name, kind, paneID string) error {
-	_, err := run("agent", "start", name, "--kind", kind, "--pane", paneID, "--timeout", "60000")
+// StartAgent starts an agent of kind in the pane; args go to the agent itself
+// (claude --model sonnet…).
+func StartAgent(name, kind, paneID string, args ...string) error {
+	cmd := []string{"agent", "start", name, "--kind", kind, "--pane", paneID, "--timeout", "60000"}
+	if len(args) > 0 {
+		cmd = append(append(cmd, "--"), args...)
+	}
+	_, err := run(cmd...)
 	return err
+}
+
+// StopAgent ends the agent in the pane (/exit) and waits until the pane is
+// back at its shell, ready for another agent. Its transcript stays: it can
+// be resumed with claude --resume.
+func StopAgent(paneID string) error {
+	if _, err := run("agent", "prompt", paneID, "/exit"); err != nil {
+		return err
+	}
+	for i := 0; i < 60; i++ {
+		time.Sleep(250 * time.Millisecond)
+		if _, err := run("agent", "get", paneID); err != nil {
+			time.Sleep(500 * time.Millisecond) // let the shell draw its prompt
+			return nil
+		}
+	}
+	return fmt.Errorf("%s", i18n.T("l'agent ne s'est pas arrêté (/exit) : ferme-le à la main", "the agent did not stop (/exit): close it by hand"))
 }
 
 // Prompt submits text to an agent without waiting for its turn.

@@ -218,3 +218,41 @@ func TestTickSide(t *testing.T) {
 		t.Error("untick, and nothing out of range")
 	}
 }
+
+func TestAddAsked(t *testing.T) {
+	front := "---\nphase: build\n---\n# YAK-1 · T\n\n- [ ] tâche\n"
+	for name, tc := range map[string]struct{ body, want string }{
+		"no section": {
+			"\n## Preuves\n- ok\n",
+			"- [ ] tâche\n\n## Comment ça marche\n\n### Questions posées\n- **Où ?**\n  Dans `a.go:3`.\n\n## Preuves\n- ok\n",
+		},
+		"section, no questions": {
+			"\n## Comment ça marche\nLe flux.\n\n### Export\n- **Où** : `x.go`\n\n## Preuves\n- ok\n",
+			"### Export\n- **Où** : `x.go`\n\n### Questions posées\n- **Où ?**\n  Dans `a.go:3`.\n\n## Preuves\n",
+		},
+		"questions then a mechanism": {
+			"\n## Comment ça marche\nLe flux.\n\n### Questions posées\n- **Avant ?**\n  Oui.\n\n### Autre\nTexte.\n",
+			"- **Avant ?**\n  Oui.\n- **Où ?**\n  Dans `a.go:3`.\n\n### Autre\nTexte.\n",
+		},
+		"section at the end": {
+			"\n## Comment ça marche\nLe flux.\n",
+			"## Comment ça marche\nLe flux.\n\n### Questions posées\n- **Où ?**\n  Dans `a.go:3`.\n",
+		},
+	} {
+		s := Parse("/p/YAK-1.md", front+tc.body)
+		s.AddAsked("Où ?", "Dans `a.go:3`.")
+		if got := s.String(); !strings.Contains(got, tc.want) {
+			t.Errorf("%s:\n%s\nwant it to contain:\n%s", name, got, tc.want)
+		}
+		if !strings.Contains(s.HowItWorks, "**Où ?**") {
+			t.Errorf("%s: HowItWorks follows: %q", name, s.HowItWorks)
+		}
+	}
+}
+
+func TestReprise(t *testing.T) {
+	s := Parse("/p/YAK-1.md", "---\nphase: build\n---\n# YAK-1\n\n- [x] a\n- [~] b\n\n## Reprise\nJ'en suis à b.\n\n### Pièges\n- le cache\n\n## Preuves\n- ok\n")
+	if s.Reprise != "J'en suis à b.\n\n### Pièges\n- le cache" || len(s.Proofs) != 1 || len(s.Tasks) != 2 {
+		t.Errorf("reprise %q proofs %v tasks %v", s.Reprise, s.Proofs, s.Tasks)
+	}
+}

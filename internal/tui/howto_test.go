@@ -55,7 +55,7 @@ func TestHowItWorksView(t *testing.T) {
 	}
 
 	ask := press(t, v, "e", "o", "ù", "space", "?")
-	if !ask.howAsk || ask.howText != "où ?" || !strings.Contains(strings.Join(screen(ask), "\n"), "l'agent répond dans cette section") {
+	if !ask.howAsk || ask.howText != "où ?" || !strings.Contains(strings.Join(screen(ask), "\n"), "un agent à part lit le code") {
 		t.Fatalf("question box: ask=%v %q", ask.howAsk, ask.howText)
 	}
 	if back := press(t, ask, "esc"); back.howAsk || back.view != "how" {
@@ -99,11 +99,50 @@ func TestHowItWorksMissing(t *testing.T) {
 }
 
 func TestHowPromptAsksForTheSection(t *testing.T) {
-	p := howPrompt("YAK-854", "/c/YAK-854.md", "où est sauvée la taille ?")
-	for _, want := range []string{"## Comment ça marche", "/c/YAK-854.md", "où est sauvée la taille ?", "### Questions posées", "Ne modifie pas le code", "**Quand**"} {
+	p := howPrompt("YAK-854", "/c/YAK-854.md")
+	for _, want := range []string{"## Comment ça marche", "/c/YAK-854.md", "Ne modifie pas le code", "**Quand**"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt misses %q", want)
 		}
+	}
+}
+
+// A question goes to an agent of its own, in the worktree; cairn writes its
+// answer in the plan.
+func TestAskAside(t *testing.T) {
+	t.Setenv("CAIRN_HOME", t.TempDir())
+	m := selectKey(t, fixture(t, 120, 40), "YAK-800")
+	c := m.selected()
+	path := filepath.Join(t.TempDir(), "YAK-800.md")
+	if err := os.WriteFile(path, []byte(howPlan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c.State, _ = state.Load(path)
+	c.Worktree = "/w/800"
+	var gotDir, gotPrompt string
+	old := ask
+	ask = func(dir, prompt string) (string, error) {
+		gotDir, gotPrompt = dir, prompt
+		return "Nulle part : en mémoire, `useColumnWidths.ts:12`.", nil
+	}
+	defer func() { ask = old }()
+
+	next, _ := m.openHow()
+	m = next.(Model)
+	next, cmd := m.askAside("où est sauvée la taille ?")
+	m = next.(Model)
+	if cmd == nil || !strings.Contains(m.flash, "agent à part") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	if msg, ok := cmd().(doneMsg); !ok || msg.err != nil {
+		t.Fatalf("done: %+v", msg)
+	}
+	if gotDir != "/w/800" || !strings.Contains(gotPrompt, "où est sauvée la taille ?") || !strings.Contains(gotPrompt, path) {
+		t.Errorf("asked in %q: %q", gotDir, gotPrompt)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "### Questions posées\n- **où est sauvée la taille ?**\n  Nulle part : en mémoire, `useColumnWidths.ts:12`.") {
+		t.Errorf("the answer is in the plan:\n%s", data)
 	}
 }
 

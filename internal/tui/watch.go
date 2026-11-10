@@ -244,8 +244,17 @@ func historyText(text string) string {
 		}
 		return "→ " + p
 	}
-	if text == "effet de bord vérifié" {
+	switch {
+	case text == "effet de bord vérifié":
 		return i18n.T(text, "side effect checked")
+	case text == "reprise demandée":
+		return i18n.T(text, "handoff asked")
+	case strings.HasPrefix(text, "nouvel agent pour le build"):
+		return i18n.T(text, "new agent for the build"+strings.TrimPrefix(text, "nouvel agent pour le build"))
+	case strings.HasPrefix(text, "nouvel agent (reprise)"):
+		return i18n.T(text, "new agent (handoff)"+strings.TrimPrefix(text, "nouvel agent (reprise)"))
+	case strings.HasPrefix(text, "question posée à part"):
+		return i18n.T(text, "question asked aside")
 	}
 	if model, ok := strings.CutPrefix(text, "modèle : "); ok {
 		return i18n.T(text, "model: "+model)

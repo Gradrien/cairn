@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -14,13 +17,15 @@ import (
 	"cairn/internal/herdr"
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
+	"cairn/internal/prompted"
 	"cairn/internal/state"
 )
 
 // The "how it works" view: the chantier file's "## Comment ça marche"
 // section, full screen, so you can say what was built and how without
-// reading the code. A question typed here goes to the agent, which answers
-// in that section: the answer stays with the ticket.
+// reading the code. A question typed here goes to a short-lived agent of its
+// own, which reads the code; cairn writes its answer in that section, so it
+// stays with the ticket and the agent at work is not interrupted.
 
 // howFormat is how the agent is asked to write the section, in the build
 // prompt and in the requests sent from this view.
@@ -39,19 +44,10 @@ func howFormat() string {
 			"**Not done / limits**. Facts checked in the code, not intentions.")
 }
 
-// HowPrompt asks the agent to write or refresh the section; with a question,
-// to answer it there.
-func howPrompt(key, path, question string) string {
+// howPrompt asks the agent at work to write or refresh the section.
+func howPrompt(key, path string) string {
 	head := fmt.Sprintf(i18n.T("Explique comment %s est implémenté : écris ou mets à jour la section `## Comment ça marche` de %s (avant `## Preuves`).",
 		"Explain how %s is implemented: write or update the `## Comment ça marche` section of %s (before `## Preuves`)."), key, path)
-	if question != "" {
-		head = fmt.Sprintf(i18n.T("Question de l'humain sur l'implémentation de %s :\n« %s »\n\n"+
-			"Vérifie dans le code, puis réponds-y dans la section `## Comment ça marche` de %s : complète le mécanisme concerné "+
-			"et note la question avec sa réponse courte sous `### Questions posées`. Réponds aussi dans ton message.",
-			"The human's question on how %s is implemented:\n\"%s\"\n\n"+
-				"Check it in the code, then answer it in the `## Comment ça marche` section of %s: complete the mechanism it is about "+
-				"and add the question with its short answer under `### Questions posées`. Answer in your message too."), key, question, path)
-	}
 	return head + "\n\n" + howFormat() + "\n\n" + i18n.T(
 		"Ne modifie pas le code, ni la phase, ni l'attente du plan. Lance `cairn sync`, puis reprends où tu en étais, ou arrête-toi si tu attendais.",
 		"Do not change the code, the phase or the plan's waiting line. Run `cairn sync`, then resume where you were, or stop if you were waiting.")
@@ -134,8 +130,8 @@ func (m Model) openArchivedHow(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// requestHow sends the agent a request to explain, or to answer question.
-func (m Model) requestHow(question string) (tea.Model, tea.Cmd) {
+// requestHow asks the agent at work to write or refresh the section.
+func (m Model) requestHow() (tea.Model, tea.Cmd) {
 	h := m.howSubj()
 	if h == nil {
 		return m, nil
@@ -149,11 +145,8 @@ func (m Model) requestHow(question string) (tea.Model, tea.Cmd) {
 		m.say(fmt.Sprintf(why, h.key), nil)
 		return m, nil
 	}
-	prompt, key := howPrompt(h.key, planPath(h.c), question), h.key
+	prompt, key := howPrompt(h.key, planPath(h.c)), h.key
 	text, event := i18n.T("Explication demandée à l'agent de %s.", "Explanation asked from %s's agent."), "explication demandée"
-	if question != "" {
-		text, event = i18n.T("Question envoyée à l'agent de %s : la réponse arrivera ici.", "Question sent to %s's agent: the answer will show here."), "question sur l'implémentation"
-	}
 	return m, func() tea.Msg {
 		_ = journal.Append(config.ChantiersDir(), key, event)
 		return doneMsg{text: fmt.Sprintf(text, key), err: herdr.Prompt(pane, prompt)}
@@ -197,7 +190,7 @@ func (m Model) howAskBox(w int) []string {
 	if m.howText == "" {
 		text = sKey.Render("▏") + sDim.Render(i18n.T("ex. : où est sauvée la largeur ? quand la synchro tourne-t-elle ?", "e.g. where is the width saved? when does the sync run?"))
 	}
-	content := []string{sMuted.Render(i18n.T("↳ ta question, l'agent répond dans cette section", "↳ your question, the agent answers in this section"))}
+	content := []string{sMuted.Render(i18n.T("↳ ta question : un agent à part lit le code et répond dans cette section", "↳ your question: an agent of its own reads the code and answers in this section"))}
 	content = append(content, wrap(text, inner, "")...)
 	content = append(content, sKey.Render("↵")+sMuted.Render(i18n.T(" envoyer à l'agent   ", " send to the agent   "))+sKey.Render("esc")+sMuted.Render(i18n.T(" annuler", " cancel")))
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(0, 1).Width(inner + 2).
@@ -244,7 +237,7 @@ func (m Model) howButtons() []button {
 	}
 	return []button{
 		{"esc", i18n.T("Retour", "Back"), true},
-		{"e", i18n.T("Poser une question", "Ask a question"), agent},
+		{"e", i18n.T("Poser une question", "Ask a question"), m.askDir(h) != ""},
 		{"g", explain, agent},
 		{"d", "Diff", h != nil && h.c != nil && h.c.Worktree != ""},
 	}
@@ -270,7 +263,7 @@ func (m Model) howKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.howAsk, m.howText = false, ""
-			return m.requestHow(q)
+			return m.askAside(q)
 		case tea.KeyBackspace:
 			if r := []rune(m.howText); len(r) > 0 {
 				m.howText = string(r[:len(r)-1])
@@ -296,13 +289,13 @@ func (m Model) howKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "pgdown", " ":
 		m.scrollHow(m.bodyHeight() / 2)
 	case "e":
-		if m.howSubj().agent() != "" {
+		if m.askDir(m.howSubj()) != "" {
 			m.howAsk, m.howText = true, ""
 		} else {
-			return m.requestHow("?") // says why nobody can answer
+			m.say(i18n.T("Pas de code à lire pour répondre : ni worktree, ni dépôt connu pour ce ticket.", "No code to read to answer: no worktree and no known repository for this ticket."), nil)
 		}
 	case "g":
-		return m.requestHow("")
+		return m.requestHow()
 	case "d":
 		if h := m.howSubj(); h != nil && h.c != nil {
 			return m, m.diff()
@@ -374,4 +367,88 @@ func (m Model) secHow(b *detailBuilder, c *chantier.Chantier) {
 		b.addT("how", hang("  "+sMuted.Render("▸ "), strings.Join(mechs, sMuted.Render(" · ")), b.w)...)
 	}
 	b.addT("how", "  "+sImg.Render(i18n.T("› Tout lire, poser une question", "› Read it all, ask a question"))+sMuted.Render(i18n.T("  (clic ou i)", "  (click or i)")))
+}
+
+// askModel answers questions on the implementation: reading code and
+// explaining it does not need the strongest model.
+const askModel = "sonnet"
+
+// askDir is where a question can be answered: the chantier's worktree, or for
+// a shipped ticket the project's main checkout, where its code was merged.
+func (m Model) askDir(h *howSubject) string {
+	if h == nil {
+		return ""
+	}
+	if h.c != nil && h.c.Worktree != "" {
+		return h.c.Worktree
+	}
+	prefix, _, _ := strings.Cut(strings.ToUpper(h.key), "-")
+	for _, p := range m.projects {
+		if strings.EqualFold(p.cfg.Key, prefix) && p.cfg.Repo != "" {
+			return p.cfg.Repo
+		}
+	}
+	return ""
+}
+
+// askAside has a question answered by a short-lived agent of its own: it
+// reads the plan and the code, and cairn writes its answer under "### Questions
+// posées". The agent at work is neither interrupted nor weighed down.
+func (m Model) askAside(question string) (tea.Model, tea.Cmd) {
+	h := m.howSubj()
+	dir := m.askDir(h)
+	if h == nil || h.plan == nil || dir == "" {
+		m.say(i18n.T("Pas de code à lire pour répondre.", "No code to read to answer."), nil)
+		return m, nil
+	}
+	key, path := h.key, h.plan.Path
+	prompt := chantier.AskPrompt(key, path, question)
+	m.say(fmt.Sprintf(i18n.T("Question posée à un agent à part (%s) : la réponse s'ajoute ici dans une à deux minutes.",
+		"Question asked to an agent of its own (%s): the answer shows here in a minute or two."), askModel), nil)
+	return m, func() tea.Msg {
+		_ = journal.Append(config.ChantiersDir(), key, "question posée à part")
+		answer, err := ask(dir, prompt)
+		if err != nil {
+			return doneMsg{err: fmt.Errorf(i18n.T("la question n'a pas eu de réponse : %w", "the question got no answer: %w"), err)}
+		}
+		s, err := state.Load(path)
+		if err != nil || s == nil {
+			return doneMsg{err: fmt.Errorf(i18n.T("réponse reçue, mais le plan est illisible : %v", "answer received, but the plan cannot be read: %v"), err)}
+		}
+		s.AddAsked(question, answer)
+		if err := s.Save(); err != nil {
+			return doneMsg{err: err}
+		}
+		return doneMsg{text: fmt.Sprintf(i18n.T("%s : réponse ajoutée sous « Questions posées ».", "%s: answer added under \"Questions posées\"."), key), refresh: true}
+	}
+}
+
+// ask runs Claude Code once, headless, in dir: it can read and search, not
+// write nor run anything, and answers on its standard output.
+var ask = func(dir, prompt string) (string, error) {
+	bin, err := exec.LookPath("claude")
+	if err != nil {
+		return "", fmt.Errorf("%s", i18n.T("claude est introuvable dans le PATH", "claude is not in the PATH"))
+	}
+	prompted.Record(config.Dir(), prompt) // never read as the human's words by the chat hook
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "-p", prompt, "--model", askModel,
+		"--allowedTools", "Read,Grep,Glob",
+		"--disallowedTools", "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch")
+	cmd.Dir = dir
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(errb.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("%s", trunc(msg, 200))
+	}
+	answer := strings.TrimSpace(out.String())
+	if answer == "" {
+		return "", fmt.Errorf("%s", i18n.T("réponse vide", "empty answer"))
+	}
+	return answer, nil
 }

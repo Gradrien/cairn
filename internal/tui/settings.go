@@ -187,11 +187,11 @@ func fieldHint(r setRow, tracker string) string {
 		return i18n.T("lancée dans le worktree par d ; {base} est remplacé. Vide : browsediff s'il est installé, sinon git diff",
 			"run in the worktree by d; {base} is replaced. Empty: browsediff when installed, else git diff")
 	case "model_plan":
-		return i18n.T("envoyé à l'agent Claude (/model) quand son plan démarre : opus, sonnet, fable… Vide : il garde son modèle",
-			"sent to the Claude agent (/model) when its plan starts: opus, sonnet, fable… Empty: it keeps its model")
+		return i18n.T("l'agent Claude qui planifie démarre dessus (claude --model) : opus, sonnet, fable… Vide : le modèle par défaut de Claude",
+			"the Claude agent that plans starts on it (claude --model): opus, sonnet, fable… Empty: Claude's default model")
 	case "model_build":
-		return i18n.T("envoyé (/model) quand tu valides le plan : un modèle moins cher, sonnet par exemple, construit ce qu'un plus fort a planifié. Vide : il garde son modèle",
-			"sent (/model) when you approve the plan: a cheaper model, sonnet for instance, builds what a stronger one planned. Empty: it keeps its model")
+		return i18n.T("l'agent neuf qui construit après ta validation démarre dessus : un modèle moins cher, sonnet par exemple, construit ce qu'un plus fort a planifié. Vide : le modèle par défaut de Claude",
+			"the new agent that builds once you approve starts on it: a cheaper model, sonnet for instance, builds what a stronger one planned. Empty: Claude's default model")
 	case "repo":
 		return i18n.T("le checkout principal ; ses worktrees sont les chantiers", "the main checkout; its worktrees are the chantiers")
 	case "key":
@@ -252,7 +252,7 @@ func (s *settingsState) shown(r setRow) (string, bool) {
 			case "diff":
 				return "browsediff / git diff", true
 			case "model_plan", "model_build":
-				return i18n.T("celui de l'agent", "the agent's own"), true
+				return i18n.T("celui de Claude par défaut", "Claude's default"), true
 			}
 		}
 		return v, false
@@ -271,7 +271,7 @@ func (s *settingsState) shown(r setRow) (string, bool) {
 		v = "browsediff / git diff"
 	}
 	if (r.field == "model_plan" || r.field == "model_build") && v == "" {
-		v = i18n.T("celui de l'agent", "the agent's own")
+		v = i18n.T("celui de Claude par défaut", "Claude's default")
 	}
 	return v, true
 }

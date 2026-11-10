@@ -50,6 +50,7 @@ type State struct {
 	Proofs      []string
 	Summary     []string
 	HowItWorks  string   // the "## Comment ça marche" section, raw markdown
+	Reprise     string   // the "## Reprise" section: an agent's handoff to the next one
 	ManualSetup []string // "## Tester à la main": what to set up before the steps
 	ManualSteps []Task   // "## Tester à la main": the steps, ticked by the human
 	manualAt    []int    // body line of each manual step, to tick it
@@ -67,6 +68,8 @@ var (
 	questHd = regexp.MustCompile(`(?i)^#{1,6}\s+questions?`)
 	testHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(tester [àa] la main|tests? manuels?|manual tests?|test by hand)\b`)
 	howHd   = regexp.MustCompile(`(?i)^##\s+(comment [çc]a marche|how it works)\b`)
+	repHd   = regexp.MustCompile(`(?i)^##\s+(reprise|handoff)\b`)
+	askedHd = regexp.MustCompile(`(?i)^###\s+(questions pos[ée]es|questions asked)\b`)
 	headRe  = regexp.MustCompile(`^#{1,6}\s`)
 	h2Re    = regexp.MustCompile(`^#{2,6}\s`)
 	h12Re   = regexp.MustCompile(`^#{1,2}\s`)
@@ -123,16 +126,24 @@ func Parse(path, text string) *State {
 	}
 	section := "" // "", "proofs", "side", "questions", "how", "manual", "other"
 	seenH2 := false
-	var how []string
+	var how, rep []string
 	for i, l := range strings.Split(s.body, "\n") {
-		// "Comment ça marche" is prose with its own "###" headings: it runs
-		// to the next "#" or "##" heading and is kept whole.
+		// "Comment ça marche" and "Reprise" are prose with their own "###"
+		// headings: each runs to the next "#" or "##" heading, kept whole.
 		if section == "how" && !h12Re.MatchString(l) {
 			how = append(how, l)
 			continue
 		}
+		if section == "reprise" && !h12Re.MatchString(l) {
+			rep = append(rep, l)
+			continue
+		}
 		if howHd.MatchString(l) {
 			section, seenH2 = "how", true
+			continue
+		}
+		if repHd.MatchString(l) {
+			section, seenH2 = "reprise", true
 			continue
 		}
 		if headRe.MatchString(l) {
@@ -200,6 +211,7 @@ func Parse(path, text string) *State {
 		}
 	}
 	s.HowItWorks = strings.TrimSpace(strings.Join(how, "\n"))
+	s.Reprise = strings.TrimSpace(strings.Join(rep, "\n"))
 	return s
 }
 
@@ -343,4 +355,67 @@ func (s *State) Save() error { return os.WriteFile(s.Path, []byte(s.String()), 0
 func New(path, key, title string) *State {
 	return Parse(path, "---\nticket: "+key+"\nphase: plan\n---\n# "+key+" · "+title+"\n\n"+
 		"(Le plan arrive : l'agent l'écrit ici.)\n")
+}
+
+// AddAsked writes a question and its answer under "### Questions posées" in
+// "## Comment ça marche", creating what is missing (the section goes before
+// "## Preuves", or at the end). Save writes it.
+func (s *State) AddAsked(question, answer string) {
+	entry := []string{"- **" + strings.TrimSpace(question) + "**"}
+	for _, l := range strings.Split(strings.TrimSpace(answer), "\n") {
+		entry = append(entry, strings.TrimRight("  "+l, " "))
+	}
+	lines := strings.Split(s.body, "\n")
+	how, asked, end := -1, -1, len(lines) // end: where the how section stops
+	for i, l := range lines {
+		switch {
+		case howHd.MatchString(l):
+			how = i
+		case how >= 0 && end == len(lines) && h12Re.MatchString(l):
+			end = i
+		case how >= 0 && end == len(lines) && askedHd.MatchString(l):
+			asked = i
+		}
+	}
+	var out []string
+	switch {
+	case how < 0:
+		at := len(lines)
+		for i, l := range lines {
+			if proofHd.MatchString(l) && strings.HasPrefix(l, "## ") {
+				at = i
+				break
+			}
+		}
+		block := append([]string{"## Comment ça marche", "", "### Questions posées"}, entry...)
+		block = append(block, "")
+		for at > 0 && strings.TrimSpace(lines[at-1]) == "" && at == len(lines) {
+			at--
+		}
+		if at > 0 && strings.TrimSpace(lines[at-1]) != "" {
+			block = append([]string{""}, block...)
+		}
+		out = append(append(append([]string{}, lines[:at]...), block...), lines[at:]...)
+	case asked < 0:
+		at := end
+		for at > how+1 && strings.TrimSpace(lines[at-1]) == "" {
+			at--
+		}
+		block := append([]string{"", "### Questions posées"}, entry...)
+		out = append(append(append([]string{}, lines[:at]...), block...), lines[at:]...)
+	default:
+		at := end
+		for i := asked + 1; i < end; i++ {
+			if strings.HasPrefix(lines[i], "### ") {
+				at = i
+				break
+			}
+		}
+		for at > asked+1 && strings.TrimSpace(lines[at-1]) == "" {
+			at--
+		}
+		out = append(append(append([]string{}, lines[:at]...), entry...), lines[at:]...)
+	}
+	s.body = strings.Join(out, "\n")
+	s.HowItWorks = Parse(s.Path, s.String()).HowItWorks
 }

@@ -136,9 +136,19 @@ repository: callers, screens, data, permissions, jobs, side effects; it answers 
 effects come from it. **`cairn-runner`** runs the tests, the build and the lint, and reads the logs of a failing CI;
 it answers with the verdict, the failures and a proof line for the plan, and fixes nothing. The skill says when to
 delegate and when not to (the plan, the questions, the decisions and the code stay with the main agent), and cairn's
-own prompts (plan, build, *Corriger la CI*) point to them. The `Coût` section shows what each one cost. A project can also switch models by phase: `model_plan` and `model_build` (settings `s`)
-send `/model` to the Claude agent when its plan starts and when you approve it, for instance a strong model to plan
-and `sonnet` to build. Empty by default: the agent keeps its model.
+own prompts (plan, build, *Corriger la CI*) point to them. The `Coût` section shows what each one cost. A project can also pick models by phase: `model_plan` and `model_build` (settings `s`) start
+the planning agent and the building agent on them (`claude --model`), for instance a strong model to plan and `sonnet`
+to build. Empty by default: Claude's own default.
+
+**A new agent rather than a heavy one.** An agent's context grows with everything it reads, and it is all sent
+again at every turn. Instead of compacting it, cairn hands the chantier to a new agent: the plan is the chantier's
+memory and git holds the code. When you approve a plan, the agent that planned stops and a new one builds, started on
+`model_build` if set. During the build, the Agents section shows the context size; past 120 k, the list says so and
+**Repartir à neuf** (`R`, "start afresh") asks the agent to write a `## Reprise` (where it is, what failed, the traps,
+the next step), then, once it is written and the agent stopped, starts the new agent from the plan, the handoff and git.
+Questions on how it works (`i`, then `e`) go to a short-lived agent of their own (`claude -p` on Sonnet, read only): it
+reads the code and cairn writes its answer under `### Questions posées`, without interrupting the agent at work. Shipped
+tickets can be asked too: it reads the main checkout.
 
 **Try it yourself.** When the change can be tried by hand, the agent writes a `## Tester à la main` section: what to
 start, then short steps, each an action and what you should see ("Click Export → a `freelances.csv` downloads, with a
@@ -295,7 +305,7 @@ screen when the config cannot work. One entry per project; only `repo` is requir
 | `base` | the remote's default branch (`origin/main`) |
 | `worktree_parent` | the folder that contains `repo` |
 | `agent_kind` | `claude` (also settable for every project at the top level) |
-| `model_plan`, `model_build` | the model a Claude agent switches to (`/model`) when its plan starts, when the plan is approved: `opus`, `sonnet`… (empty: it keeps its own; also settable at the top level) |
+| `model_plan`, `model_build` | the model the planning agent and the building agent start on (`claude --model`): `opus`, `sonnet`… (empty: Claude's default; also settable at the top level) |
 | `diff` | the command `d` runs in the worktree, `{base}` replaced (also settable at the top level) |
 
 At the top level, `lang` is `fr` or `en` (the `l` button sets it). `prices` overrides or completes the API rates

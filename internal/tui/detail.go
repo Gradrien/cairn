@@ -63,6 +63,11 @@ func (m Model) cardFor(c *chantier.Chantier) *card {
 		working = working || a.Status == "working"
 	}
 
+	if m.handoffReady(c) {
+		return &card{color: accent, title: i18n.T("Reprise écrite : un agent neuf peut prendre la suite", "Handoff written: a new agent can take over"),
+			sub:     i18n.T("L'agent a écrit où il en est sous « ## Reprise » et s'est arrêté. Le nouvel agent part du plan, de la reprise et de git, avec un contexte léger.", "The agent wrote where it stands under \"## Reprise\" and stopped. The new agent starts from the plan, the handoff and git, with a light context."),
+			actions: []button{m.handoffButton(c), agent, {"d", "Diff", hasWT}}, primary: true}
+	}
 	switch {
 	case c.Phase == chantier.Shipped:
 		sub := i18n.T("Rangement automatique en cours : worktree supprimé et plan archivé.", "Cleaning up on its own: worktree removed, plan archived.")
@@ -744,6 +749,9 @@ func (m Model) secAgents(b *detailBuilder, c *chantier.Chantier) {
 	b.section("Agents", "", i18n.T("clic pour y aller", "click to go there"))
 	for _, a := range c.Agents {
 		b.addT("pane:"+a.PaneID, hang("  "+agentIcon(a.Status)+" "+sBold.Render(a.Label())+sMuted.Render(" "+a.Status+" · "), a.Title, b.w)...)
+	}
+	if l := m.contextLine(c); l != "" {
+		b.add(ansi.Truncate(l, b.w, "…"))
 	}
 	for _, l := range m.lastActions(c) {
 		b.add(ansi.Truncate(l, b.w, "…"))

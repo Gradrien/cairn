@@ -95,14 +95,15 @@ type Model struct {
 	detailOf string // chantier the detail pane shows, to reset its scroll
 	scroll   int    // detail pane scroll offset
 
-	detailFocus bool            // keys scroll the detail; when narrow, the detail shows
-	listHidden  bool            // the list is folded away (\), the detail takes the width
-	padX        int             // left and right margin of the screen
-	padTop      int             // blank rows above the header
-	unfold      map[string]bool // "KEY:section" unfolded by hand, "KEY:*" for all
-	filter      string          // "/" filter of the list
-	filtering   bool            // typing the filter
-	overlay     string          // "", "help", "palette", "push", "close", "update"
+	detailFocus bool                 // keys scroll the detail; when narrow, the detail shows
+	listHidden  bool                 // the list is folded away (\), the detail takes the width
+	handoffs    map[string]time.Time // chantiers whose agent was asked for its handoff, and when
+	padX        int                  // left and right margin of the screen
+	padTop      int                  // blank rows above the header
+	unfold      map[string]bool      // "KEY:section" unfolded by hand, "KEY:*" for all
+	filter      string               // "/" filter of the list
+	filtering   bool                 // typing the filter
+	overlay     string               // "", "help", "palette", "push", "close", "update"
 	palQuery    string
 	palCursor   int
 	pushKey     string   // chantier the push confirmation is about
@@ -727,6 +728,8 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openPR()
 	case "x":
 		return m.openClose()
+	case "R":
+		return m.handoff()
 	case "U":
 		return m.updateKey()
 	case "h":
@@ -1104,13 +1107,11 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 			}
 		}
 		name := herdr.FreeName(lower, agents)
-		if err := herdr.StartAgent(name, cfg.AgentKind, pane); err != nil {
+		if err := herdr.StartAgent(name, cfg.AgentKind, pane, modelArgs(cfg.AgentKind, cfg.ModelPlan)...); err != nil {
 			return doneMsg{err: fmt.Errorf(i18n.T("worktree prêt, mais l'agent n'a pas démarré : %w", "worktree ready, but the agent did not start: %w"), err), refresh: true}
 		}
-		if sw := modelSwitch(cfg.AgentKind, cfg.ModelPlan); sw != "" {
-			if herdr.Prompt(name, sw) == nil {
-				_ = journal.Append(config.ChantiersDir(), key, "modèle : "+cfg.ModelPlan)
-			}
+		if cfg.ModelPlan != "" && len(modelArgs(cfg.AgentKind, cfg.ModelPlan)) > 0 {
+			_ = journal.Append(config.ChantiersDir(), key, "modèle : "+cfg.ModelPlan)
 		}
 		err = herdr.Prompt(name, chantier.PlanPrompt(key, issue.Title, statePath, tr.Guide(key)))
 		text := fmt.Sprintf(i18n.T("%s : l'agent %s écrit le plan.", "%s: agent %s is writing the plan."), key, name)
@@ -1256,42 +1257,70 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 		m.say("", err)
 		return m, nil
 	}
-	var agent string
+	var agent herdr.Agent
 	for _, a := range c.Agents {
-		agent = a.PaneID
+		agent = a
 		break
 	}
 	m.say(text, nil)
 	cmd := m.rebuild()
-	sw, model := "", ""
-	if p := m.projectOf(c); p != nil && prompt != "" {
-		sw, model = modelSwitch(p.cfg.AgentKind, p.cfg.ModelBuild), p.cfg.ModelBuild
-	}
-	key := c.Key
-	if prompt != "" && agent != "" {
-		cmd = tea.Batch(cmd, func() tea.Msg {
-			done := text + i18n.T(" Agent relancé.", " Agent resumed.")
-			if sw != "" {
-				// The model first: the build prompt then runs on it.
-				if err := herdr.Prompt(agent, sw); err == nil {
-					_ = journal.Append(config.ChantiersDir(), key, "modèle : "+model)
-					done = text + fmt.Sprintf(i18n.T(" Agent relancé sur %s.", " Agent resumed on %s."), model)
-				}
-			}
-			return doneMsg{text: done, err: herdr.Prompt(agent, prompt)}
-		})
+	key, path := c.Key, s.Path
+	if prompt != "" && agent.PaneID != "" {
+		p := m.projectOf(c)
+		if p != nil && agent.Kind == "claude" {
+			// A new agent builds: what the planner read stays behind, and
+			// the build starts on its own model.
+			model := p.cfg.ModelBuild
+			m.busy = i18n.T("Nouvel agent pour le build…", "New agent for the build…")
+			cmd = tea.Batch(cmd, m.freshAgent(agent, model, chantier.FreshBuildPrompt(key, path), key, "nouvel agent pour le build", text))
+		} else {
+			cmd = tea.Batch(cmd, func() tea.Msg {
+				return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(agent.PaneID, prompt)}
+			})
+		}
 	}
 	return m, cmd
 }
 
-// modelSwitch is the command that puts a Claude agent on model, or "" when
-// there is nothing to switch (no model set, or another kind of agent).
-func modelSwitch(kind, model string) string {
+// modelArgs are the arguments that start a Claude agent on model; none
+// when no model is set, or for another kind of agent.
+func modelArgs(kind, model string) []string {
 	model = strings.TrimSpace(model)
-	if model == "" || (kind != "" && kind != "claude") || strings.ContainsAny(model, " \n\t") {
-		return ""
+	if model == "" || (kind != "" && kind != "claude") || strings.ContainsAny(model, " \n\t;&|`$") {
+		return nil
 	}
-	return "/model " + model
+	return []string{"--model", model}
+}
+
+// freshAgent replaces agent with a new one in the same pane: the old one
+// ends (its transcript stays), the new one starts on model with prompt.
+func (m Model) freshAgent(agent herdr.Agent, model, prompt, key, event, text string) tea.Cmd {
+	kind := agent.Kind
+	if kind == "" {
+		kind = "claude"
+	}
+	return func() tea.Msg {
+		if err := herdr.StopAgent(agent.PaneID); err != nil {
+			return doneMsg{err: err, refresh: true}
+		}
+		name := agent.Name
+		if name == "" {
+			name = strings.ToLower(key)
+		}
+		if err := herdr.StartAgent(name, kind, agent.PaneID, modelArgs(kind, model)...); err != nil {
+			return doneMsg{err: fmt.Errorf(i18n.T("l'ancien agent est arrêté, mais le nouveau n'a pas démarré : %w", "the old agent stopped, but the new one did not start: %w"), err), refresh: true}
+		}
+		ev := event
+		if model != "" {
+			ev += " (" + model + ")"
+		}
+		_ = journal.Append(config.ChantiersDir(), key, ev)
+		done := text + i18n.T(" Un agent neuf prend la suite.", " A new agent takes over.")
+		if model != "" {
+			done = text + fmt.Sprintf(i18n.T(" Un agent neuf prend la suite, sur %s.", " A new agent takes over, on %s."), model)
+		}
+		return doneMsg{text: done, err: herdr.Prompt(name, prompt), refresh: true}
+	}
 }
 
 // refreshArchive rereads the archived plans when a chantier was put away.

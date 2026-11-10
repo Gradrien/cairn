@@ -392,6 +392,9 @@ func (m Model) listInfo(c *chantier.Chantier) string {
 	if sum, ok := m.costOf(c); ok && sum.Cost >= 0.05 {
 		info += sMuted.Render(" · " + shortMoney(sum.Cost))
 	}
+	if m.heavy(c) {
+		info += sWarn.Render(" · " + fmt.Sprintf(i18n.T("contexte %s", "context %s"), count(m.usage[c.Key].Context)))
+	}
 	if pr := c.OpenPR(); pr != nil {
 		info += sMuted.Render(fmt.Sprintf(" · PR #%d", pr.Number))
 		if _, ready := m.readiness(c); ready {
@@ -654,6 +657,9 @@ func (m Model) chantierButtons(c *chantier.Chantier) []button {
 	push(button{"a", i18n.T("Autoriser le push", "Allow push"), m.canAllowPush(c)})
 	push(button{"P", i18n.T("Ouvrir la PR", "Open the PR"), s != nil && c.OpenPR() == nil && !s.PRAllowed() && c.Phase >= chantier.Build && c.Phase != chantier.Shipped})
 	push(button{"f", i18n.T("Corriger la CI", "Fix CI"), m.ciFailed(c)})
+	if m.heavy(c) || m.handoffAsked(c) {
+		push(m.handoffButton(c))
+	}
 	push(button{"c", i18n.T("Commentaires", "Comments"), len(c.PRs) > 0})
 	if plan, _ := m.planOf(c); plan != nil {
 		push(button{"i", howTitle(), plan.HowItWorks != "" || c.Phase >= chantier.Build})

@@ -60,10 +60,14 @@ type Action struct {
 
 // Report is what the agents of one chantier consumed.
 type Report struct {
-	Entries  []Entry  // oldest first
-	Last     []Action // the last action of each agent, latest first
-	Sessions int
-	Subs     int // subagents started
+	Entries []Entry  // oldest first
+	Last    []Action // the last action of each agent, latest first
+	// Context is what the main agent re-reads at each turn now: the size of
+	// the last message of the latest session, cache included.
+	Context   int64
+	ContextAt time.Time
+	Sessions  int
+	Subs      int // subagents started
 }
 
 // Dir is where Claude Code keeps transcripts.
@@ -105,6 +109,12 @@ func Read(root, worktree, branch string) Report {
 			}
 			rep.Sessions++
 			rep.add(f, Main, worktree, branch, last)
+			for _, m := range f.msgs {
+				if !m.sidechain && inside(m.cwd, worktree) && (branch == "" || m.branch == "" || m.branch == branch) && m.at.After(rep.ContextAt) {
+					t := m.tokens
+					rep.Context, rep.ContextAt = t.Input+t.CacheRead+t.CacheWrite5m+t.CacheWrite1h, m.at
+				}
+			}
 			subs, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(s, ".jsonl"), "subagents", "agent-*.jsonl"))
 			for _, sp := range subs {
 				sf := cached(sp)

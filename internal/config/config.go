@@ -44,9 +44,10 @@ type Project struct {
 	WorktreeParent string `json:"worktree_parent,omitempty"`
 	// AgentKind is the herdr agent kind started for a new chantier.
 	AgentKind string `json:"agent_kind,omitempty"`
-	// ModelPlan and ModelBuild switch a Claude agent's model (/model) when its
-	// plan starts and when the plan is approved: a cheaper model can build
-	// what a stronger one planned. Empty: the agent keeps its model.
+	// ModelPlan and ModelBuild are the models the planning Claude agent and
+	// the new one that builds after approval start on (claude --model): a
+	// cheaper model can build what a stronger one planned. Empty: Claude's
+	// default.
 	ModelPlan  string `json:"model_plan,omitempty"`
 	ModelBuild string `json:"model_build,omitempty"`
 	// Diff is the command the Diff button runs in the worktree; {base} is

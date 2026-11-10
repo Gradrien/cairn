@@ -65,6 +65,11 @@ func TestRead(t *testing.T) {
 		t.Errorf("last actions %+v", rep.Last)
 	}
 
+	// The main agent's context now: its latest message, cache included.
+	if rep.Context != 2+2000+500 {
+		t.Errorf("context %d", rep.Context)
+	}
+
 	// A partial line is left for later; appended lines are read incrementally.
 	f, _ := os.OpenFile(main, os.O_APPEND|os.O_WRONLY, 0o644)
 	full := line("m4", "claude-sonnet-5-5", wt, "yak-861", "2026-11-10T11:00:00Z", 1, 1000, 0, 0, "")

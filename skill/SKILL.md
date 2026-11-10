@@ -114,8 +114,9 @@ L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directe
     l'état, persisté ou non, envoyé au serveur ou non), **Pas fait / limites** ;
   - des faits vérifiés dans le code, pas des intentions ni la liste des fichiers touchés.
 
-  La taille suit le ticket : un XS tient en 2 lignes. Quand l'humain pose une question depuis cairn, vérifie dans le
-  code, complète le mécanisme concerné et note la question avec sa réponse courte sous `### Questions posées`.
+  La taille suit le ticket : un XS tient en 2 lignes. Les questions que l'humain pose depuis cairn sont traitées
+  par un agent à part, qui lit le code ; cairn écrit sa réponse sous `### Questions posées`. Garde ces entrées, et
+  corrige-les si ton travail les rend fausses.
 - **`## Tester à la main` permet à l'humain d'essayer le changement lui-même.** Écris-la pendant le build dès que le
   changement se voit ou se déclenche à la main (une page, une commande, une API qu'on peut appeler), et garde-la vraie
   jusqu'à la PR. Le format :
@@ -159,3 +160,15 @@ lisent à ta place et ne te rendent que l'essentiel :
 décisions, le code, `## Comment ça marche` et `## Tester à la main`. Ne délègue pas non plus ce qui est plus
 court à faire qu'à demander : lire un fichier que tu connais, `git status`, une commande à la sortie courte.
 Si ces sous-agents ne sont pas installés, fais le travail toi-même, en lisant le moins possible.
+
+## Passer la main à un agent neuf
+
+Un chantier change d'agent pour alléger le contexte : à la validation du plan (un agent neuf construit), et quand
+l'humain clique sur « Repartir à neuf » en cours de route. Le plan est la mémoire du chantier, git garde le code.
+
+- **Quand on te demande ta reprise**, mets le plan à jour, puis écris une section `## Reprise` de 5 à 15 lignes pour
+  ton successeur : où tu en es exactement, ce qui est en cours, ce que tu as essayé sans succès et pourquoi, les pièges
+  du code, la prochaine étape. Pas ce qui est déjà dans le plan ou dans git. Lance `cairn sync` et arrête-toi.
+- **Quand tu reprends un chantier**, lis le plan en entier (la reprise d'abord), puis `git log`, `git diff --stat`
+  depuis la base et `git status`. Ne refais pas l'exploration : vérifie un point précis avec `cairn-explorer`, et
+  continue là où ton prédécesseur s'est arrêté. Laisse la section `## Reprise` : la prochaine passation la réécrira.
