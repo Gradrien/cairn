@@ -24,6 +24,10 @@ func (m Model) narrow() bool { return m.width < narrowWidth }
 
 // single: one pane at a time, because the screen is narrow or the list was
 // folded away (\) to give the detail the whole width.
+// homeView: the list or the board, the screens that share the header, the
+// selection and the global keys.
+func (m Model) homeView() bool { return m.view == "" || m.view == "board" }
+
 func (m Model) single() bool { return m.narrow() || m.listHidden }
 
 // sepW is the width of the column between the panes: air, the bar, air.
@@ -119,8 +123,6 @@ func (m Model) screen() string {
 		return m.settingsView()
 	case "board":
 		return m.overlaid(m.boardView())
-	case "office":
-		return m.overlaid(m.officeView())
 	}
 	return m.overlaid(m.mainView())
 }
@@ -160,10 +162,6 @@ func (m Model) header() string {
 	switch {
 	case m.view == "board":
 		left += sMuted.Render(i18n.T(" · tableau", " · board"))
-	case m.view == "office" && m.officeZoom:
-		left += sMuted.Render(i18n.T(" · bureau", " · office")) + "   " + sKey.Render("‹ esc") + sMuted.Render(i18n.T(" open space", " open space"))
-	case m.view == "office":
-		left += sMuted.Render(i18n.T(" · bureau", " · office"))
 	case m.narrow() && m.detailFocus:
 		left = sTitle.Render("cairn") + "  " + sKey.Render("‹ esc") + sMuted.Render(i18n.T(" liste", " list"))
 	case m.listHidden:
@@ -179,7 +177,7 @@ func (m Model) header() string {
 	if b := m.updateBadge(); b != "" {
 		right = b + "   " + right
 	}
-	if n := m.waitingCount(); n > 0 && (m.view == "board" || m.view == "office" || (m.single() && m.detailFocus)) {
+	if n := m.waitingCount(); n > 0 && (m.view == "board" || (m.single() && m.detailFocus)) {
 		right = sWarn.Render("⚠ "+plural(n, i18n.T("attend ta décision", "waiting for you"), i18n.T("attendent ta décision", "waiting for you"))) + "   " + right
 	}
 	return spread(left, right, m.width)
@@ -677,13 +675,9 @@ func (m Model) hints() []button {
 	if m.view == "board" {
 		t.label = i18n.T("liste", "list")
 	}
-	o := button{"b", i18n.T("bureau", "office"), true}
-	if m.view == "office" {
-		o.label = i18n.T("liste", "list")
-	}
 	hs := []button{
 		{"n", i18n.T("nouveau", "new"), len(m.projects) > 0},
-		t, o,
+		t,
 	}
 	if m.view == "" && !m.narrow() {
 		list := button{"\\", i18n.T("replier la liste", "fold the list"), true}

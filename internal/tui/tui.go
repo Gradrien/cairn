@@ -22,7 +22,6 @@ import (
 	"cairn/internal/images"
 	"cairn/internal/journal"
 	"cairn/internal/localtest"
-	"cairn/internal/office"
 	"cairn/internal/progress"
 	"cairn/internal/prthread"
 	"cairn/internal/state"
@@ -96,32 +95,27 @@ type Model struct {
 	detailOf string // chantier the detail pane shows, to reset its scroll
 	scroll   int    // detail pane scroll offset
 
-	detailFocus   bool                    // keys scroll the detail; when narrow, the detail shows
-	listHidden    bool                    // the list is folded away (\), the detail takes the width
-	rooms         map[string]*office.Room // the office's rooms, by chantier
-	officeZoom    bool                    // the office shows the selection's room alone
-	officeTicking bool                    // the office's frames are running
-	planSigs      map[string]map[string]string
-	planEdits     map[string]planEdit // the plan section each agent changed last
-	padX          int                 // left and right margin of the screen
-	padTop        int                 // blank rows above the header
-	unfold        map[string]bool     // "KEY:section" unfolded by hand, "KEY:*" for all
-	filter        string              // "/" filter of the list
-	filtering     bool                // typing the filter
-	overlay       string              // "", "help", "palette", "push", "close", "update"
-	palQuery      string
-	palCursor     int
-	pushKey       string   // chantier the push confirmation is about
-	pushLog       []string // its commits, "<hash> <subject>"
-	pushPR        bool     // the confirmation opens the PR, not just the push
-	closeKey      string   // chantier the close confirmation is about
-	closeRisk     *closeRisk
-	answerQ       string // open question being answered, "" if none
-	answerText    string
-	answered      map[string]string // answers sent, by answerKey
-	manualSel     string            // manual test step whose actions are open, by answerKey
-	manualAsk     bool              // typing what the selected step shows instead
-	manualText    string
+	detailFocus bool            // keys scroll the detail; when narrow, the detail shows
+	listHidden  bool            // the list is folded away (\), the detail takes the width
+	padX        int             // left and right margin of the screen
+	padTop      int             // blank rows above the header
+	unfold      map[string]bool // "KEY:section" unfolded by hand, "KEY:*" for all
+	filter      string          // "/" filter of the list
+	filtering   bool            // typing the filter
+	overlay     string          // "", "help", "palette", "push", "close", "update"
+	palQuery    string
+	palCursor   int
+	pushKey     string   // chantier the push confirmation is about
+	pushLog     []string // its commits, "<hash> <subject>"
+	pushPR      bool     // the confirmation opens the PR, not just the push
+	closeKey    string   // chantier the close confirmation is about
+	closeRisk   *closeRisk
+	answerQ     string // open question being answered, "" if none
+	answerText  string
+	answered    map[string]string // answers sent, by answerKey
+	manualSel   string            // manual test step whose actions are open, by answerKey
+	manualAsk   bool              // typing what the selected step shows instead
+	manualText  string
 
 	seen        *seenStore // when you last looked at each chantier
 	lookedAt    time.Time  // since when the detail shows the selection
@@ -198,7 +192,6 @@ func (m *Model) rebuild() tea.Cmd {
 	// something keeps it: it then stays in view with the reason.
 	m.refreshArchive()
 	m.rebuildOrder()
-	m.notePlanChanges()
 	m.all = append([]*chantier.Chantier(nil), m.chantiers...)
 	m.shipped = 0
 	kept := m.chantiers[:0]
@@ -360,11 +353,7 @@ type usageMsg map[string]usage.Report
 // consumed. Transcripts are read incrementally: after the first pass, a read
 // only parses what was appended.
 func (m *Model) readUsage() tea.Cmd {
-	every := progressEvery
-	if m.view == "office" {
-		every = officeEvery // the office shows what agents do now
-	}
-	if m.usageOn || time.Since(m.usageAt) < every || len(m.chantiers) == 0 {
+	if m.usageOn || time.Since(m.usageAt) < progressEvery || len(m.chantiers) == 0 {
 		return nil
 	}
 	type job struct{ key, wt, branch string }
@@ -436,13 +425,6 @@ func (m *Model) readProgress() tea.Cmd {
 
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case officeTick:
-		if m.view != "office" {
-			m.officeTicking = false
-			return m, nil
-		}
-		m.stepOffice()
-		return m, officeTickCmd()
 	case prsMsg:
 		var cmds []tea.Cmd
 		for key, pr := range msg {
@@ -620,8 +602,6 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.filterKey(k)
 	case m.view == "board":
 		return m.boardKey(k)
-	case m.view == "office":
-		return m.officeKey(k)
 	}
 	return m.mainKey(k)
 }
@@ -710,13 +690,6 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.say(i18n.T("Interface en français.", "Interface in English."), config.SetLang(lang))
 		cmd := m.rebuild()
 		return m, cmd
-	case "b":
-		if m.view == "office" {
-			m.view = ""
-			return m, nil
-		}
-		nm, cmd := m.openOffice()
-		return nm, cmd
 	case "n":
 		return m.openPick()
 	case "s":
@@ -834,8 +807,6 @@ func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m.settingsMouse(ev)
 	case m.view == "board":
 		return m.boardMouse(ev)
-	case m.view == "office":
-		return m.officeMouse(ev)
 	}
 	bodyH := m.bodyHeight()
 	inList := m.showList() && ev.X < m.listW()

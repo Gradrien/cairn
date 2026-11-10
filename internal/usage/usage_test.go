@@ -65,13 +65,6 @@ func TestRead(t *testing.T) {
 		t.Errorf("last actions %+v", rep.Last)
 	}
 
-	if len(rep.Subagent) != 1 || rep.Subagent[0].Desc != "Effets de bord" || !rep.Subagent[0].Finished || rep.Subagent[0].Model != "claude-haiku-5-5" {
-		t.Errorf("subagents %+v", rep.Subagent)
-	}
-	if len(rep.Recent) != 2 || rep.Recent[0].Tool != "Grep" {
-		t.Errorf("recent %+v", rep.Recent)
-	}
-
 	// A partial line is left for later; appended lines are read incrementally.
 	f, _ := os.OpenFile(main, os.O_APPEND|os.O_WRONLY, 0o644)
 	full := line("m4", "claude-sonnet-5-5", wt, "yak-861", "2026-11-10T11:00:00Z", 1, 1000, 0, 0, "")

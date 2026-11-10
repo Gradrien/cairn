@@ -136,17 +136,9 @@ repository: callers, screens, data, permissions, jobs, side effects; it answers 
 effects come from it. **`cairn-runner`** runs the tests, the build and the lint, and reads the logs of a failing CI;
 it answers with the verdict, the failures and a proof line for the plan, and fixes nothing. The skill says when to
 delegate and when not to (the plan, the questions, the decisions and the code stay with the main agent), and cairn's
-own prompts (plan, build, *Corriger la CI*) point to them. The `Coût` section shows what each one cost, and the office
-shows them at their desks. A project can also switch models by phase: `model_plan` and `model_build` (settings `s`)
+own prompts (plan, build, *Corriger la CI*) point to them. The `Coût` section shows what each one cost. A project can also switch models by phase: `model_plan` and `model_build` (settings `s`)
 send `/model` to the Claude agent when its plan starts and when you approve it, for instance a strong model to plan
 and `sonnet` to build. Empty by default: the agent keeps its model.
-
-**See them at work.** `b` opens the office: one small room per chantier, in pixel art. The main agent sits at its
-desk while it codes, stands at the whiteboard while it writes the plan (the board fills in, the section being written
-lights up), goes to the shelf to read, to the test machine to run the tests, and waits by its desk, arms up, when it
-needs you. The subagents it calls come in by the door, work at their desks, bring their result and leave, each in its
-own colours. `enter` steps into a room, full screen, with speech bubbles and who is there with which model; `esc` steps
-out. It only shows what the transcripts and the plan say: the actions stay the same buttons as everywhere else.
 
 **Try it yourself.** When the change can be tried by hand, the agent writes a `## Tester à la main` section: what to
 start, then short steps, each an action and what you should see ("Click Export → a `freelances.csv` downloads, with a
@@ -256,7 +248,6 @@ review from the PR view.
 | `o` | Ticket | open the ticket in its tracker |
 | `ctrl+k` | palette | search every ticket and action |
 | `?` | aide | every key |
-| `b` | bureau | office view: each chantier as a room, its agents and subagents at work (`←` `→` `↑` `↓`, `enter` steps in, `esc` out) |
 | `t` | tableau | board view: chantiers by phase (`←` `→` `↑` `↓`, `enter` opens the detail) |
 | `/` | | filter the list (`esc` clears) |
 | `tab` | | list ⇄ detail; with the detail focused, `j` `k` scroll it |
