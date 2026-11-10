@@ -161,3 +161,37 @@ func (m Model) sendManualReport() (tea.Model, tea.Cmd) {
 		return doneMsg{text: fmt.Sprintf(i18n.T("Étape %d signalée à l'agent de %s.", "Step %d reported to %s's agent."), n+1, key), err: herdr.Prompt(pane, prompt)}
 	}
 }
+
+// tickSide checks or unchecks a side effect in the plan file: the human
+// verified the behaviour. The agent sees it there, and the merge checklist
+// counts it.
+func (m Model) tickSide(i int) (tea.Model, tea.Cmd) {
+	c := m.selected()
+	if c == nil || c.State == nil {
+		return m, nil
+	}
+	s, err := state.Load(c.State.Path)
+	if err != nil {
+		m.say("", err)
+		return m, nil
+	}
+	if s == nil || i < 0 || i >= len(s.SideEffects) {
+		return m, nil
+	}
+	done := !s.SideEffects[i].Done
+	if !s.TickSide(i, done) {
+		return m, nil
+	}
+	if err := s.Save(); err != nil {
+		m.say("", err)
+		return m, nil
+	}
+	c.State = s // the watcher reloads it too
+	if done {
+		_ = journal.Append(config.ChantiersDir(), c.Key, "effet de bord vérifié")
+		m.say(i18n.T("Effet de bord coché dans le plan.", "Side effect ticked in the plan."), nil)
+	} else {
+		m.say(i18n.T("Effet de bord décoché.", "Side effect unticked."), nil)
+	}
+	return m, nil
+}

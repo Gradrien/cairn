@@ -978,6 +978,10 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 		var i int
 		fmt.Sscan(arg, &i)
 		return m.manualClick(kind, i)
+	case "side":
+		var i int
+		fmt.Sscan(arg, &i)
+		return m.tickSide(i)
 	case "fold":
 		if c := m.selected(); c != nil {
 			k := c.Key + ":" + arg

@@ -53,6 +53,7 @@ type State struct {
 	ManualSetup []string // "## Tester à la main": what to set up before the steps
 	ManualSteps []Task   // "## Tester à la main": the steps, ticked by the human
 	manualAt    []int    // body line of each manual step, to tick it
+	sideAt      []int    // body line of each side effect, to tick it
 	UpdatedAt   time.Time
 	front       []string // raw frontmatter lines, kept for round-trips
 	body        string
@@ -180,6 +181,7 @@ func Parse(path, text string) *State {
 			switch section {
 			case "side":
 				s.SideEffects = append(s.SideEffects, t)
+				s.sideAt = append(s.sideAt, i)
 			case "questions":
 				s.Questions = append(s.Questions, t)
 			default:
@@ -204,11 +206,29 @@ func Parse(path, text string) *State {
 // TickManual checks (or unchecks) manual step i in the file's body; Save
 // writes it.
 func (s *State) TickManual(i int, done bool) bool {
-	if i < 0 || i >= len(s.manualAt) {
+	if i < 0 || i >= len(s.manualAt) || !s.tick(s.manualAt[i], done) {
 		return false
 	}
+	s.ManualSteps[i].Done = done
+	return true
+}
+
+// TickSide checks (or unchecks) side effect i: the human verified it.
+func (s *State) TickSide(i int, done bool) bool {
+	if i < 0 || i >= len(s.sideAt) || !s.tick(s.sideAt[i], done) {
+		return false
+	}
+	s.SideEffects[i].Done, s.SideEffects[i].Doing = done, false
+	return true
+}
+
+// tick sets the box of the task on body line n.
+func (s *State) tick(n int, done bool) bool {
 	lines := strings.Split(s.body, "\n")
-	l := lines[s.manualAt[i]]
+	if n >= len(lines) {
+		return false
+	}
+	l := lines[n]
 	m := taskRe.FindStringSubmatchIndex(l)
 	if m == nil {
 		return false
@@ -217,9 +237,8 @@ func (s *State) TickManual(i int, done bool) bool {
 	if done {
 		mark = "x"
 	}
-	lines[s.manualAt[i]] = l[:m[2]] + mark + l[m[3]:]
+	lines[n] = l[:m[2]] + mark + l[m[3]:]
 	s.body = strings.Join(lines, "\n")
-	s.ManualSteps[i].Done = done
 	return true
 }
 

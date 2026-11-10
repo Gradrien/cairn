@@ -1,6 +1,8 @@
 package state
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -191,5 +193,28 @@ Lance ` + "`pnpm dev`" + `, ouvre /freelances.
 	}
 	if len(Parse("/x", "## Manual test\n- [ ] Click → it opens\n").ManualSteps) != 1 {
 		t.Fatal("english heading")
+	}
+}
+
+func TestTickSide(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "YAK-1.md")
+	body := "---\nphase: build\n---\n# YAK-1 · T\n\n- [ ] tâche\n\n## Effets de bord\n- [ ] Autres appelants\n- [~] Quota Novu\n\n## Preuves\n- ok\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := Load(path)
+	if !s.TickSide(1, true) || !s.SideEffects[1].Done || s.SideEffects[1].Doing {
+		t.Fatalf("ticked: %+v", s.SideEffects)
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "- [ ] Autres appelants\n- [x] Quota Novu\n") || !strings.Contains(string(data), "- [ ] tâche") {
+		t.Errorf("only that box changes:\n%s", data)
+	}
+	s, _ = Load(path)
+	if !s.TickSide(1, false) || s.SideEffects[1].Done || s.TickSide(5, true) {
+		t.Error("untick, and nothing out of range")
 	}
 }

@@ -94,6 +94,8 @@ This is enforced, not just requested. Claude Code hooks (`cairn guard`) block `g
 
 <img src="docs/pr.png" alt="PR tracking: CI, review, conflicts, merge checklist, history and agents" width="100%">
 
+- **Tick a side effect yourself.** Checked the behaviour by hand? Click the side effect in the detail: cairn ticks it
+  in the plan (the agent sees it and never unticks it) and the merge checklist counts it. Another click unticks it.
 - **Merge checklist.** Tasks done, side effects checked, CI green, review approved, no conflicts, not a draft.
   The list shows `✓ prêt` when everything passes and `✗ CI` when a check breaks.
 - **Fix the CI.** When a check fails, `Corriger la CI` fetches the failing steps' logs and hands them to the agent.

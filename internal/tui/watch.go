@@ -244,6 +244,9 @@ func historyText(text string) string {
 		}
 		return "→ " + p
 	}
+	if text == "effet de bord vérifié" {
+		return i18n.T(text, "side effect checked")
+	}
 	if model, ok := strings.CutPrefix(text, "modèle : "); ok {
 		return i18n.T(text, "model: "+model)
 	}

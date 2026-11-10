@@ -83,6 +83,8 @@ L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directe
   - les performances.
 
   Chaque effet de bord devient une tâche qui le vérifie, sous `## Effets de bord`. Si tu n'en trouves aucun, écris pourquoi en une ligne.
+  L'humain peut cocher un effet de bord dans cairn quand il a vérifié le comportement lui-même : ne décoche
+  jamais une case qu'il a cochée.
 - **Les phases** :
   - `plan` : tu explores et tu écris les tâches. Tu termines par `attente: Valider le plan`, puis tu **t'arrêtes**, sans coder.
   - `build` : l'humain a validé. Passe une tâche en `[~]` quand tu la commences, puis en `[x]` dès qu'elle est finie. Ajoute le travail découvert en cours de route et retire ce qui s'est révélé inutile.

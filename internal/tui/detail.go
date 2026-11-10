@@ -526,14 +526,15 @@ func (m Model) secSide(b *detailBuilder, c *chantier.Chantier) {
 	}
 	right := ""
 	if done < len(s.SideEffects) {
-		right = i18n.T("à cocher avant la PR", "to check before the PR")
+		right = i18n.T("clic : cocher ce que tu as vérifié", "click: tick what you checked")
 	}
 	b.section(i18n.T("Effets de bord", "Side effects"), st.Render(fmt.Sprintf(i18n.T("%d/%d vérifiés", "%d/%d checked"), done, len(s.SideEffects))), right)
-	// Unchecked first: they are what is left to do.
+	// Unchecked first: they are what is left to do. A click ticks one in the
+	// plan, when you verified the behaviour yourself; another unticks it.
 	for _, pass := range []bool{false, true} {
-		for _, t := range s.SideEffects {
+		for i, t := range s.SideEffects {
 			if t.Done == pass {
-				b.add(hang("  "+taskIcon(t)+" ", plainMD(t.Text), b.w)...)
+				b.addT(fmt.Sprintf("side:%d", i), hang("  "+taskIcon(t)+" ", plainMD(t.Text), b.w)...)
 			}
 		}
 	}
