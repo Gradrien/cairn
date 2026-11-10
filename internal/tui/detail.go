@@ -440,6 +440,7 @@ func (m Model) detailLayout(w int) detail {
 	}
 	m.secHistory(b, c)
 	m.secAgents(b, c)
+	m.secCost(b, c)
 	if s != nil {
 		b.add("", sDim.Render(i18n.T("plan : ", "plan: ")+tilde(s.Path)))
 	}
@@ -742,6 +743,9 @@ func (m Model) secAgents(b *detailBuilder, c *chantier.Chantier) {
 	b.section("Agents", "", i18n.T("clic pour y aller", "click to go there"))
 	for _, a := range c.Agents {
 		b.addT("pane:"+a.PaneID, hang("  "+agentIcon(a.Status)+" "+sBold.Render(a.Label())+sMuted.Render(" "+a.Status+" · "), a.Title, b.w)...)
+	}
+	for _, l := range m.lastActions(c) {
+		b.add(ansi.Truncate(l, b.w, "…"))
 	}
 }
 

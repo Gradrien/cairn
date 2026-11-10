@@ -336,7 +336,7 @@ func TestDump(t *testing.T) {
 	m := fixture(t, 160, 45)
 	m.rebuildOrder()
 	shots := map[string]Model{"main": m, "board": press(t, m, "t"), "help": press(t, m, "?"), "palette": press(t, m, "ctrl+k", "8", "0", "0"),
-		"answer": press(t, m, "e", "o", "u", "i"), "narrow": press(t, fixture(t, 80, 40), "tab"), "folded": press(t, m, "\\")}
+		"answer": press(t, m, "e", "o", "u", "i"), "narrow": press(t, fixture(t, 80, 40), "tab"), "folded": press(t, m, "\\"), "cost": withCost(m)}
 	for i := range m.chantiers {
 		mm := m
 		mm.cursor = i

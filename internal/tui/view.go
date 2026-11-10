@@ -385,6 +385,9 @@ func (m Model) listInfo(c *chantier.Chantier) string {
 		}
 	}
 	info += icons
+	if sum, ok := m.costOf(c); ok && sum.Cost >= 0.05 {
+		info += sMuted.Render(" · " + shortMoney(sum.Cost))
+	}
 	if pr := c.OpenPR(); pr != nil {
 		info += sMuted.Render(fmt.Sprintf(" · PR #%d", pr.Number))
 		if _, ready := m.readiness(c); ready {

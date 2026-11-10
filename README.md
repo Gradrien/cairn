@@ -121,6 +121,12 @@ something? Type a question there: the agent checks the code and answers in that 
 ticket. Once a ticket ships and its plan is archived, it stays readable: `ctrl+k`, its number or `livré`, and
 you get how it was built (or, for older tickets, the plan of what was done).
 
+**Know what it cost.** cairn reads Claude Code's own transcripts (`~/.claude/projects/`) for the agents that worked
+in a chantier's worktree, subagents included, and shows a `Coût` section: the total at API rates, the share of each
+model, of each phase and of each subagent, and how much of it was re-read context. The list shows the total next to
+each chantier at work, and the Agents section what each agent did last. On a Claude subscription nothing is billed per
+token: read it as an API equivalent, to compare chantiers and see what weighs.
+
 **Try it yourself.** When the change can be tried by hand, the agent writes a `## Tester à la main` section: what to
 start, then short steps, each an action and what you should see ("Click Export → a `freelances.csv` downloads, with a
 Model column"). The detail shows it before the push and in review. Click a step once you tried it: *ça marche* ticks it
@@ -278,7 +284,9 @@ screen when the config cannot work. One entry per project; only `repo` is requir
 | `agent_kind` | `claude` (also settable for every project at the top level) |
 | `diff` | the command `d` runs in the worktree, `{base}` replaced (also settable at the top level) |
 
-At the top level, `lang` is `fr` or `en` (the `l` button sets it). A config from before projects (`repo`, `team`,
+At the top level, `lang` is `fr` or `en` (the `l` button sets it). `prices` overrides or completes the API rates
+of the `Coût` section, in dollars per million tokens, by model id prefix:
+`"prices": { "claude-opus-5-5": { "input": 4, "output": 20, "cache_read": 0.2, "cache_write_5m": 5, "cache_write_1h": 8 } }`. A config from before projects (`repo`, `team`,
 `assignee` and tracker settings at the top level) still works as one project; `cairn add` rewrites it in the new
 form. If a `repo` is wrong, cairn says so on startup and points to the file.
 
@@ -296,6 +304,7 @@ form. If a `repo` is wrong, cairn says so on startup and points to the file.
 - **Phase.** Read from the plan file. Without one, an open PR means Review and a worktree means Build. Merged PRs mean Shipped.
 - **Data.** herdr's socket API for agents and workspaces, the tracker's API for tickets (Linear's GraphQL API,
   another tracker's API, or the chantier files themselves), `gh` for PRs, CI and images.
+  Claude Code's transcripts for what the agents consumed (read incrementally, never written).
   History in `~/.cairn/chantiers/<TICKET>.log`, caches in `~/.cairn/cache/`, archives in `~/.cairn/archive/`.
 - **Push guard.** A Claude Code `PreToolUse` hook on Bash. Allowing writes `push: autorisé <commit>` in the plan; the
   hook lets pushes and `gh pr` commands through while the branch's HEAD is that commit. Once the branch has an open PR

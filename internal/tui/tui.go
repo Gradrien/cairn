@@ -26,6 +26,7 @@ import (
 	"cairn/internal/prthread"
 	"cairn/internal/state"
 	"cairn/internal/update"
+	"cairn/internal/usage"
 )
 
 const (
@@ -86,6 +87,10 @@ type Model struct {
 	gits     map[string]progress.Git
 	prs      map[string]progress.PR
 	readAt   map[string]time.Time
+	usage    map[string]usage.Report // what each chantier's agents consumed
+	usageSum map[string]usage.Sum    // its total, added up once per read
+	usageAt  time.Time
+	usageOn  bool // a read of the transcripts is running
 	reading  map[string]bool
 	detailOf string // chantier the detail pane shows, to reset its scroll
 	scroll   int    // detail pane scroll offset
@@ -148,7 +153,7 @@ type Model struct {
 
 func New(cfg config.Config) Model {
 	m := Model{cfg: cfg, inside: home.Inside(), hoverItem: -1, hoverBtn: -1, watch: newWatch(),
-		gits: map[string]progress.Git{}, prs: map[string]progress.PR{}, readAt: map[string]time.Time{}, reading: map[string]bool{}, tokens: map[string]string{},
+		gits: map[string]progress.Git{}, prs: map[string]progress.PR{}, readAt: map[string]time.Time{}, reading: map[string]bool{}, usage: map[string]usage.Report{}, tokens: map[string]string{},
 		unfold: map[string]bool{}, answered: map[string]string{}, seen: loadSeen(seenPath())}
 	m.projects = newProjects(cfg)
 	return m
@@ -322,11 +327,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
+	if um, ok := msg.(usageMsg); ok {
+		m.usageOn, m.usageAt = false, time.Now()
+		if m.usage == nil {
+			m.usage = map[string]usage.Report{}
+		}
+		m.usageSum = map[string]usage.Sum{}
+		for k, r := range um {
+			m.usage[k] = r
+		}
+		for k, r := range m.usage {
+			m.usageSum[k] = usage.Summarize(r.Entries, m.prices(), time.Time{}, time.Time{})
+		}
+		return m, nil
+	}
 	next, cmd := m.update(msg)
 	nm := next.(Model)
 	nm.offerPending()
-	return nm, tea.Batch(cmd, nm.readProgress())
+	return nm, tea.Batch(cmd, nm.readProgress(), nm.readUsage())
 }
+
+type usageMsg map[string]usage.Report
+
+// readUsage reads, every progressEvery, what the agents of each chantier
+// consumed. Transcripts are read incrementally: after the first pass, a read
+// only parses what was appended.
+func (m *Model) readUsage() tea.Cmd {
+	if m.usageOn || time.Since(m.usageAt) < progressEvery || len(m.chantiers) == 0 {
+		return nil
+	}
+	type job struct{ key, wt, branch string }
+	var jobs []job
+	for _, c := range m.chantiers {
+		if c.Worktree == "" {
+			continue
+		}
+		branch := ""
+		if c.Main {
+			branch = c.Branch // the main checkout is shared: keep the chantier's branch
+		}
+		jobs = append(jobs, job{c.Key, c.Worktree, branch})
+	}
+	m.usageOn = true
+	root := usage.Dir()
+	return func() tea.Msg {
+		out := usageMsg{}
+		for _, j := range jobs {
+			out[j.key] = usage.Read(root, j.wt, j.branch)
+		}
+		return out
+	}
+}
+
+// prices are the API rates, the config's overriding the defaults.
+func (m Model) prices() usage.Prices { return usage.DefaultPrices.With(m.cfg.Prices) }
 
 // readProgress reads git and PR state of the selected chantier when stale.
 // It mutates maps shared by every copy of the model, which is what we want.

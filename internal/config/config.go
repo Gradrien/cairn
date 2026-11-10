@@ -3,6 +3,7 @@
 package config
 
 import (
+	"cairn/internal/usage"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,6 +56,9 @@ type Config struct {
 	// AgentKind and Diff are the defaults of every project.
 	AgentKind string `json:"agent_kind,omitempty"`
 	Diff      string `json:"diff,omitempty"`
+	// Prices overrides or completes the API rates cairn uses to show what a
+	// chantier's agents cost, by model id prefix ("claude-opus-5-5").
+	Prices map[string]usage.Price `json:"prices,omitempty"`
 
 	// Single-project settings of older versions, read once into Projects.
 	LegacyRepo           string `json:"repo,omitempty"`
