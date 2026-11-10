@@ -105,6 +105,9 @@ type Model struct {
 	answerQ     string // open question being answered, "" if none
 	answerText  string
 	answered    map[string]string // answers sent, by answerKey
+	manualSel   string            // manual test step whose actions are open, by answerKey
+	manualAsk   bool              // typing what the selected step shows instead
+	manualText  string
 
 	seen        *seenStore // when you last looked at each chantier
 	lookedAt    time.Time  // since when the detail shows the selection
@@ -333,6 +336,7 @@ func (m *Model) readProgress() tea.Cmd {
 		m.leave(m.detailOf)
 		m.lookedAt = time.Now()
 		m.detailOf, m.scroll, m.answerQ, m.answerText = c.Key, 0, "", ""
+		m.manualSel, m.manualAsk, m.manualText = "", false, ""
 	}
 	key, wt, base := c.Key, c.Worktree, m.base(c)
 	var prURL string
@@ -526,6 +530,8 @@ func (m Model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.settingsKey(k)
 	case m.answerQ != "":
 		return m.answerKeyPress(k)
+	case m.manualAsk:
+		return m.manualKeyPress(k)
 	case m.filtering:
 		return m.filterKey(k)
 	case m.view == "board":
@@ -863,10 +869,10 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 		var i int
 		fmt.Sscan(arg, &i)
 		return m.startAnswer(i)
-	case "manual":
+	case "manual", "manual-ok", "manual-ko":
 		var i int
 		fmt.Sscan(arg, &i)
-		return m.tickManual(i)
+		return m.manualClick(kind, i)
 	case "fold":
 		if c := m.selected(); c != nil {
 			k := c.Key + ":" + arg
@@ -1029,32 +1035,6 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 		_ = journal.Append(config.ChantiersDir(), key, "plan lancé ("+name+")")
 		return doneMsg{text: text, err: err, refresh: true}
 	}
-}
-
-// tickManual checks or unchecks a step of the manual test, in the plan file
-// itself: the agent sees what the human already tried.
-func (m Model) tickManual(i int) (tea.Model, tea.Cmd) {
-	c := m.selected()
-	if c == nil || c.State == nil {
-		return m, nil
-	}
-	s, err := state.Load(c.State.Path)
-	if err != nil {
-		m.say("", err)
-		return m, nil
-	}
-	if s == nil || i >= len(s.ManualSteps) {
-		return m, nil
-	}
-	if !s.TickManual(i, !s.ManualSteps[i].Done) {
-		return m, nil
-	}
-	if err := s.Save(); err != nil {
-		m.say("", err)
-		return m, nil
-	}
-	c.State = s // the watcher reloads it too
-	return m, nil
 }
 
 // allowPush lets the agent push the commit the human just reviewed: the push

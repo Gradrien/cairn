@@ -36,27 +36,71 @@ func TestManualTestSection(t *testing.T) {
 		t.Errorf("card sub: %q", sub)
 	}
 
-	// A click on a step ticks it in the plan file.
-	target := ""
-	for _, tg := range d.targets {
-		if tg == "manual:0" {
-			target = tg
-		}
-	}
-	if target == "" {
+	// A click on a step to do opens its two actions; « ça marche » ticks it.
+	if !hasTarget(d.targets, "manual:0") {
 		t.Fatal("step 1 is not clickable")
 	}
-	nm, _ := m.detailClick(target)
+	nm, _ := m.detailClick("manual:0")
+	m = nm.(Model)
+	text = ansi.Strip(strings.Join(m.detailLayout(m.detailWidth()).lines, "\n"))
+	if !strings.Contains(text, "› ✓ ça marche") || !strings.Contains(text, "› ✗ ça ne marche pas") {
+		t.Fatalf("actions:\n%s", text)
+	}
+	nm, _ = m.detailClick("manual-ok:0")
+	m = nm.(Model)
 	s, _ := state.Load(path)
 	if !s.ManualSteps[0].Done || s.ManualSteps[1].Done {
 		t.Fatalf("ticked: %+v", s.ManualSteps)
 	}
-	m = nm.(Model)
-	if text := ansi.Strip(strings.Join(m.detailLayout(m.detailWidth()).lines, "\n")); !strings.Contains(text, "Tester à la main 1/2") || !strings.Contains(text, "✓  Clique") {
+	if text := ansi.Strip(strings.Join(m.detailLayout(m.detailWidth()).lines, "\n")); !strings.Contains(text, "Tester à la main 1/2") || !strings.Contains(text, "✓  Clique") || strings.Contains(text, "› ✓ ça marche") {
 		t.Errorf("after tick:\n%s", text)
 	}
-	m.detailClick("manual:0")
+	nm, _ = m.detailClick("manual:0")
+	m = nm.(Model)
 	if s, _ := state.Load(path); s.ManualSteps[0].Done {
-		t.Fatal("a second click unticks")
+		t.Fatal("a click on a ticked step unticks it")
 	}
+
+	// « ça ne marche pas » opens a box; what you type goes to the agent.
+	nm, _ = m.detailClick("manual:1")
+	nm, _ = nm.(Model).detailClick("manual-ko:1")
+	m = nm.(Model)
+	if !m.manualAsk {
+		t.Fatal("the box opens")
+	}
+	m = press(t, m, "v", "i", "d", "e")
+	if m.manualText != "vide" || !strings.Contains(ansi.Strip(strings.Join(m.detailLayout(m.detailWidth()).lines, "\n")), "ce que tu vois à la place") {
+		t.Fatalf("typed %q", m.manualText)
+	}
+	if back := press(t, m, "esc"); back.manualAsk || back.manualText != "" {
+		t.Fatal("esc closes the box")
+	}
+	p := manualPrompt("YAK-800", path, 2, "Ouvre le fichier → la colonne Modèle est remplie", "Lance pnpm dev.", "vide")
+	for _, want := range []string{"l'étape 2 ne marche pas", "« vide »", "Ne coche pas l'étape", "Lance pnpm dev."} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt misses %q:\n%s", want, p)
+		}
+	}
+
+	// A step reported shows it, until it is ticked.
+	m.answered[manualKey("YAK-800", s.ManualSteps[1].Text)] = "vide"
+	m.manualSel, m.manualAsk = "", false
+	text = ansi.Strip(strings.Join(m.detailLayout(m.detailWidth()).lines, "\n"))
+	if !strings.Contains(text, "✗  Ouvre le fichier") || !strings.Contains(text, "↳ signalé à l'agent : vide") {
+		t.Errorf("reported:\n%s", text)
+	}
+	nm, _ = m.detailClick("manual:1")
+	nm, _ = nm.(Model).detailClick("manual-ok:1")
+	if _, still := nm.(Model).answered[manualKey("YAK-800", s.ManualSteps[1].Text)]; still {
+		t.Error("ticking drops the report")
+	}
+}
+
+func hasTarget(ts []string, want string) bool {
+	for _, t := range ts {
+		if t == want {
+			return true
+		}
+	}
+	return false
 }

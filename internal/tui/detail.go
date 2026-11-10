@@ -559,7 +559,7 @@ func (m Model) secManual(b *detailBuilder, c *chantier.Chantier) {
 			st = sGood
 		}
 		count = st.Render(fmt.Sprintf("%d/%d", done, n))
-		right = i18n.T("clic sur une étape qui marche", "click a step that works")
+		right = i18n.T("clic sur une étape une fois essayée", "click a step once tried")
 	}
 	if st, ok := m.testOf(c); ok && st.Key == c.Key {
 		right = sGood.Render(fmt.Sprintf(i18n.T("en test dans %s", "under test in %s"), m.projectOf(c).cfg.Name))
@@ -571,12 +571,29 @@ func (m Model) secManual(b *detailBuilder, c *chantier.Chantier) {
 		b.add(hang("  "+sMuted.Render("·")+" ", sSoft.Render(plainMD(l)), b.w)...)
 	}
 	for i, t := range s.ManualSteps {
+		id := manualKey(c.Key, t.Text)
 		icon := sDim.Render(fmt.Sprintf("%d.", i+1))
 		text := plainMD(t.Text)
-		if t.Done {
+		report, reported := m.answered[id]
+		switch {
+		case t.Done:
 			icon, text = sGood.Render("✓ "), sMuted.Render(text)
+		case reported:
+			icon = sErr.Render("✗ ")
 		}
 		b.addT(fmt.Sprintf("manual:%d", i), hang("  "+icon+" ", text, b.w)...)
+		if reported && !t.Done {
+			b.add(hang("     "+sErr.Render(i18n.T("↳ signalé à l'agent : ", "↳ reported to the agent: ")), report, b.w)...)
+		}
+		if m.manualSel != id || t.Done {
+			continue
+		}
+		if m.manualAsk {
+			b.add(m.manualBox(b.w)...)
+			continue
+		}
+		b.addT(fmt.Sprintf("manual-ok:%d", i), "     "+sGood.Render(i18n.T("› ✓ ça marche", "› ✓ it works"))+sMuted.Render(i18n.T("  coché dans le plan", "  ticked in the plan")))
+		b.addT(fmt.Sprintf("manual-ko:%d", i), "     "+sErr.Render(i18n.T("› ✗ ça ne marche pas", "› ✗ it does not work"))+sMuted.Render(i18n.T("  dire à l'agent ce que tu vois", "  tell the agent what you see")))
 	}
 }
 

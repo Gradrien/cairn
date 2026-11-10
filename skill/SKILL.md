@@ -62,7 +62,9 @@ cairn affiche tout ce fichier :
 - `## Effets de bord` est suivi à part (« 2/3 vérifiés ») ;
 - sous `## Preuves`, chaque élément de liste est une preuve ;
 - `## Comment ça marche` s'ouvre en plein écran (`i`) : c'est là que l'humain lit comment le ticket est construit.
-- `## Tester à la main` s'affiche comme une liste d'étapes que l'humain coche dans cairn au fur et à mesure.
+- `## Tester à la main` s'affiche comme une liste d'étapes que l'humain coche dans cairn au fur et à mesure. Quand
+  une étape ne marche pas, cairn t'envoie l'étape et ce que l'humain voit à la place : corrige le code (ou l'étape si
+  c'est elle qui est fausse) et laisse-la décochée, il la refera.
 - Les clés et titres restent en français même si tu écris le plan en anglais. cairn accepte aussi `waiting:`,
   `## Side effects` et `## Proofs`.
 

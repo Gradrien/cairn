@@ -103,7 +103,7 @@ func (m Model) updateChecked(msg updateMsg) (tea.Model, tea.Cmd) {
 // else open: it never covers a question you are answering, say.
 func (m *Model) offerPending() {
 	if m.upd == nil || !m.upd.pending || m.overlay != "" || (m.view != "" && m.view != "board") ||
-		m.answerQ != "" || m.filtering || m.busy != "" {
+		m.answerQ != "" || m.manualAsk || m.filtering || m.busy != "" {
 		return
 	}
 	m.openUpdate()

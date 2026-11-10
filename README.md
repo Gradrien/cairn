@@ -123,8 +123,9 @@ you get how it was built (or, for older tickets, the plan of what was done).
 
 **Try it yourself.** When the change can be tried by hand, the agent writes a `## Tester à la main` section: what to
 start, then short steps, each an action and what you should see ("Click Export → a `freelances.csv` downloads, with a
-Model column"). The detail shows it before the push and in review; click a step once it works and cairn ticks it in the
-plan. `h` puts the branch in your main checkout to run it there.
+Model column"). The detail shows it before the push and in review. Click a step once you tried it: *ça marche* ticks it
+in the plan, *ça ne marche pas* opens a box for what you see instead, sent to the agent with the step, so it fixes the
+code (or the step). `h` puts the branch in your main checkout to run it there.
 
 ---
 
