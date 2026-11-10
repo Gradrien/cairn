@@ -863,6 +863,10 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 		var i int
 		fmt.Sscan(arg, &i)
 		return m.startAnswer(i)
+	case "manual":
+		var i int
+		fmt.Sscan(arg, &i)
+		return m.tickManual(i)
 	case "fold":
 		if c := m.selected(); c != nil {
 			k := c.Key + ":" + arg
@@ -1025,6 +1029,32 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 		_ = journal.Append(config.ChantiersDir(), key, "plan lancé ("+name+")")
 		return doneMsg{text: text, err: err, refresh: true}
 	}
+}
+
+// tickManual checks or unchecks a step of the manual test, in the plan file
+// itself: the agent sees what the human already tried.
+func (m Model) tickManual(i int) (tea.Model, tea.Cmd) {
+	c := m.selected()
+	if c == nil || c.State == nil {
+		return m, nil
+	}
+	s, err := state.Load(c.State.Path)
+	if err != nil {
+		m.say("", err)
+		return m, nil
+	}
+	if s == nil || i >= len(s.ManualSteps) {
+		return m, nil
+	}
+	if !s.TickManual(i, !s.ManualSteps[i].Done) {
+		return m, nil
+	}
+	if err := s.Save(); err != nil {
+		m.say("", err)
+		return m, nil
+	}
+	c.State = s // the watcher reloads it too
+	return m, nil
 }
 
 // allowPush lets the agent push the commit the human just reviewed: the push

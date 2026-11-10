@@ -82,6 +82,9 @@ func (m Model) cardFor(c *chantier.Chantier) *card {
 		if n := len(s.SideEffects); n > 0 {
 			sub = append(sub, fmt.Sprintf(i18n.T("effets de bord %d/%d vérifiés", "side effects %d/%d checked"), state.Count(s.SideEffects, true), n))
 		}
+		if n := len(s.ManualSteps); n > 0 {
+			sub = append(sub, fmt.Sprintf(i18n.T("test à la main %d/%d", "manual test %d/%d"), state.Count(s.ManualSteps, true), n))
+		}
 		if g, ok := m.gits[c.Key]; ok && g.Ahead > 0 {
 			sub = append(sub, plural(g.Ahead, i18n.T("commit prêt", "commit ready"), i18n.T("commits prêts", "commits ready")))
 		}
@@ -387,6 +390,7 @@ func (m Model) detailLayout(w int) detail {
 	switch {
 	case s != nil && (isPushWait(s.Waiting) || isPRWait(s.Waiting)):
 		m.secSide(b, c)
+		m.secManual(b, c)
 		m.secHow(b, c)
 		m.secCode(b, c)
 		m.secProofs(b, c)
@@ -406,6 +410,7 @@ func (m Model) detailLayout(w int) detail {
 	case prOpen || c.Phase == chantier.Review:
 		m.secPR(b, c, true)
 		m.secQuestions(b, c)
+		m.secManual(b, c)
 		m.secHow(b, c)
 		m.secSide(b, c)
 		m.secCode(b, c)
@@ -415,6 +420,7 @@ func (m Model) detailLayout(w int) detail {
 	case c.Phase == chantier.Build:
 		m.secQuestions(b, c)
 		m.secTasks(b, c)
+		m.secManual(b, c)
 		m.secHow(b, c)
 		m.secProofs(b, c)
 		m.secSide(b, c)
@@ -426,6 +432,7 @@ func (m Model) detailLayout(w int) detail {
 		m.secTasks(b, c)
 		m.secSide(b, c)
 		m.secGoal(b, c)
+		m.secManual(b, c)
 		m.secHow(b, c)
 		m.secProofs(b, c)
 		m.secCode(b, c)
@@ -528,6 +535,48 @@ func (m Model) secSide(b *detailBuilder, c *chantier.Chantier) {
 				b.add(hang("  "+taskIcon(t)+" ", plainMD(t.Text), b.w)...)
 			}
 		}
+	}
+}
+
+// secManual is the agent's protocol to try the change by hand: what to set
+// up, then each step with what to check. A click ticks a step in the plan.
+func (m Model) secManual(b *detailBuilder, c *chantier.Chantier) {
+	s := c.State
+	if s == nil {
+		return
+	}
+	if len(s.ManualSteps) == 0 && len(s.ManualSetup) == 0 {
+		if c.Phase >= chantier.Build {
+			b.add("", sMuted.Render(i18n.T("Tester à la main : pas encore de protocole dans le plan", "Manual test: no protocol in the plan yet")))
+		}
+		return
+	}
+	done, n := state.Count(s.ManualSteps, true), len(s.ManualSteps)
+	count, right := "", ""
+	if n > 0 {
+		st := sMuted
+		if done == n {
+			st = sGood
+		}
+		count = st.Render(fmt.Sprintf("%d/%d", done, n))
+		right = i18n.T("clic sur une étape qui marche", "click a step that works")
+	}
+	if st, ok := m.testOf(c); ok && st.Key == c.Key {
+		right = sGood.Render(fmt.Sprintf(i18n.T("en test dans %s", "under test in %s"), m.projectOf(c).cfg.Name))
+	} else if m.testButton(c).enabled && done < n {
+		right = i18n.T("h : tester dans ton dépôt", "h: test in your checkout")
+	}
+	b.section(i18n.T("Tester à la main", "Manual test"), count, right)
+	for _, l := range s.ManualSetup {
+		b.add(hang("  "+sMuted.Render("·")+" ", sSoft.Render(plainMD(l)), b.w)...)
+	}
+	for i, t := range s.ManualSteps {
+		icon := sDim.Render(fmt.Sprintf("%d.", i+1))
+		text := plainMD(t.Text)
+		if t.Done {
+			icon, text = sGood.Render("✓ "), sMuted.Render(text)
+		}
+		b.addT(fmt.Sprintf("manual:%d", i), hang("  "+icon+" ", text, b.w)...)
 	}
 }
 

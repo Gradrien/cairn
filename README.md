@@ -121,6 +121,11 @@ something? Type a question there: the agent checks the code and answers in that 
 ticket. Once a ticket ships and its plan is archived, it stays readable: `ctrl+k`, its number or `livré`, and
 you get how it was built (or, for older tickets, the plan of what was done).
 
+**Try it yourself.** When the change can be tried by hand, the agent writes a `## Tester à la main` section: what to
+start, then short steps, each an action and what you should see ("Click Export → a `freelances.csv` downloads, with a
+Model column"). The detail shows it before the push and in review; click a step once it works and cairn ticks it in the
+plan. `h` puts the branch in your main checkout to run it there.
+
 ---
 
 <sub>THE REVIEW LOOP</sub>
@@ -282,7 +287,7 @@ form. If a `repo` is wrong, cairn says so on startup and points to the file.
 
 - **Plan files.** Agents keep `~/.cairn/chantiers/<TICKET>.md` up to date through the `cairn` skill (`skill/SKILL.md`):
   front matter (`phase`, `attente`, `push`), a summary, tasks (`[ ]`, `[~]`, `[x]`), `## Questions`,
-  `## Effets de bord` (side effects), `## Preuves` (proofs).
+  `## Effets de bord` (side effects), `## Tester à la main` (manual test steps), `## Preuves` (proofs).
 - **Matching.** A worktree belongs to a ticket when its branch contains the key (`eng-123`), with the prefix of the
   project whose repository it is. An agent belongs to it when it works in that worktree, or when its name or title
   mentions the ticket. A PR belongs to it when the tracker links them, or when it comes from the chantier's branch.

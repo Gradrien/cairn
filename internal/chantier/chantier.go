@@ -379,13 +379,15 @@ func BuildPrompt(statePath string) string {
 	return fmt.Sprintf(i18n.T("Plan validé. Passe %s en `phase: build` et implémente-le : passe chaque tâche en [~] quand tu la "+
 		"commences et en [x] quand elle est finie, et note les preuves de test sous « ## Preuves ». Tiens aussi la section "+
 		"« ## Comment ça marche » (voir le skill cairn) : comment c'est construit, où, quand ça s'exécute et où vivent les données, "+
-		"pour que je puisse répondre aux questions sur le ticket sans lire le code. Ne pousse rien et n'ouvre "+
+		"pour que je puisse répondre aux questions sur le ticket sans lire le code. Quand le changement peut s'essayer à la main, "+
+		"écris aussi « ## Tester à la main » : ce qu'il faut lancer, puis des étapes courtes « fais ça → vérifie ça ». Ne pousse rien et n'ouvre "+
 		"pas de PR toi-même : quand tout est prêt, mets `attente: Prêt à pousser` avec en une ligne ce qui partira, et "+
 		"arrête-toi. L'humain relit et autorise le push dans cairn (ou te le demande dans le chat) ; la PR s'autorise à part.",
 		"Plan approved. Set %s to `phase: build` and implement it: mark each task [~] when you "+
 			"start it and [x] when it is done, and write the test proofs under \"## Preuves\". Also keep the "+
 			"\"## Comment ça marche\" section (see the cairn skill): how it is built, where, when it runs and where the data lives, "+
-			"so I can answer questions on the ticket without reading the code. Do not push and do not open "+
+			"so I can answer questions on the ticket without reading the code. When the change can be tried by hand, "+
+			"also write \"## Tester à la main\": what to start, then short steps \"do this → check that\". Do not push and do not open "+
 			"a PR yourself: when everything is ready, set `attente: Prêt à pousser` followed by one line on what will ship, and "+
 			"stop. The human reviews and allows the push in cairn (or asks you in the chat); the PR is allowed separately."), statePath)
 }

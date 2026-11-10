@@ -43,6 +43,13 @@ La largeur se règle à la souris et n'est sauvée nulle part : elle vit en mém
 - **Données** : état React local, ni URL, ni localStorage, ni serveur. Perdu au changement d'onglet.
 - **Pas fait** : la mémoire des largeurs (YAK-851).
 
+## Tester à la main
+Lance `pnpm dev`, connecte-toi en admin, ouvre /freelances.
+
+- [ ] Glisse le bord droit de l'en-tête « Nom » vers la droite → la colonne s'élargit, les autres ne bougent pas.
+- [ ] Double-clique sur ce bord → la colonne revient à sa largeur d'avant.
+- [ ] Recharge la page → toutes les colonnes sont revenues à leur largeur d'origine (rien n'est sauvé, c'est voulu).
+
 ## Preuves
 - `pnpm test --filter yak-query` ✓ 42 tests (2026-11-03 14:20)
 - capture : /chemin/vers/capture.png
@@ -55,6 +62,7 @@ cairn affiche tout ce fichier :
 - `## Effets de bord` est suivi à part (« 2/3 vérifiés ») ;
 - sous `## Preuves`, chaque élément de liste est une preuve ;
 - `## Comment ça marche` s'ouvre en plein écran (`i`) : c'est là que l'humain lit comment le ticket est construit.
+- `## Tester à la main` s'affiche comme une liste d'étapes que l'humain coche dans cairn au fur et à mesure.
 - Les clés et titres restent en français même si tu écris le plan en anglais. cairn accepte aussi `waiting:`,
   `## Side effects` et `## Proofs`.
 
@@ -104,6 +112,21 @@ L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directe
 
   La taille suit le ticket : un XS tient en 2 lignes. Quand l'humain pose une question depuis cairn, vérifie dans le
   code, complète le mécanisme concerné et note la question avec sa réponse courte sous `### Questions posées`.
+- **`## Tester à la main` permet à l'humain d'essayer le changement lui-même.** Écris-la pendant le build dès que le
+  changement se voit ou se déclenche à la main (une page, une commande, une API qu'on peut appeler), et garde-la vraie
+  jusqu'à la PR. Le format :
+  - d'abord, en lignes simples, ce qu'il faut pour commencer : la commande à lancer, la page à ouvrir, le compte ou la
+    donnée à avoir ;
+  - puis une case `- [ ]` par étape : **une action, une flèche `→`, ce qu'on doit voir**. « Clique sur Exporter → un
+    fichier `freelances.csv` se télécharge, avec une colonne Modèle. » Pas « vérifier que l'export fonctionne » ;
+  - des mots simples et précis : le nom exact du bouton, de la page, de la commande, la valeur attendue. Pas de jargon,
+    pas de formules du type « s'assurer de la bonne prise en compte » ;
+  - le cas normal d'abord, puis les cas limites qui comptent (vide, erreur, droits) et ce qui ne doit **pas** changer ;
+  - 3 à 8 étapes en général. L'humain coche les étapes qui marchent : ne coche jamais à sa place, ne décoche pas les
+    siennes.
+
+  Si le changement ne peut pas s'essayer à la main (refacto interne, script de migration sans effet visible), écris
+  juste une ligne sous le titre qui dit pourquoi et ce qui le couvre à la place (les tests, la CI).
 - **Les preuves** sont des choses réellement exécutées : la commande, son résultat et la date. Jamais une affirmation sans exécution.
 - **Après chaque modification du fichier**, lance `cairn sync` pour mettre à jour la barre latérale de herdr. S'il échoue, ce n'est pas grave : continue.
 - **Le ticket vit là où le projet le range.** Avec Linear ou Sprintosaur, ses règles s'appliquent toujours (PR liée au

@@ -15,7 +15,10 @@
 //	"## Questions": open questions ("- [x]" once answered);
 //	"## Preuves": every list item is a proof;
 //	"## Comment ça marche": how the change works, kept as markdown for the
-//	human to read (where things live, when they run, what is stored).
+//	human to read (where things live, when they run, what is stored);
+//	"## Tester à la main": how to try the change by hand, what to set up
+//	first (plain lines), then steps "- [ ] do this → check that", which the
+//	human ticks in cairn as they go.
 package state
 
 import (
@@ -46,7 +49,10 @@ type State struct {
 	Questions   []Task
 	Proofs      []string
 	Summary     []string
-	HowItWorks  string // the "## Comment ça marche" section, raw markdown
+	HowItWorks  string   // the "## Comment ça marche" section, raw markdown
+	ManualSetup []string // "## Tester à la main": what to set up before the steps
+	ManualSteps []Task   // "## Tester à la main": the steps, ticked by the human
+	manualAt    []int    // body line of each manual step, to tick it
 	UpdatedAt   time.Time
 	front       []string // raw frontmatter lines, kept for round-trips
 	body        string
@@ -58,6 +64,7 @@ var (
 	proofHd = regexp.MustCompile(`(?i)^#{1,6}\s+(preuves?|proofs?)\b`)
 	sideHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(effets? de bord|side[ -]effects?)`)
 	questHd = regexp.MustCompile(`(?i)^#{1,6}\s+questions?`)
+	testHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(tester [àa] la main|tests? manuels?|manual tests?|test by hand)\b`)
 	howHd   = regexp.MustCompile(`(?i)^##\s+(comment [çc]a marche|how it works)\b`)
 	headRe  = regexp.MustCompile(`^#{1,6}\s`)
 	h2Re    = regexp.MustCompile(`^#{2,6}\s`)
@@ -113,10 +120,10 @@ func Parse(path, text string) *State {
 			s.PR = v
 		}
 	}
-	section := "" // "", "proofs", "side", "questions", "how", "other"
+	section := "" // "", "proofs", "side", "questions", "how", "manual", "other"
 	seenH2 := false
 	var how []string
-	for _, l := range strings.Split(s.body, "\n") {
+	for i, l := range strings.Split(s.body, "\n") {
 		// "Comment ça marche" is prose with its own "###" headings: it runs
 		// to the next "#" or "##" heading and is kept whole.
 		if section == "how" && !h12Re.MatchString(l) {
@@ -141,6 +148,8 @@ func Parse(path, text string) *State {
 				section = "side"
 			case questHd.MatchString(l):
 				section = "questions"
+			case testHd.MatchString(l):
+				section = "manual"
 			case h2Re.MatchString(l):
 				section = "other"
 			}
@@ -152,6 +161,17 @@ func Parse(path, text string) *State {
 		if section == "proofs" {
 			if m := itemRe.FindStringSubmatch(l); m != nil {
 				s.Proofs = append(s.Proofs, m[1])
+			}
+			continue
+		}
+		if section == "manual" {
+			if m := taskRe.FindStringSubmatch(l); m != nil {
+				s.ManualSteps = append(s.ManualSteps, Task{Text: m[2], Done: m[1] == "x" || m[1] == "X"})
+				s.manualAt = append(s.manualAt, i)
+			} else if m := itemRe.FindStringSubmatch(l); m != nil {
+				s.ManualSetup = append(s.ManualSetup, m[1])
+			} else if t := strings.TrimSpace(l); t != "" {
+				s.ManualSetup = append(s.ManualSetup, t)
 			}
 			continue
 		}
@@ -179,6 +199,28 @@ func Parse(path, text string) *State {
 	}
 	s.HowItWorks = strings.TrimSpace(strings.Join(how, "\n"))
 	return s
+}
+
+// TickManual checks (or unchecks) manual step i in the file's body; Save
+// writes it.
+func (s *State) TickManual(i int, done bool) bool {
+	if i < 0 || i >= len(s.manualAt) {
+		return false
+	}
+	lines := strings.Split(s.body, "\n")
+	l := lines[s.manualAt[i]]
+	m := taskRe.FindStringSubmatchIndex(l)
+	if m == nil {
+		return false
+	}
+	mark := " "
+	if done {
+		mark = "x"
+	}
+	lines[s.manualAt[i]] = l[:m[2]] + mark + l[m[3]:]
+	s.body = strings.Join(lines, "\n")
+	s.ManualSteps[i].Done = done
+	return true
 }
 
 func (s *State) DoneCount() int { return Count(s.Tasks, true) }

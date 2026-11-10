@@ -147,3 +147,49 @@ Objectif.
 		t.Fatal("english heading")
 	}
 }
+
+func TestManualTest(t *testing.T) {
+	text := `---
+ticket: YAK-854
+phase: build
+---
+# YAK-854 · Colonnes
+
+Objectif.
+
+- [x] hook
+
+## Tester à la main
+Lance ` + "`pnpm dev`" + `, ouvre /freelances.
+- connecté en admin
+
+- [ ] Glisse le bord de « Nom » → la colonne s'élargit
+- [x] Double-clique sur le bord → elle revient à sa largeur
+
+## Preuves
+- go test ✓
+`
+	s := Parse("/x", text)
+	if len(s.ManualSetup) != 2 || s.ManualSetup[1] != "connecté en admin" {
+		t.Fatalf("setup %q", s.ManualSetup)
+	}
+	if len(s.ManualSteps) != 2 || s.ManualSteps[0].Done || !s.ManualSteps[1].Done {
+		t.Fatalf("steps %+v", s.ManualSteps)
+	}
+	if len(s.Tasks) != 1 || len(s.Proofs) != 1 {
+		t.Fatalf("tasks %d proofs %d", len(s.Tasks), len(s.Proofs))
+	}
+	if !s.TickManual(0, true) || !s.TickManual(1, false) || s.TickManual(2, true) {
+		t.Fatal("tick")
+	}
+	again := Parse("/x", s.String())
+	if !again.ManualSteps[0].Done || again.ManualSteps[1].Done {
+		t.Fatalf("round trip:\n%s", s.String())
+	}
+	if !strings.Contains(s.String(), "- [x] Glisse le bord") || !strings.Contains(s.String(), "- [ ] Double-clique") {
+		t.Fatalf("file:\n%s", s.String())
+	}
+	if len(Parse("/x", "## Manual test\n- [ ] Click → it opens\n").ManualSteps) != 1 {
+		t.Fatal("english heading")
+	}
+}
