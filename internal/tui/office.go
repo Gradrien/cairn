@@ -23,7 +23,10 @@ import (
 // door, work at their desks, bring their result and leave. It only shows:
 // the actions are the same buttons as everywhere else.
 
-const officeFrame = 120 * time.Millisecond
+const (
+	officeFrame = 120 * time.Millisecond
+	officeEvery = 2 * time.Second // transcripts read again while the office shows
+)
 
 type officeTick struct{}
 

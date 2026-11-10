@@ -360,7 +360,11 @@ type usageMsg map[string]usage.Report
 // consumed. Transcripts are read incrementally: after the first pass, a read
 // only parses what was appended.
 func (m *Model) readUsage() tea.Cmd {
-	if m.usageOn || time.Since(m.usageAt) < progressEvery || len(m.chantiers) == 0 {
+	every := progressEvery
+	if m.view == "office" {
+		every = officeEvery // the office shows what agents do now
+	}
+	if m.usageOn || time.Since(m.usageAt) < every || len(m.chantiers) == 0 {
 		return nil
 	}
 	type job struct{ key, wt, branch string }
