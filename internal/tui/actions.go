@@ -56,10 +56,12 @@ func (m Model) fixCI() (tea.Model, tea.Cmd) {
 			return doneMsg{text: fmt.Sprintf(i18n.T("Logs de CI dans %s (aucun agent sur ce chantier pour les traiter).", "CI logs in %s (no agent on this ticket to handle them)."), tilde(path))}
 		}
 		prompt := fmt.Sprintf(i18n.T("La CI de la PR #%d échoue (%s). Les logs des étapes en échec sont dans %s. "+
-			"Lis-les, trouve la cause, corrige en local, ajoute la tâche et la preuve dans %s, "+
+			"Fais-les lire par le sous-agent cairn-runner (il rend les échecs et les lignes décisives) plutôt que de les lire toi-même, "+
+			"trouve la cause, corrige en local, vérifie avec cairn-runner, ajoute la tâche et la preuve dans %s, "+
 			"puis demande le push avec `attente: Prêt à pousser`.",
 			"CI of PR #%d is failing (%s). The logs of the failing steps are in %s. "+
-				"Read them, find the cause, fix it locally, add the task and the proof in %s, "+
+				"Have the cairn-runner subagent read them (it returns the failures and the decisive lines) rather than reading them yourself, "+
+				"find the cause, fix it locally, check with cairn-runner, add the task and the proof in %s, "+
 				"then ask for the push with `attente: Prêt à pousser`."), num, strings.Join(names, ", "), path, plan)
 		_ = journal.Append(config.ChantiersDir(), key, "CI envoyée à l'agent")
 		return doneMsg{text: fmt.Sprintf(i18n.T("Logs de CI envoyés à l'agent de %s.", "CI logs sent to %s's agent."), key), err: herdr.Prompt(pane, prompt)}

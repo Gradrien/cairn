@@ -1132,6 +1132,11 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 		if err := herdr.StartAgent(name, cfg.AgentKind, pane); err != nil {
 			return doneMsg{err: fmt.Errorf(i18n.T("worktree prêt, mais l'agent n'a pas démarré : %w", "worktree ready, but the agent did not start: %w"), err), refresh: true}
 		}
+		if sw := modelSwitch(cfg.AgentKind, cfg.ModelPlan); sw != "" {
+			if herdr.Prompt(name, sw) == nil {
+				_ = journal.Append(config.ChantiersDir(), key, "modèle : "+cfg.ModelPlan)
+			}
+		}
 		err = herdr.Prompt(name, chantier.PlanPrompt(key, issue.Title, statePath, tr.Guide(key)))
 		text := fmt.Sprintf(i18n.T("%s : l'agent %s écrit le plan.", "%s: agent %s is writing the plan."), key, name)
 		if moved, err := tr.Start(issue); moved && err == nil {
@@ -1283,12 +1288,35 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 	}
 	m.say(text, nil)
 	cmd := m.rebuild()
+	sw, model := "", ""
+	if p := m.projectOf(c); p != nil && prompt != "" {
+		sw, model = modelSwitch(p.cfg.AgentKind, p.cfg.ModelBuild), p.cfg.ModelBuild
+	}
+	key := c.Key
 	if prompt != "" && agent != "" {
 		cmd = tea.Batch(cmd, func() tea.Msg {
-			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(agent, prompt)}
+			done := text + i18n.T(" Agent relancé.", " Agent resumed.")
+			if sw != "" {
+				// The model first: the build prompt then runs on it.
+				if err := herdr.Prompt(agent, sw); err == nil {
+					_ = journal.Append(config.ChantiersDir(), key, "modèle : "+model)
+					done = text + fmt.Sprintf(i18n.T(" Agent relancé sur %s.", " Agent resumed on %s."), model)
+				}
+			}
+			return doneMsg{text: done, err: herdr.Prompt(agent, prompt)}
 		})
 	}
 	return m, cmd
+}
+
+// modelSwitch is the command that puts a Claude agent on model, or "" when
+// there is nothing to switch (no model set, or another kind of agent).
+func modelSwitch(kind, model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" || (kind != "" && kind != "claude") || strings.ContainsAny(model, " \n\t") {
+		return ""
+	}
+	return "/model " + model
 }
 
 // refreshArchive rereads the archived plans when a chantier was put away.

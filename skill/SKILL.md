@@ -135,3 +135,25 @@ L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directe
   ticket, commentaire de fin) : lis-le avec l'outil du tracker (MCP Linear, skill sprintosaur). Sans tracker, le ticket
   n'est que ce fichier : son titre dit tout, ce qui manque se demande sous `## Questions`. Dans tous les cas, mets la clé
   du ticket dans le nom de la branche et dans le titre de la PR : c'est par la branche que cairn retrouve la PR.
+
+## Déléguer pour garder ton contexte petit
+
+Tout ce que tu lis reste dans ton contexte et **est relu à chaque tour** jusqu'à la fin du ticket : c'est ce
+qui coûte le plus cher sur un chantier, bien plus que ce que tu écris. Deux sous-agents, sur un modèle léger,
+lisent à ta place et ne te rendent que l'essentiel :
+
+- **`cairn-explorer`** (lecture seule) : toute recherche qui demande de parcourir plus de trois ou quatre
+  fichiers. Au plan, c'est lui qui recense les effets de bord et les appelants ; pendant le build, il répond à
+  « où est… », « qui appelle… », « comment marche… ». Pose-lui une question précise, avec ce que tu sais déjà et
+  ce que tu cherches ; il rend des `fichier:ligne`. Lance-en plusieurs en parallèle pour des questions
+  indépendantes (un par app, un par type d'effet de bord). Ensuite, ne lis toi-même que les lignes que tu
+  vas modifier.
+- **`cairn-runner`** : les tests, le build, le lint, le typecheck, et les logs d'une CI en échec, dès que la
+  sortie peut être longue. Donne-lui la commande et le dossier (ou le fichier de logs). Il rend le verdict,
+  les échecs avec `fichier:ligne` et une ligne `Preuve` à reporter telle quelle sous `## Preuves`. Il ne
+  corrige rien : c'est toi qui corriges, puis tu le relances.
+
+**Ne délègue pas** ce qui demande ton jugement ou ce que tu as déjà en tête : le plan, les questions, les
+décisions, le code, `## Comment ça marche` et `## Tester à la main`. Ne délègue pas non plus ce qui est plus
+court à faire qu'à demander : lire un fichier que tu connais, `git status`, une commande à la sortie courte.
+Si ces sous-agents ne sont pas installés, fais le travail toi-même, en lisant le moins possible.

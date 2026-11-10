@@ -73,3 +73,14 @@ func TestKeyFor(t *testing.T) {
 		}
 	}
 }
+
+func TestModelsInherit(t *testing.T) {
+	c := Config{ModelBuild: "sonnet"}
+	p := c.Fill(Project{Repo: "/r", ModelPlan: "opus"})
+	if p.ModelPlan != "opus" || p.ModelBuild != "sonnet" {
+		t.Errorf("plan %q build %q", p.ModelPlan, p.ModelBuild)
+	}
+	if p := c.Fill(Project{Repo: "/r", ModelBuild: "haiku"}); p.ModelBuild != "haiku" {
+		t.Errorf("the project's own wins: %q", p.ModelBuild)
+	}
+}

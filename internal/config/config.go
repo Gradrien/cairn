@@ -44,6 +44,11 @@ type Project struct {
 	WorktreeParent string `json:"worktree_parent,omitempty"`
 	// AgentKind is the herdr agent kind started for a new chantier.
 	AgentKind string `json:"agent_kind,omitempty"`
+	// ModelPlan and ModelBuild switch a Claude agent's model (/model) when its
+	// plan starts and when the plan is approved: a cheaper model can build
+	// what a stronger one planned. Empty: the agent keeps its model.
+	ModelPlan  string `json:"model_plan,omitempty"`
+	ModelBuild string `json:"model_build,omitempty"`
 	// Diff is the command the Diff button runs in the worktree; {base} is
 	// replaced by Base. Default: browsediff when installed, else git diff.
 	Diff string `json:"diff,omitempty"`
@@ -53,9 +58,11 @@ type Config struct {
 	Projects []Project `json:"projects"`
 	// Lang is the interface language: "fr" (default) or "en".
 	Lang string `json:"lang"`
-	// AgentKind and Diff are the defaults of every project.
-	AgentKind string `json:"agent_kind,omitempty"`
-	Diff      string `json:"diff,omitempty"`
+	// AgentKind, Diff and the models are the defaults of every project.
+	AgentKind  string `json:"agent_kind,omitempty"`
+	Diff       string `json:"diff,omitempty"`
+	ModelPlan  string `json:"model_plan,omitempty"`
+	ModelBuild string `json:"model_build,omitempty"`
 	// Prices overrides or completes the API rates cairn uses to show what a
 	// chantier's agents cost, by model id prefix ("claude-opus-5-5").
 	Prices map[string]usage.Price `json:"prices,omitempty"`
@@ -188,6 +195,12 @@ func (c Config) fill(p Project) Project {
 	}
 	if p.Diff == "" {
 		p.Diff = c.Diff
+	}
+	if p.ModelPlan == "" {
+		p.ModelPlan = c.ModelPlan
+	}
+	if p.ModelBuild == "" {
+		p.ModelBuild = c.ModelBuild
 	}
 	p.Credentials = expand(p.Credentials)
 	return p

@@ -108,7 +108,7 @@ func (s *settingsState) refill() {
 }
 
 func (s *settingsState) rows() []setRow {
-	out := []setRow{{-1, ""}, {-1, "lang"}, {-1, "agent_kind"}, {-1, "diff"}}
+	out := []setRow{{-1, ""}, {-1, "lang"}, {-1, "agent_kind"}, {-1, "model_plan"}, {-1, "model_build"}, {-1, "diff"}}
 	for i, p := range s.filled {
 		out = append(out, setRow{i, ""}, setRow{i, "name"}, setRow{i, "repo"}, setRow{i, "key"}, setRow{i, "tracker"})
 		switch p.Tracker {
@@ -118,7 +118,7 @@ func (s *settingsState) rows() []setRow {
 			out = append(out, setRow{i, "credentials"}, setRow{i, "assignee"}, setRow{i, "web"})
 		}
 		out = append(out, setRow{i, "base"}, setRow{i, "branch_prefix"}, setRow{i, "worktree_parent"},
-			setRow{i, "agent_kind"}, setRow{i, "diff"}, setRow{i, "delete"})
+			setRow{i, "agent_kind"}, setRow{i, "model_plan"}, setRow{i, "model_build"}, setRow{i, "diff"}, setRow{i, "delete"})
 	}
 	return append(out, setRow{-2, ""}, setRow{-2, "add"})
 }
@@ -142,6 +142,10 @@ func fieldLabel(f string) string {
 		return i18n.T("Agent", "Agent")
 	case "diff":
 		return i18n.T("Commande de diff", "Diff command")
+	case "model_plan":
+		return i18n.T("Modèle du plan", "Plan model")
+	case "model_build":
+		return i18n.T("Modèle du build", "Build model")
 	case "name":
 		return i18n.T("Nom", "Name")
 	case "repo":
@@ -182,6 +186,12 @@ func fieldHint(r setRow, tracker string) string {
 	case "diff":
 		return i18n.T("lancée dans le worktree par d ; {base} est remplacé. Vide : browsediff s'il est installé, sinon git diff",
 			"run in the worktree by d; {base} is replaced. Empty: browsediff when installed, else git diff")
+	case "model_plan":
+		return i18n.T("envoyé à l'agent Claude (/model) quand son plan démarre : opus, sonnet, fable… Vide : il garde son modèle",
+			"sent to the Claude agent (/model) when its plan starts: opus, sonnet, fable… Empty: it keeps its model")
+	case "model_build":
+		return i18n.T("envoyé (/model) quand tu valides le plan : un modèle moins cher, sonnet par exemple, construit ce qu'un plus fort a planifié. Vide : il garde son modèle",
+			"sent (/model) when you approve the plan: a cheaper model, sonnet for instance, builds what a stronger one planned. Empty: it keeps its model")
 	case "repo":
 		return i18n.T("le checkout principal ; ses worktrees sont les chantiers", "the main checkout; its worktrees are the chantiers")
 	case "key":
@@ -220,6 +230,10 @@ func (s *settingsState) get(r setRow) string {
 			return s.raw.AgentKind
 		case "diff":
 			return s.raw.Diff
+		case "model_plan":
+			return s.raw.ModelPlan
+		case "model_build":
+			return s.raw.ModelBuild
 		}
 		return ""
 	}
@@ -237,6 +251,8 @@ func (s *settingsState) shown(r setRow) (string, bool) {
 				return "claude", true
 			case "diff":
 				return "browsediff / git diff", true
+			case "model_plan", "model_build":
+				return i18n.T("celui de l'agent", "the agent's own"), true
 			}
 		}
 		return v, false
@@ -253,6 +269,9 @@ func (s *settingsState) shown(r setRow) (string, bool) {
 	v := projectField(&s.filled[r.proj], r.field, nil)
 	if r.field == "diff" && v == "" {
 		v = "browsediff / git diff"
+	}
+	if (r.field == "model_plan" || r.field == "model_build") && v == "" {
+		v = i18n.T("celui de l'agent", "the agent's own")
 	}
 	return v, true
 }
@@ -285,6 +304,10 @@ func projectField(p *config.Project, field string, set *string) string {
 		f = &p.AgentKind
 	case "diff":
 		f = &p.Diff
+	case "model_plan":
+		f = &p.ModelPlan
+	case "model_build":
+		f = &p.ModelBuild
 	default:
 		return ""
 	}
@@ -330,6 +353,10 @@ func (m Model) settingsCommit(r setRow, value string) (tea.Model, tea.Cmd) {
 			next.AgentKind = value
 		case "diff":
 			next.Diff = value
+		case "model_plan":
+			next.ModelPlan = value
+		case "model_build":
+			next.ModelBuild = value
 		}
 	default:
 		switch r.field {

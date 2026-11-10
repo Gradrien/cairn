@@ -244,6 +244,9 @@ func historyText(text string) string {
 		}
 		return "→ " + p
 	}
+	if model, ok := strings.CutPrefix(text, "modèle : "); ok {
+		return i18n.T(text, "model: "+model)
+	}
 	switch text {
 	case "plan validé":
 		return i18n.T(text, "plan approved")

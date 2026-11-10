@@ -127,6 +127,18 @@ model, of each phase and of each subagent, and how much of it was re-read contex
 each chantier at work, and the Agents section what each agent did last. On a Claude subscription nothing is billed per
 token: read it as an API equivalent, to compare chantiers and see what weighs.
 
+**Spend less on each ticket.** What costs most on a chantier is not what the agent writes but what it re-reads:
+everything it has read stays in its context and is sent again at every turn. cairn installs two subagents on a light
+model (Haiku) that read in its place and hand back only what matters. **`cairn-explorer`** (read only) searches the
+repository: callers, screens, data, permissions, jobs, side effects; it answers with `file:line`, and the plan's side
+effects come from it. **`cairn-runner`** runs the tests, the build and the lint, and reads the logs of a failing CI;
+it answers with the verdict, the failures and a proof line for the plan, and fixes nothing. The skill says when to
+delegate and when not to (the plan, the questions, the decisions and the code stay with the main agent), and cairn's
+own prompts (plan, build, *Corriger la CI*) point to them. The `Coût` section shows what each one cost, and the office
+shows them at their desks. A project can also switch models by phase: `model_plan` and `model_build` (settings `s`)
+send `/model` to the Claude agent when its plan starts and when you approve it, for instance a strong model to plan
+and `sonnet` to build. Empty by default: the agent keeps its model.
+
 **See them at work.** `b` opens the office: one small room per chantier, in pixel art. The main agent sits at its
 desk while it codes, stands at the whiteboard while it writes the plan (the board fills in, the section being written
 lights up), goes to the shelf to read, to the test machine to run the tests, and waits by its desk, arms up, when it
@@ -290,6 +302,7 @@ screen when the config cannot work. One entry per project; only `repo` is requir
 | `base` | the remote's default branch (`origin/main`) |
 | `worktree_parent` | the folder that contains `repo` |
 | `agent_kind` | `claude` (also settable for every project at the top level) |
+| `model_plan`, `model_build` | the model a Claude agent switches to (`/model`) when its plan starts, when the plan is approved: `opus`, `sonnet`… (empty: it keeps its own; also settable at the top level) |
 | `diff` | the command `d` runs in the worktree, `{base}` replaced (also settable at the top level) |
 
 At the top level, `lang` is `fr` or `en` (the `l` button sets it). `prices` overrides or completes the API rates
@@ -314,6 +327,8 @@ form. If a `repo` is wrong, cairn says so on startup and points to the file.
   another tracker's API, or the chantier files themselves), `gh` for PRs, CI and images.
   Claude Code's transcripts for what the agents consumed (read incrementally, never written).
   History in `~/.cairn/chantiers/<TICKET>.log`, caches in `~/.cairn/cache/`, archives in `~/.cairn/archive/`.
+- **Subagents.** `agents/cairn-explorer.md` and `agents/cairn-runner.md`, linked into `~/.claude/agents` by
+  `install.sh`: Claude Code subagents on Haiku, their rules in the files, when to use them in the skill.
 - **Push guard.** A Claude Code `PreToolUse` hook on Bash. Allowing writes `push: autorisé <commit>` in the plan; the
   hook lets pushes and `gh pr` commands through while the branch's HEAD is that commit. Once the branch has an open PR
   (`gh pr view`), pushes pass whatever the commit; `gh pr merge` still needs the allowance. Claude sessions opened before the install pick the hook up after a restart.

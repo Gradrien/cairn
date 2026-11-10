@@ -365,26 +365,30 @@ func PlanPrompt(key, title, statePath, guide string) string {
 		"%s, explore le code, puis écris le plan dans %s, "+
 		"à la taille du ticket. Recense les effets de bord : tout ce que le changement peut casser ou modifier ailleurs "+
 		"(autres appelants et écrans, autres parties du dépôt, données existantes, permissions, migrations, notifications, "+
-		"performances), avec pour chacun une tâche qui le vérifie. Termine par `attente: Valider le plan` et arrête-toi : ne code rien avant ma validation.",
+		"performances), avec pour chacun une tâche qui le vérifie. Confie ces recherches au sous-agent cairn-explorer (plusieurs en parallèle "+
+		"si les questions sont indépendantes) plutôt que de lire le dépôt toi-même. Termine par `attente: Valider le plan` et arrête-toi : ne code rien avant ma validation.",
 		"Plan ticket %s \"%s\" with the cairn workflow (cairn skill). "+
 			"%s, explore the code, then write the plan in %s, "+
 			"sized to the ticket. List the side effects: everything the change can break or alter elsewhere "+
 			"(other callers and screens, other parts of the repository, existing data, permissions, migrations, notifications, "+
-			"performance), each with a task that checks it. Finish with `attente: Valider le plan` and stop: write no code before I approve."),
+			"performance), each with a task that checks it. Hand these searches to the cairn-explorer subagent (several in parallel "+
+			"when the questions are independent) rather than reading the repository yourself. Finish with `attente: Valider le plan` and stop: write no code before I approve."),
 		key, title, guide, statePath)
 }
 
 // BuildPrompt is sent when the plan is approved.
 func BuildPrompt(statePath string) string {
 	return fmt.Sprintf(i18n.T("Plan validé. Passe %s en `phase: build` et implémente-le : passe chaque tâche en [~] quand tu la "+
-		"commences et en [x] quand elle est finie, et note les preuves de test sous « ## Preuves ». Tiens aussi la section "+
+		"commences et en [x] quand elle est finie, et note les preuves de test sous « ## Preuves ». Fais tourner les tests, le build et "+
+		"le lint par le sous-agent cairn-runner, et les recherches dans le dépôt par cairn-explorer : ton contexte reste petit. Tiens aussi la section "+
 		"« ## Comment ça marche » (voir le skill cairn) : comment c'est construit, où, quand ça s'exécute et où vivent les données, "+
 		"pour que je puisse répondre aux questions sur le ticket sans lire le code. Quand le changement peut s'essayer à la main, "+
 		"écris aussi « ## Tester à la main » : ce qu'il faut lancer, puis des étapes courtes « fais ça → vérifie ça ». Ne pousse rien et n'ouvre "+
 		"pas de PR toi-même : quand tout est prêt, mets `attente: Prêt à pousser` avec en une ligne ce qui partira, et "+
 		"arrête-toi. L'humain relit et autorise le push dans cairn (ou te le demande dans le chat) ; la PR s'autorise à part.",
 		"Plan approved. Set %s to `phase: build` and implement it: mark each task [~] when you "+
-			"start it and [x] when it is done, and write the test proofs under \"## Preuves\". Also keep the "+
+			"start it and [x] when it is done, and write the test proofs under \"## Preuves\". Run the tests, the build and "+
+			"the lint through the cairn-runner subagent, and searches in the repository through cairn-explorer: your context stays small. Also keep the "+
 			"\"## Comment ça marche\" section (see the cairn skill): how it is built, where, when it runs and where the data lives, "+
 			"so I can answer questions on the ticket without reading the code. When the change can be tried by hand, "+
 			"also write \"## Tester à la main\": what to start, then short steps \"do this → check that\". Do not push and do not open "+

@@ -56,6 +56,14 @@ mkdir -p ~/.claude/skills
 ln -sfn "$PWD/skill" ~/.claude/skills/cairn
 echo "✓ skill cairn lié dans ~/.claude/skills/cairn"
 
+# Subagents on a light model: the main agent hands them reading and long
+# outputs (searches, tests, CI logs) to keep its own context small.
+mkdir -p ~/.claude/agents
+for a in agents/*.md; do
+  ln -sfn "$PWD/$a" ~/.claude/agents/"$(basename "$a")"
+done
+echo "✓ sous-agents cairn liés dans ~/.claude/agents ($(ls agents/*.md | xargs -n1 basename | sed 's/\.md$//' | paste -sd, - | sed 's/,/, /g'))"
+
 # Claude Code hooks: no push / PR on a cairn chantier without a human's go-ahead,
 # given in cairn or, for a push, asked in the chat.
 python3 - "$cairn_bin" <<'PY'
