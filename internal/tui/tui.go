@@ -91,6 +91,9 @@ type Model struct {
 	scroll   int    // detail pane scroll offset
 
 	detailFocus bool            // keys scroll the detail; when narrow, the detail shows
+	listHidden  bool            // the list is folded away (\), the detail takes the width
+	padX        int             // left and right margin of the screen
+	padTop      int             // blank rows above the header
 	unfold      map[string]bool // "KEY:section" unfolded by hand, "KEY:*" for all
 	filter      string          // "/" filter of the list
 	filtering   bool            // typing the filter
@@ -407,7 +410,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.showImages(msg)
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
+		m.padX, m.padTop = margins(msg.Width, msg.Height)
+		m.width, m.height = msg.Width-2*m.padX, msg.Height-m.padTop
 		return m, nil
 
 	case localMsg:
@@ -501,6 +505,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.key(msg)
 	case tea.MouseMsg:
+		msg.X -= m.padX
+		msg.Y -= m.padTop
+		if msg.X < 0 || msg.Y < 0 || msg.X >= m.width {
+			if msg.Action == tea.MouseActionMotion {
+				m.hoverItem, m.hoverBtn = -1, -1
+			}
+			return m, nil // in the margins
+		}
 		return m.mouse(msg)
 	case tea.FocusMsg:
 		// herdr may drop the pane's mouse mode while another workspace is in
@@ -550,6 +562,9 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case m.narrow() && m.detailFocus:
 			m.detailFocus = false
 			return m, nil
+		case m.listHidden:
+			m.setListHidden(false)
+			return m, nil
 		case m.filter != "":
 			m.filter = ""
 			return m, nil
@@ -559,10 +574,15 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.quit()
 	case "tab":
 		m.detailFocus = !m.detailFocus
+		m.listHidden = m.listHidden && m.detailFocus
 	case "right":
 		m.detailFocus = true
 	case "left":
-		m.detailFocus = false
+		m.detailFocus, m.listHidden = false, false
+	case "\\":
+		if !m.narrow() {
+			m.setListHidden(!m.listHidden)
+		}
 	case "up", "k":
 		if m.detailFocus {
 			m.scrollDetail(-1)
@@ -767,7 +787,9 @@ func (m Model) mouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case ev.Y == 0 && m.narrow() && m.detailFocus:
 		m.detailFocus = false // "‹ esc liste"
-	case ev.Y == 2+bodyH:
+	case ev.Y == 0 && m.listHidden:
+		m.setListHidden(false) // "‹ \ afficher la liste"
+	case ev.Y == m.footerRow():
 		return m.footerClick(ev.X)
 	case row >= 0 && row < bodyH && inList:
 		m.detailFocus = false
@@ -833,7 +855,7 @@ func (m Model) footerClick(x int) (tea.Model, tea.Cmd) {
 func (m Model) hitTest(x, y int) (item, btn int) {
 	item, btn = -1, -1
 	bodyH := m.bodyHeight()
-	if y == 2+bodyH {
+	if y == m.footerRow() {
 		_, hits, _ := m.footer()
 		for i, h := range hits {
 			if h.key != "" && x >= h.x0 && x < h.x1 {

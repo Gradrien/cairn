@@ -164,7 +164,7 @@ buttons, hover a chantier to read its agents' state. Each button also has a key,
 
 The bottom bar only shows what can be done for the selected chantier, the expected action first. Everything else is one
 key away: `ctrl+k` searches every ticket and every action (`val 861`), `?` lists the keys, `/` filters the list, `t`
-shows the chantiers as a board by phase. In a narrow pane, cairn shows one pane at a time (`tab` and `esc` switch).
+shows the chantiers as a board by phase, `\` folds the list away so the detail gets the whole width. In a narrow pane, cairn shows one pane at a time (`tab` and `esc` switch).
 
 <img src="docs/board.png" alt="The board: chantiers by phase, the ones waiting for you outlined in orange" width="100%">
 
@@ -232,6 +232,7 @@ review from the PR view.
 | `t` | tableau | board view: chantiers by phase (`←` `→` `↑` `↓`, `enter` opens the detail) |
 | `/` | | filter the list (`esc` clears) |
 | `tab` | | list ⇄ detail; with the detail focused, `j` `k` scroll it |
+| `\` | replier la liste | fold the list away, the detail takes the width; `\`, `esc` or `←` bring it back |
 | `space` `pgup` | | scroll the detail by a page |
 | `[` `]` | | previous / next section of the detail |
 | `z` | | unfold / fold everything in the detail |

@@ -720,7 +720,7 @@ func (m Model) settingsView() string {
 	}
 	body := lipgloss.NewStyle().Width(m.width).Height(listH).MaxHeight(listH).Render(strings.Join(shown, "\n"))
 	body += "\n" + sLine.Render(strings.Repeat("─", m.width)) + "\n" + xansi.Truncate(hint, m.width, "…")
-	return head + "\n" + m.viewFlash() + "\n" + body + "\n" + m.viewFooter()
+	return head + "\n" + m.viewFlash() + "\n" + body + "\n\n" + m.viewFooter()
 }
 
 func (m Model) settingsButtons() []button {
@@ -774,7 +774,7 @@ func (m Model) settingsMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case ev.Y == 0 && ev.X < lipgloss.Width(backLabel())+1:
 		m.view = ""
-	case ev.Y == 2+m.bodyHeight():
+	case ev.Y == m.footerRow():
 		return m.footerClick(ev.X)
 	case row >= 0 && !s.editing:
 		// A first click selects, a second one acts.

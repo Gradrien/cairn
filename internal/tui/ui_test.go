@@ -276,6 +276,57 @@ func TestNarrowShowsOnePane(t *testing.T) {
 	}
 }
 
+func TestFoldList(t *testing.T) {
+	m := fixture(t, 160, 45)
+	if !strings.Contains(strings.Join(screen(m), "\n"), "Attend ta décision") {
+		t.Fatal("the list shows by default")
+	}
+	m = press(t, m, "\\")
+	text := strings.Join(screen(m), "\n")
+	if strings.Contains(text, "Attend ta décision") || !strings.Contains(text, "afficher la liste") || !strings.Contains(text, "Phase") {
+		t.Errorf("\\ folds the list, the detail takes the width\n%s", text)
+	}
+	if m.detailWidth() < m.width-4 {
+		t.Errorf("folded: detail %d wide on %d", m.detailWidth(), m.width)
+	}
+	for _, k := range []string{"\\", "esc", "left"} {
+		f := press(t, press(t, m, "\\"), "\\") // folded again
+		f = press(t, f, k)
+		if f.listHidden || !strings.Contains(strings.Join(screen(f), "\n"), "Attend ta décision") {
+			t.Errorf("%s brings the list back", k)
+		}
+	}
+	if n := press(t, fixture(t, 80, 30), "\\"); n.listHidden {
+		t.Error("narrow: nothing to fold")
+	}
+}
+
+func TestMargins(t *testing.T) {
+	m := fixture(t, 10, 10)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 45})
+	m = next.(Model)
+	lines := screen(m)
+	if len(lines) != 44 || lines[0] != "" || !strings.HasPrefix(lines[1], "  cairn") {
+		t.Fatalf("a blank row on top, two columns on the left\n%s", strings.Join(lines, "\n"))
+	}
+	for i, l := range lines {
+		if w := ansi.StringWidth(l); w > 160 {
+			t.Errorf("line %d is %d wide", i, w)
+		}
+	}
+	// A click on the footer, margins included, still hits its first button.
+	// The footer is the last row: hovering its first button, margins included,
+	// lights it.
+	next, _ = m.Update(tea.MouseMsg{X: 3, Y: len(lines) - 1, Action: tea.MouseActionMotion})
+	if next.(Model).hoverBtn != 0 {
+		t.Errorf("hover on the first button: %d", next.(Model).hoverBtn)
+	}
+	next, _ = m.Update(tea.MouseMsg{X: 0, Y: len(lines) - 1, Action: tea.MouseActionMotion})
+	if next.(Model).hoverBtn != -1 {
+		t.Error("the margin is not a button")
+	}
+}
+
 // TestDump writes the screens to $CAIRN_DUMP to look at them.
 func TestDump(t *testing.T) {
 	dir := os.Getenv("CAIRN_DUMP")
@@ -285,7 +336,7 @@ func TestDump(t *testing.T) {
 	m := fixture(t, 160, 45)
 	m.rebuildOrder()
 	shots := map[string]Model{"main": m, "board": press(t, m, "t"), "help": press(t, m, "?"), "palette": press(t, m, "ctrl+k", "8", "0", "0"),
-		"answer": press(t, m, "e", "o", "u", "i"), "narrow": press(t, fixture(t, 80, 40), "tab")}
+		"answer": press(t, m, "e", "o", "u", "i"), "narrow": press(t, fixture(t, 80, 40), "tab"), "folded": press(t, m, "\\")}
 	for i := range m.chantiers {
 		mm := m
 		mm.cursor = i

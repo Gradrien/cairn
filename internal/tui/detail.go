@@ -201,7 +201,7 @@ func (b *detailBuilder) addT(target string, s ...string) {
 
 // section starts a section: "── Title count ───────── right".
 func (b *detailBuilder) section(title, count string, right string) {
-	b.add("")
+	b.add("", "") // more air between sections than inside one
 	b.sections = append(b.sections, len(b.lines))
 	head := sDim.Render("── ") + sSection.Render(title)
 	if count != "" {

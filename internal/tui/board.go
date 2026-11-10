@@ -215,7 +215,7 @@ func (m Model) boardView() string {
 	bodyH := m.bodyHeight()
 	body, _ := m.boardLayout(bodyH)
 	foot, _, spill := m.footer()
-	return m.header() + "\n" + spill + "\n" + body + "\n" + foot
+	return m.header() + "\n" + spill + "\n" + body + "\n\n" + foot
 }
 
 func (m Model) boardMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
@@ -226,7 +226,7 @@ func (m Model) boardMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if ev.Button != tea.MouseButtonLeft || ev.Action != tea.MouseActionPress || m.busy != "" {
 		return m, nil
 	}
-	if ev.Y == 2+m.bodyHeight() {
+	if ev.Y == m.footerRow() {
 		return m.footerClick(ev.X)
 	}
 	_, hits := m.boardLayout(m.bodyHeight())

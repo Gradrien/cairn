@@ -318,7 +318,7 @@ func (m Model) commentsView() string {
 		lines[i] = xansi.Truncate(l, m.width, "…")
 	}
 	body := lipgloss.NewStyle().Width(m.width).Height(bodyH).MaxHeight(bodyH).Render(strings.Join(lines, "\n"))
-	return xansi.Truncate(head, m.width, "…") + "\n" + m.viewFlash() + "\n" + body + "\n" + m.viewFooter()
+	return xansi.Truncate(head, m.width, "…") + "\n" + m.viewFlash() + "\n" + body + "\n\n" + m.viewFooter()
 }
 
 func (m Model) commentsButtons() []button {
@@ -394,7 +394,7 @@ func (m Model) commentsMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case ev.Y == 0 && ev.X < lipgloss.Width(backLabel())+1:
 		m.view = ""
-	case ev.Y == 2+bodyH:
+	case ev.Y == m.footerRow():
 		return m.footerClick(ev.X)
 	case ev.Y >= 2 && ev.Y < 2+bodyH:
 		lines, targets := m.commentsLayout(m.width)

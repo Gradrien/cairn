@@ -291,7 +291,7 @@ func (m Model) pickMouse(ev tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case ev.Y == 0 && ev.X < lipgloss.Width(backLabel())+1:
 		m.view = ""
-	case ev.Y == 2+m.bodyHeight():
+	case ev.Y == m.footerRow():
 		return m.footerClick(ev.X)
 	case item >= 0:
 		return m.startTicket(m.pickProject(), p.list[item])
@@ -396,5 +396,5 @@ func (m Model) pickView() string {
 		lines[i] = xansi.Truncate(l, m.width, "…")
 	}
 	body := lipgloss.NewStyle().Width(m.width).Height(bodyH).MaxHeight(bodyH).Render(strings.Join(lines, "\n"))
-	return head + "\n" + m.viewFlash() + "\n" + body + "\n" + m.viewFooter()
+	return head + "\n" + m.viewFlash() + "\n" + body + "\n\n" + m.viewFooter()
 }

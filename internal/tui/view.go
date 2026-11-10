@@ -22,9 +22,17 @@ const narrowWidth = 90
 
 func (m Model) narrow() bool { return m.width < narrowWidth }
 
-// listW is the list's width: about a third of the screen, all of it when narrow.
+// single: one pane at a time, because the screen is narrow or the list was
+// folded away (\) to give the detail the whole width.
+func (m Model) single() bool { return m.narrow() || m.listHidden }
+
+// sepW is the width of the column between the panes: air, the bar, air.
+const sepW = 5
+
+// listW is the list's width: about a third of the screen, all of it when
+// it shows alone.
 func (m Model) listW() int {
-	if m.narrow() {
+	if m.single() {
 		return m.width
 	}
 	return min(60, max(32, m.width*3/10))
@@ -32,25 +40,63 @@ func (m Model) listW() int {
 
 // detailX is the screen column where the detail pane starts.
 func (m Model) detailX() int {
-	if m.narrow() {
+	if m.single() {
 		return 0
 	}
-	return m.listW() + 3
+	return m.listW() + sepW
 }
 
 func (m Model) detailWidth() int {
-	if m.narrow() {
-		return max(20, m.width-2)
+	if m.single() {
+		return max(20, m.width-3)
 	}
-	return max(20, m.width-m.listW()-3)
+	return max(20, m.width-m.listW()-sepW)
 }
 
-func (m Model) showList() bool   { return !m.narrow() || !m.detailFocus }
-func (m Model) showDetail() bool { return !m.narrow() || m.detailFocus }
+func (m Model) showList() bool   { return !m.single() || !m.detailFocus }
+func (m Model) showDetail() bool { return !m.single() || m.detailFocus }
 
 // Screen rows: 0 header, 1 spacer (or a message that found no room below),
-// 2…2+bodyH-1 body, then the button row.
-func (m Model) bodyHeight() int { return max(3, m.height-4) }
+// 2…2+bodyH-1 body, a blank row, then the button row.
+func (m Model) bodyHeight() int { return max(3, m.height-5) }
+
+// footerRow is the screen row of the buttons.
+func (m Model) footerRow() int { return 3 + m.bodyHeight() }
+
+// The screen keeps a margin around everything; mouse events are shifted
+// back by it, so the rest of the code works in margin-free coordinates.
+func margins(w, h int) (x, top int) {
+	switch {
+	case w >= 120:
+		x = 2
+	case w >= 60:
+		x = 1
+	}
+	if h >= 30 {
+		top = 1
+	}
+	return x, top
+}
+
+// framed puts the margins around a rendered screen.
+func (m Model) framed(screen string) string {
+	if m.padX == 0 && m.padTop == 0 {
+		return screen
+	}
+	pad := strings.Repeat(" ", m.padX)
+	lines := strings.Split(screen, "\n")
+	for i, l := range lines {
+		lines[i] = pad + l
+	}
+	return strings.Repeat("\n", m.padTop) + strings.Join(lines, "\n")
+}
+
+// setListHidden folds the list away, the detail taking the focus, or
+// brings it back.
+func (m *Model) setListHidden(hidden bool) {
+	m.listHidden = hidden
+	m.detailFocus = hidden
+}
 
 // ── main view ───────────────────────────────────────────────────────────────
 
@@ -58,6 +104,10 @@ func (m Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
+	return m.framed(m.screen())
+}
+
+func (m Model) screen() string {
 	switch m.view {
 	case "comments":
 		return m.commentsView()
@@ -77,17 +127,17 @@ func (m Model) mainView() string {
 	bodyH := m.bodyHeight()
 	var body string
 	switch {
-	case !m.narrow():
+	case !m.single():
 		left := m.viewList(m.listW(), bodyH)
 		right := m.viewDetail(m.detailWidth(), bodyH)
-		body = lipgloss.JoinHorizontal(lipgloss.Top, left, m.separator(bodyH, " ", " "), right)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, m.separator(bodyH, "  ", "  "), right)
 	case m.detailFocus:
-		body = lipgloss.JoinHorizontal(lipgloss.Top, m.viewDetail(m.detailWidth(), bodyH), m.separator(bodyH, " ", ""))
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.viewDetail(m.detailWidth(), bodyH), m.separator(bodyH, "  ", ""))
 	default:
 		body = m.viewList(m.width, bodyH)
 	}
 	foot, _, spill := m.footer()
-	return m.header() + "\n" + spill + "\n" + body + "\n" + foot
+	return m.header() + "\n" + spill + "\n" + body + "\n\n" + foot
 }
 
 func (m Model) header() string {
@@ -110,6 +160,8 @@ func (m Model) header() string {
 		left += sMuted.Render(i18n.T(" · tableau", " · board"))
 	case m.narrow() && m.detailFocus:
 		left = sTitle.Render("cairn") + "  " + sKey.Render("‹ esc") + sMuted.Render(i18n.T(" liste", " list"))
+	case m.listHidden:
+		left += "   " + sKey.Render("‹ \\") + sMuted.Render(i18n.T(" afficher la liste", " show the list"))
 	}
 	right := m.health()
 	if n := m.newsCount(); n > 0 {
@@ -121,7 +173,7 @@ func (m Model) header() string {
 	if b := m.updateBadge(); b != "" {
 		right = b + "   " + right
 	}
-	if n := m.waitingCount(); n > 0 && (m.view == "board" || (m.narrow() && m.detailFocus)) {
+	if n := m.waitingCount(); n > 0 && (m.view == "board" || (m.single() && m.detailFocus)) {
 		right = sWarn.Render("⚠ "+plural(n, i18n.T("attend ta décision", "waiting for you"), i18n.T("attendent ta décision", "waiting for you"))) + "   " + right
 	}
 	return spread(left, right, m.width)
@@ -387,6 +439,7 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 	default:
 		add(-1, sDim.Render(i18n.T("/ filtrer · ctrl+k tout chercher", "/ filter · ctrl+k search everything")))
 	}
+	add(-1, "")
 	switch {
 	case len(m.chantiers) > 0:
 	case m.loaded:
@@ -409,8 +462,8 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 		if m.hoverItem == shippedItem {
 			l = sHover.Width(w).Render(label)
 		}
-		lines = append(lines, "", l)
-		owners = append(owners, -1, shippedItem)
+		lines = append(lines, "", "", l)
+		owners = append(owners, -1, -1, shippedItem)
 	}
 	group := ""
 	for i, c := range m.chantiers {
@@ -422,10 +475,12 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 		}
 		if g := m.groupOf(c); !toggled && g != group {
 			if group != "" {
-				add(-1, "")
+				add(-1, "", "")
 			}
 			add(-1, groupHeader(g))
 			group = g
+		} else if group != "" || toggled {
+			add(-1, "") // air between two chantiers
 		}
 		mark := " "
 		switch {
@@ -461,7 +516,7 @@ func (m Model) listLayout(w, h int) ([]string, []int) {
 			continue
 		}
 		if !hdr {
-			add(-1, "", sHeader.Render(i18n.T("Hors chantier", "Not on a ticket")))
+			add(-1, "", "", sHeader.Render(i18n.T("Hors chantier", "Not on a ticket")))
 			hdr = true
 		}
 		l := agentIcon(a.Status) + " " + a.Title
@@ -613,12 +668,18 @@ func (m Model) hints() []button {
 	if m.view == "board" {
 		t.label = i18n.T("liste", "list")
 	}
-	return []button{
+	hs := []button{
 		{"n", i18n.T("nouveau", "new"), len(m.projects) > 0},
 		t,
-		{"ctrl+k", "palette", true},
-		{"?", i18n.T("aide", "help"), true},
 	}
+	if m.view == "" && !m.narrow() {
+		list := button{"\\", i18n.T("replier la liste", "fold the list"), true}
+		if m.listHidden {
+			list.label = i18n.T("liste", "list")
+		}
+		hs = append(hs, list)
+	}
+	return append(hs, button{"ctrl+k", "palette", true}, button{"?", i18n.T("aide", "help"), true})
 }
 
 var (
