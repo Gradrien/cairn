@@ -130,6 +130,7 @@ func (m Model) paletteEntries() []palEntry {
 	for _, g := range []button{
 		{"n", i18n.T("Nouveau ticket", "New ticket"), len(m.projects) > 0},
 		{"t", i18n.T("Vue tableau / liste", "Board / list view"), true},
+		{"b", i18n.T("Bureau : les agents au travail", "Office: the agents at work"), true},
 		{"\\", i18n.T("Replier / afficher la liste des chantiers", "Fold / show the ticket list"), m.view == "" && !m.narrow()},
 		{"s", i18n.T("Réglages : projets, dépôts, clés, trackers", "Settings: projects, repositories, keys, trackers"), true},
 		{"l", i18n.T("English", "Français"), true},
@@ -268,6 +269,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 			helpCol(i18n.T("Naviguer", "Move"), [][2]string{
 				{"j k ↑↓", i18n.T("ticket précédent, suivant", "previous, next ticket")},
 				{"tab", i18n.T("liste ⇄ détail", "list ⇄ detail")},
+				{"b", i18n.T("bureau : les agents au travail", "office: the agents at work")},
 				{"\\", i18n.T("replier la liste, le détail prend la largeur", "fold the list, the detail takes the width")},
 				{"espace", i18n.T("détail : page suivante", "detail: next page")},
 				{"pgup", i18n.T("détail : page précédente", "detail: previous page")},

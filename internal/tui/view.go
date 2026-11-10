@@ -119,6 +119,8 @@ func (m Model) screen() string {
 		return m.settingsView()
 	case "board":
 		return m.overlaid(m.boardView())
+	case "office":
+		return m.overlaid(m.officeView())
 	}
 	return m.overlaid(m.mainView())
 }
@@ -158,6 +160,10 @@ func (m Model) header() string {
 	switch {
 	case m.view == "board":
 		left += sMuted.Render(i18n.T(" · tableau", " · board"))
+	case m.view == "office" && m.officeZoom:
+		left += sMuted.Render(i18n.T(" · bureau", " · office")) + "   " + sKey.Render("‹ esc") + sMuted.Render(i18n.T(" open space", " open space"))
+	case m.view == "office":
+		left += sMuted.Render(i18n.T(" · bureau", " · office"))
 	case m.narrow() && m.detailFocus:
 		left = sTitle.Render("cairn") + "  " + sKey.Render("‹ esc") + sMuted.Render(i18n.T(" liste", " list"))
 	case m.listHidden:
@@ -173,7 +179,7 @@ func (m Model) header() string {
 	if b := m.updateBadge(); b != "" {
 		right = b + "   " + right
 	}
-	if n := m.waitingCount(); n > 0 && (m.view == "board" || (m.single() && m.detailFocus)) {
+	if n := m.waitingCount(); n > 0 && (m.view == "board" || m.view == "office" || (m.single() && m.detailFocus)) {
 		right = sWarn.Render("⚠ "+plural(n, i18n.T("attend ta décision", "waiting for you"), i18n.T("attendent ta décision", "waiting for you"))) + "   " + right
 	}
 	return spread(left, right, m.width)
@@ -600,7 +606,7 @@ func (m Model) buttons() []button {
 
 // primaryFirst: the first button is what the selection is waiting for.
 func (m Model) primaryFirst() bool {
-	if m.view != "" && m.view != "board" {
+	if !m.homeView() {
 		return false
 	}
 	c := m.selected()
@@ -671,9 +677,13 @@ func (m Model) hints() []button {
 	if m.view == "board" {
 		t.label = i18n.T("liste", "list")
 	}
+	o := button{"b", i18n.T("bureau", "office"), true}
+	if m.view == "office" {
+		o.label = i18n.T("liste", "list")
+	}
 	hs := []button{
 		{"n", i18n.T("nouveau", "new"), len(m.projects) > 0},
-		t,
+		t, o,
 	}
 	if m.view == "" && !m.narrow() {
 		list := button{"\\", i18n.T("replier la liste", "fold the list"), true}
@@ -776,7 +786,7 @@ func (m Model) footer() (string, []hit, string) {
 		x += w
 	}
 	left := b.String()
-	if m.view != "" && m.view != "board" {
+	if !m.homeView() {
 		return ansi.Truncate(left, m.width, ""), hits, ""
 	}
 	room := m.width - x - 3

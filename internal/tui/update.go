@@ -102,7 +102,7 @@ func (m Model) updateChecked(msg updateMsg) (tea.Model, tea.Cmd) {
 // offerPending opens the offer once you are on the main screen with nothing
 // else open: it never covers a question you are answering, say.
 func (m *Model) offerPending() {
-	if m.upd == nil || !m.upd.pending || m.overlay != "" || (m.view != "" && m.view != "board") ||
+	if m.upd == nil || !m.upd.pending || m.overlay != "" || !m.homeView() ||
 		m.answerQ != "" || m.manualAsk || m.filtering || m.busy != "" {
 		return
 	}

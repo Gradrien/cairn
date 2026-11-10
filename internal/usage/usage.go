@@ -50,21 +50,35 @@ type Entry struct {
 	Tokens Tokens
 }
 
-// Action is the last thing an agent did: a tool and what it touched.
+// Action is something an agent did: a tool and what it touched.
 type Action struct {
-	At     time.Time
-	Agent  string
-	Tool   string
-	Target string
+	At      time.Time
+	Agent   string
+	Tool    string
+	Target  string
+	Command string // Bash: the command itself, Target being its description
+}
+
+// Sub is a subagent the main agent started.
+type Sub struct {
+	Type, Desc  string
+	Model       string
+	Start, Last time.Time
+	Finished    bool
 }
 
 // Report is what the agents of one chantier consumed.
 type Report struct {
 	Entries  []Entry  // oldest first
 	Last     []Action // the last action of each agent, latest first
+	Recent   []Action // the latest actions of every agent, latest first
+	Subagent []Sub    // the subagents, latest started first
 	Sessions int
 	Subs     int // subagents started
 }
+
+// recentKept is how many actions Recent keeps.
+const recentKept = 40
 
 // Dir is where Claude Code keeps transcripts.
 func Dir() string {
@@ -112,11 +126,27 @@ func Read(root, worktree, branch string) Report {
 					continue
 				}
 				rep.Subs++
-				rep.add(sf, subType(sp), worktree, branch, last)
+				meta := readMeta(sp)
+				rep.add(sf, meta.AgentType, worktree, branch, last)
+				sub := Sub{Type: meta.AgentType, Desc: meta.Description, Finished: meta.Finished}
+				for _, m := range sf.msgs {
+					if sub.Start.IsZero() || m.at.Before(sub.Start) {
+						sub.Start = m.at
+					}
+					if m.at.After(sub.Last) {
+						sub.Last, sub.Model = m.at, m.model
+					}
+				}
+				rep.Subagent = append(rep.Subagent, sub)
 			}
 		}
 	}
 	sort.SliceStable(rep.Entries, func(i, j int) bool { return rep.Entries[i].At.Before(rep.Entries[j].At) })
+	sort.SliceStable(rep.Recent, func(i, j int) bool { return rep.Recent[i].At.After(rep.Recent[j].At) })
+	if len(rep.Recent) > recentKept {
+		rep.Recent = rep.Recent[:recentKept]
+	}
+	sort.Slice(rep.Subagent, func(i, j int) bool { return rep.Subagent[i].Start.After(rep.Subagent[j].Start) })
 	for _, a := range last {
 		rep.Last = append(rep.Last, a)
 	}
@@ -135,9 +165,11 @@ func (r *Report) add(f *file, agent, worktree, branch string, last map[string]Ac
 		}
 		r.Entries = append(r.Entries, Entry{m.at, m.model, who, m.tokens})
 		if m.tool != "" {
+			act := Action{m.at, who, m.tool, m.target, m.command}
 			if a, ok := last[who]; !ok || m.at.After(a.At) {
-				last[who] = Action{m.at, who, m.tool, m.target}
+				last[who] = act
 			}
+			r.Recent = append(r.Recent, act)
 		}
 	}
 }
@@ -146,16 +178,24 @@ func inside(cwd, worktree string) bool {
 	return cwd == "" || cwd == worktree || strings.HasPrefix(cwd, worktree+string(filepath.Separator))
 }
 
-// subType reads the subagent's type from the .meta.json next to its transcript.
-func subType(transcript string) string {
-	var meta struct {
-		AgentType string `json:"agentType"`
-	}
+type meta struct {
+	AgentType   string `json:"agentType"`
+	Description string `json:"description"`
+	Finished    bool   `json:"finished"`
+}
+
+// readMeta reads the .meta.json next to a subagent's transcript: its type,
+// its task, whether it finished.
+func readMeta(transcript string) meta {
+	var m meta
 	data, err := os.ReadFile(strings.TrimSuffix(transcript, ".jsonl") + ".meta.json")
-	if err == nil && json.Unmarshal(data, &meta) == nil && meta.AgentType != "" {
-		return meta.AgentType
+	if err == nil {
+		_ = json.Unmarshal(data, &m)
 	}
-	return "subagent"
+	if m.AgentType == "" {
+		m.AgentType = "subagent"
+	}
+	return m
 }
 
 // ── incremental parsing ─────────────────────────────────────────────────────
@@ -165,7 +205,7 @@ type msg struct {
 	at                     time.Time
 	sidechain              bool
 	tokens                 Tokens
-	tool, target           string // the message's last tool call
+	tool, target, command  string // the message's last tool call
 }
 
 type file struct {
@@ -276,13 +316,13 @@ func parse(r io.Reader, f *file) int64 {
 			at: l.Timestamp, sidechain: l.Sidechain, tokens: t}
 		for _, c := range l.Message.Content {
 			if c.Type == "tool_use" {
-				m.tool, m.target = c.Name, target(c.Input)
+				m.tool, m.target, m.command = c.Name, target(c.Input), command(c.Input)
 			}
 		}
 		if i, ok := f.byID[m.id]; ok && m.id != "" {
 			// The same message, one more block: newer usage, keep its tool.
 			if m.tool == "" {
-				m.tool, m.target = f.msgs[i].tool, f.msgs[i].target
+				m.tool, m.target, m.command = f.msgs[i].tool, f.msgs[i].target, f.msgs[i].command
 			}
 			f.msgs[i] = m
 			continue
@@ -293,6 +333,21 @@ func parse(r io.Reader, f *file) int64 {
 		f.byID[m.id] = len(f.msgs)
 		f.msgs = append(f.msgs, m)
 	}
+}
+
+// command is a Bash call's command line, cut short.
+func command(input json.RawMessage) string {
+	var in struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(input, &in) != nil {
+		return ""
+	}
+	s := strings.Join(strings.Fields(in.Command), " ")
+	if r := []rune(s); len(r) > 120 {
+		s = string(r[:119]) + "…"
+	}
+	return s
 }
 
 // target is the short thing a tool call is about: a file, a command, a pattern.

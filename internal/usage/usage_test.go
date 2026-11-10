@@ -42,7 +42,7 @@ func TestRead(t *testing.T) {
 			line("m3", "claude-opus-5-5", "/elsewhere", "main", "2026-11-10T10:02:00Z", 1, 1, 1, 1, ""))
 	sub := filepath.Join(dir, "s1", "subagents", "agent-a1.jsonl")
 	write(t, sub, line("s1", "claude-haiku-5-5", wt+"/api", "yak-861", "2026-11-10T10:03:00Z", 5, 200, 30000, 0, "Grep"))
-	write(t, filepath.Join(dir, "s1", "subagents", "agent-a1.meta.json"), `{"agentType":"cairn-explorer"}`)
+	write(t, filepath.Join(dir, "s1", "subagents", "agent-a1.meta.json"), `{"agentType":"cairn-explorer","description":"Effets de bord","finished":true}`)
 	// A sibling worktree whose name starts the same way is not this chantier.
 	write(t, filepath.Join(root, dirName(wt+"-bis"), "s2.jsonl"), line("x", "claude-opus-5-5", wt+"-bis", "b", "2026-11-10T10:00:00Z", 9, 9, 9, 9, ""))
 
@@ -63,6 +63,13 @@ func TestRead(t *testing.T) {
 	}
 	if len(rep.Last) != 2 || rep.Last[0].Agent != "cairn-explorer" || rep.Last[0].Tool != "Grep" || rep.Last[1].Tool != "Edit" || rep.Last[1].Target != "detail.go" {
 		t.Errorf("last actions %+v", rep.Last)
+	}
+
+	if len(rep.Subagent) != 1 || rep.Subagent[0].Desc != "Effets de bord" || !rep.Subagent[0].Finished || rep.Subagent[0].Model != "claude-haiku-5-5" {
+		t.Errorf("subagents %+v", rep.Subagent)
+	}
+	if len(rep.Recent) != 2 || rep.Recent[0].Tool != "Grep" {
+		t.Errorf("recent %+v", rep.Recent)
 	}
 
 	// A partial line is left for later; appended lines are read incrementally.
