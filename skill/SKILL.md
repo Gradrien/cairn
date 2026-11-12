@@ -24,7 +24,10 @@ attente: Valider le plan   # seulement quand tu as besoin d'une décision humain
 
 ## Approche
 - **Problème** : les admins ne voient pas le modèle d'un freelance dans l'export, ils le recopient à la main.
-- **Fini quand** : l'export a une colonne « Modèle » avec le libellé ; vide si le modèle manque ; l'import CSV marche toujours.
+- **Fini quand** :
+  - l'export a une colonne « Modèle » avec le libellé ;
+  - la cellule est vide si le modèle manque ;
+  - l'import CSV marche toujours.
 - **Existant** : `exportFreelances` (`lib/export/freelances.ts:42`) construit les lignes ; `formatModel` (`lib/labels.ts:12`) donne déjà le libellé sur la fiche.
 - **Choix** : ajouter le champ au select et une colonne au mapper, avec `formatModel`.
 - **Écarté** : le libellé calculé en SQL, qui dupliquerait `formatModel`.
@@ -67,7 +70,9 @@ Lance `pnpm dev`, connecte-toi en admin, ouvre /freelances.
 cairn affiche tout ce fichier :
 - le paragraphe avant le premier `##` devient l'**objectif** ;
 - `## Approche` garde ce que le plan a établi (voir « Construire le plan ») : des puces simples, sans case à cocher,
-  sinon elles seraient comptées comme des tâches ;
+  sinon elles seraient comptées comme des tâches. Un point qui a plusieurs éléments (les critères de **Fini quand**,
+  les fichiers de **Existant**) les met en sous-puces indentées, un par ligne, jamais en un paragraphe numéroté :
+  l'humain lit l'approche point par point ;
 - `- [~]` marque la tâche **en cours** : il n'y en a qu'une à la fois, et c'est celle sur laquelle tu travailles maintenant ;
 - sous `## Questions`, les questions sans `[x]` sont affichées comme **ouvertes** ;
 - `## Effets de bord` est suivi à part (« 2/3 vérifiés ») ;

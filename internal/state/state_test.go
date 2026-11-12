@@ -121,6 +121,10 @@ Ajouter la colonne Modèle.
 - **Choix** : une colonne dans le mapper,
   avec formatModel.
 - **Écarté** : le SQL.
+- **Fini quand** :
+  1. une colonne Modèle
+  2. vide sans modèle
+    - même pour les anciens
 
 - [ ] select
 - [ ] mapper
@@ -131,13 +135,14 @@ Ajouter la colonne Modèle.
 	if len(s.Summary) != 1 {
 		t.Fatalf("summary %q", s.Summary)
 	}
-	want := []string{"**Problème** : les admins recopient le modèle.", "**Choix** : une colonne dans le mapper, avec formatModel.", "**Écarté** : le SQL."}
+	want := []Item{{"**Problème** : les admins recopient le modèle.", 0}, {"**Choix** : une colonne dans le mapper, avec formatModel.", 0},
+		{"**Écarté** : le SQL.", 0}, {"**Fini quand** :", 0}, {"1. une colonne Modèle", 1}, {"2. vide sans modèle", 1}, {"même pour les anciens", 2}}
 	if len(s.Approach) != len(want) {
-		t.Fatalf("approach %q", s.Approach)
+		t.Fatalf("approach %+v", s.Approach)
 	}
 	for i := range want {
 		if s.Approach[i] != want[i] {
-			t.Fatalf("approach[%d] = %q, want %q", i, s.Approach[i], want[i])
+			t.Fatalf("approach[%d] = %+v, want %+v", i, s.Approach[i], want[i])
 		}
 	}
 	if len(s.Tasks) != 2 {

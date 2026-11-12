@@ -37,6 +37,13 @@ type Task struct {
 	Doing bool // "- [~]": started, not finished
 }
 
+// Item is a list item of a prose section, with its nesting level (0 for a
+// top-level item, 1 under it…).
+type Item struct {
+	Text  string
+	Depth int
+}
+
 type State struct {
 	Path        string
 	Ticket      string
@@ -50,7 +57,7 @@ type State struct {
 	Questions   []Task
 	Proofs      []string
 	Summary     []string
-	Approach    []string // "## Approche": what the plan settled (problem, done when, choice…), one item per line
+	Approach    []Item   // "## Approche": what the plan settled (problem, done when, choice…)
 	HowItWorks  string   // the "## Comment ça marche" section, raw markdown
 	Reprise     string   // the "## Reprise" section: an agent's handoff to the next one
 	ManualSetup []string // "## Tester à la main": what to set up before the steps
@@ -67,6 +74,7 @@ var (
 	itemRe  = regexp.MustCompile(`^\s*[-*]\s+(.*)$`)
 	proofHd = regexp.MustCompile(`(?i)^#{1,6}\s+(preuves?|proofs?)\b`)
 	sideHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(effets? de bord|side[ -]effects?)`)
+	apprIt  = regexp.MustCompile(`^(\s*)([-*]|\d+[.)])\s+(.*)$`)
 	apprHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(approche|approach)\b`)
 	questHd = regexp.MustCompile(`(?i)^#{1,6}\s+questions?`)
 	testHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(tester [àa] la main|tests? manuels?|manual tests?|test by hand)\b`)
@@ -206,13 +214,21 @@ func Parse(path, text string) *State {
 			continue
 		}
 		if section == "approach" {
-			if m := itemRe.FindStringSubmatch(l); m != nil {
-				s.Approach = append(s.Approach, strings.TrimSpace(m[1]))
-			} else if t := strings.TrimSpace(l); t != "" && len(s.Approach) > 0 && strings.HasPrefix(l, " ") {
+			t := strings.TrimSpace(l)
+			switch m := apprIt.FindStringSubmatch(l); {
+			case m != nil:
+				text := strings.TrimSpace(m[3])
+				if m[2] != "-" && m[2] != "*" {
+					text = m[2] + " " + text // keep the number of a numbered item
+				}
+				indent := len(strings.ReplaceAll(m[1], "\t", "  "))
+				s.Approach = append(s.Approach, Item{Text: text, Depth: min(indent/2, 2)})
+			case t == "":
+			case len(s.Approach) > 0 && strings.HasPrefix(l, " "):
 				// a wrapped item continues the previous one
-				s.Approach[len(s.Approach)-1] += " " + t
-			} else if t != "" {
-				s.Approach = append(s.Approach, t)
+				s.Approach[len(s.Approach)-1].Text += " " + t
+			default:
+				s.Approach = append(s.Approach, Item{Text: t})
 			}
 			continue
 		}

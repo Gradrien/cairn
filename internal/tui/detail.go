@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -629,23 +630,63 @@ func (m Model) secGoal(b *detailBuilder, c *chantier.Chantier) {
 }
 
 // secApproach shows "## Approche": in full while the plan waits for approval,
-// folded once the work is under way (it is then a reference).
+// folded once the work is under way (it is then a reference). Each top-level
+// point gets air above it and its label ("Choix :") in bold, so a long
+// approach reads point by point; sub-points sit indented under theirs.
 func (m Model) secApproach(b *detailBuilder, c *chantier.Chantier) {
 	s := c.State
 	if s == nil || len(s.Approach) == 0 {
 		return
 	}
+	top := 0
+	for _, it := range s.Approach {
+		if it.Depth == 0 {
+			top++
+		}
+	}
 	b.section(i18n.T("Approche", "Approach"), "", "")
 	if c.Phase >= chantier.Build && !m.unfolded(c.Key, "approach") {
-		b.addT("fold:approach", "  "+sMuted.Render(plural(len(s.Approach), i18n.T("point", "item"), i18n.T("points", "items")))+"  "+sKey.Render(i18n.T("› afficher", "› show")))
+		b.addT("fold:approach", "  "+sMuted.Render(plural(top, i18n.T("point", "item"), i18n.T("points", "items")))+"  "+sKey.Render(i18n.T("› afficher", "› show")))
 		return
 	}
-	for _, a := range s.Approach {
-		b.add(hang("  • ", plainMD(a), b.w)...)
+	for i, it := range s.Approach {
+		if it.Depth == 0 && i > 0 {
+			b.add("")
+		}
+		b.add(approachLines(it, b.w)...)
 	}
 	if c.Phase >= chantier.Build {
+		b.add("")
 		b.addT("fold:approach", "  "+sKey.Render(i18n.T("‹ replier", "‹ fold")))
 	}
+}
+
+var (
+	approachBullets = []string{"•", "◦", "·"}
+	numbered        = regexp.MustCompile(`^(\d+[.)])\s+(.*)$`)
+)
+
+// approachLines renders one point: its bullet by depth, then its text, with
+// a leading "**label**" in bold.
+func approachLines(it state.Item, w int) []string {
+	label, rest := "", it.Text
+	if strings.HasPrefix(rest, "**") {
+		if end := strings.Index(rest[2:], "**"); end > 0 {
+			label, rest = rest[2:2+end], rest[4+end:]
+		}
+	}
+	bullet := approachBullets[min(it.Depth, 2)]
+	if m := numbered.FindStringSubmatch(rest); m != nil && label == "" {
+		bullet, rest = m[1], m[2] // a numbered point keeps its number as bullet
+	}
+	prefix := strings.Repeat("  ", it.Depth+1) + sMuted.Render(bullet) + " "
+	lines := hang(prefix, plainMD(label+rest), w)
+	if label != "" {
+		if first, ok := strings.CutPrefix(lines[0], prefix+label); ok {
+			lines[0] = prefix + sBold.Render(label) + first
+		}
+	}
+	return lines
 }
 
 func (m Model) secProofs(b *detailBuilder, c *chantier.Chantier) {
