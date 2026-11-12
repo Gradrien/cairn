@@ -80,8 +80,9 @@ type Model struct {
 	all       []*chantier.Chantier // chantiers, shipped ones the list hides included
 	others    []herdr.Agent
 	cursor    int
-	hoverItem int // list item under the mouse, -1 for none
-	hoverBtn  int // button under the mouse, -1 for none
+	hoverItem int       // list item under the mouse, -1 for none
+	hoverBtn  int       // button under the mouse, -1 for none
+	sel       selection // text dragged over, to copy
 
 	// Code and PR progress of chantiers, read on demand for the selection.
 	gits     map[string]progress.Git
@@ -558,10 +559,21 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.sel.on {
+			m.sel = selection{}
+			if msg.String() == "esc" {
+				return m, nil // esc only drops the selection
+			}
+		}
 		return m.key(msg)
 	case tea.MouseMsg:
 		msg.X -= m.padX
 		msg.Y -= m.padTop
+		next, cmd, done := m.selectMouse(msg)
+		if done {
+			return next, cmd
+		}
+		m = next
 		if msg.X < 0 || msg.Y < 0 || msg.X >= m.width {
 			if msg.Action == tea.MouseActionMotion {
 				m.hoverItem, m.hoverBtn = -1, -1

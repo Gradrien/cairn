@@ -189,7 +189,8 @@ their `file:line`. Markdown is rendered and bot noise is folded away.
 - A herdr plugin brings cairn back every time herdr starts.
 
 Everything works with the mouse: click to select, click again to jump to the agent, scroll anywhere, hover the
-buttons, hover a chantier to read its agents' state. Each button also has a key, shown on it.
+buttons, hover a chantier to read its agents' state, drag over text to copy it (it keeps to the pane it started in; `esc`
+clears the highlight). Each button also has a key, shown on it.
 
 The bottom bar only shows what can be done for the selected chantier, the expected action first. Everything else is one
 key away: `ctrl+k` searches every ticket and every action (`val 861`), `?` lists the keys, `/` filters the list, `t`
