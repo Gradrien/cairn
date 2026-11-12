@@ -97,8 +97,8 @@ Décision : on garde le titre.
 	if len(s.Tasks) != 3 || Count(s.Tasks, true) != 1 || Count(s.Tasks, false) != 1 {
 		t.Fatalf("tasks %+v", s.Tasks)
 	}
-	if q := s.OpenQuestions(); len(q) != 1 || q[0] != "Garder le titre ?" {
-		t.Fatalf("questions %q", q)
+	if q := s.OpenQuestions(); len(q) != 1 || q[0].Text != "Garder le titre ?" {
+		t.Fatalf("questions %+v", q)
 	}
 	if len(s.SideEffects) != 2 || Count(s.SideEffects, true) != 1 {
 		t.Fatalf("side %+v", s.SideEffects)
@@ -135,8 +135,8 @@ Ajouter la colonne Modèle.
 	if len(s.Summary) != 1 {
 		t.Fatalf("summary %q", s.Summary)
 	}
-	want := []Item{{"**Problème** : les admins recopient le modèle.", 0}, {"**Choix** : une colonne dans le mapper, avec formatModel.", 0},
-		{"**Écarté** : le SQL.", 0}, {"**Fini quand** :", 0}, {"1. une colonne Modèle", 1}, {"2. vide sans modèle", 1}, {"même pour les anciens", 2}}
+	want := []Item{{Text: "**Problème** : les admins recopient le modèle."}, {Text: "**Choix** : une colonne dans le mapper, avec formatModel."},
+		{Text: "**Écarté** : le SQL."}, {Text: "**Fini quand** :"}, {Text: "1. une colonne Modèle", Depth: 1}, {Text: "2. vide sans modèle", Depth: 1}, {Text: "même pour les anciens", Depth: 2}}
 	if len(s.Approach) != len(want) {
 		t.Fatalf("approach %+v", s.Approach)
 	}
@@ -296,5 +296,126 @@ func TestReprise(t *testing.T) {
 	s := Parse("/p/YAK-1.md", "---\nphase: build\n---\n# YAK-1\n\n- [x] a\n- [~] b\n\n## Reprise\nJ'en suis à b.\n\n### Pièges\n- le cache\n\n## Preuves\n- ok\n")
 	if s.Reprise != "J'en suis à b.\n\n### Pièges\n- le cache" || len(s.Proofs) != 1 || len(s.Tasks) != 2 {
 		t.Errorf("reprise %q proofs %v tasks %v", s.Reprise, s.Proofs, s.Tasks)
+	}
+}
+
+// From YAK-838: the options of a question stay under it.
+func TestQuestionOptions(t *testing.T) {
+	s := Parse("/x", "---\nphase: plan\n---\n# YAK-838 · T\n\n## Questions\n"+
+		"- **4. Spé orpheline** : aujourd'hui, la requête n'atteint une spé que si son métier est sur le deal (`freelance.ts:771-795`). Un deal sans métier n'a aucune cible.\n"+
+		"  - (a) Garder le ciblage actuel : le point affiche 0 et le bouton est grisé.\n"+
+		"  - (b) Élargir l'envoi aux expertises de la spé : cela change le premier envoi.\n"+
+		"\n"+
+		"  Je recommande (a) : il ne change pas qui reçoit l'email.\n"+
+		"- [x] **5. Envoi à 0 destinataire** → oui : on enregistre une ligne.\n")
+	qs := s.OpenQuestions()
+	if len(s.Questions) != 2 || len(qs) != 1 {
+		t.Fatalf("questions %+v", s.Questions)
+	}
+	q := qs[0]
+	if !strings.HasSuffix(q.Text, "n'a aucune cible.") || len(q.Options) != 2 {
+		t.Fatalf("question %+v", q)
+	}
+	if q.Options[0] != (Option{"a", "Garder le ciblage actuel : le point affiche 0 et le bouton est grisé."}) || q.Options[1].Key != "b" {
+		t.Fatalf("options %+v", q.Options)
+	}
+	if q.Recommended != 0 || !strings.HasPrefix(q.Recommendation, "Je recommande (a)") || len(q.Body) != 0 {
+		t.Fatalf("recommendation %d %q body %+v", q.Recommended, q.Recommendation, q.Body)
+	}
+	if p := s.Lint(); len(p) != 0 {
+		t.Fatalf("lint %v", p)
+	}
+	if q.Answer(1) != "(b) Élargir l'envoi aux expertises de la spé : cela change le premier envoi." {
+		t.Fatalf("answer %q", q.Answer(1))
+	}
+}
+
+// Agents do not align sub-items on the parent's text, nor always indent them.
+func TestQuestionShapes(t *testing.T) {
+	for name, tc := range map[string]struct {
+		text string
+		keys string
+		reco int
+	}{
+		"numbered question, 2-space options": {"1. Garder ?\n  - (a) oui\n  - (b) non\n  - Recommandation : b\n", "ab", 1},
+		"options at the margin":              {"- Garder ?\n- (a) oui\n- (b) non\n\nJe recommande l'option a.\n", "ab", 0},
+		"options without a dash":             {"- Garder ?\n  (a) oui\n  (b) non\n", "ab", -1},
+		"lettered":                           {"- Garder ?\n  a) oui\n  b) non (recommandé)\n", "ab", 1},
+		"numbered options":                   {"- Garder ?\n  1. oui\n  2. non\n  - **Recommandation** : 2\n", "12", 1},
+		"option words":                       {"- Garder ?\n  - **Option A** : oui\n  - **Option B** : non\n  - Recommandé : option B\n", "ab", 1},
+		"bold keys":                          {"- Garder ?\n  - **(a)** oui\n  - **(b)** non\n", "ab", -1},
+		"under an Options item":              {"- Garder ?\n  - **Contexte** : rien n'oblige.\n    - un détail\n  - **Options** :\n    - (a) oui\n    - (b) non\n\n  Je recommande (b).\n", "ab", 1},
+	} {
+		s := Parse("/x", "## Questions\n"+tc.text)
+		if len(s.Questions) != 1 {
+			t.Errorf("%s: %d questions %+v", name, len(s.Questions), s.Questions)
+			continue
+		}
+		q, keys := s.Questions[0], ""
+		for _, o := range q.Options {
+			keys += o.Key
+		}
+		if keys != tc.keys || q.Recommended != tc.reco || q.Options[0].Text != "oui" {
+			t.Errorf("%s: keys %q reco %d %+v", name, keys, q.Recommended, q)
+		}
+	}
+}
+
+// From YAK-801: what is under a task belongs to it, nothing is cut.
+func TestTaskBody(t *testing.T) {
+	s := Parse("/x", "---\nphase: plan\n---\n# YAK-801 · T\n\n"+
+		"- [ ] **5. Hasura action** : handlers sur le modèle de `removeDeal`. Erreurs :\n"+
+		"  - deal non publié → `actionError` ;\n"+
+		"  - rôle freelance → refus.\n"+
+		"\n"+
+		"  Tests de route : chaque refus, puis le succès.\n"+
+		"  ```sh\n  # pas un titre\n  pnpm test\n  ```\n"+
+		"- [ ] **6. UI** : le bouton.\n"+
+		"  - [x] sous-tâche\n"+
+		"\n## Effets de bord\n- [ ] export\n  qui continue\n  - détail\n")
+	if len(s.Tasks) != 3 || s.Tasks[2].Text != "sous-tâche" || !s.Tasks[2].Done {
+		t.Fatalf("tasks %+v", s.Tasks)
+	}
+	want := []Item{{Text: "deal non publié → `actionError` ;"}, {Text: "rôle freelance → refus."},
+		{Text: "Tests de route : chaque refus, puis le succès.", Plain: true}, {Text: "  # pas un titre", Code: true}, {Text: "  pnpm test", Code: true}}
+	if len(s.Tasks[0].Body) != len(want) {
+		t.Fatalf("body %+v", s.Tasks[0].Body)
+	}
+	for i := range want {
+		if s.Tasks[0].Body[i] != want[i] {
+			t.Errorf("body[%d] = %+v, want %+v", i, s.Tasks[0].Body[i], want[i])
+		}
+	}
+	if len(s.Tasks[1].Body) != 0 {
+		t.Errorf("a sub-task is a task, not body: %+v", s.Tasks[1].Body)
+	}
+	if len(s.SideEffects) != 1 || s.SideEffects[0].Text != "export qui continue" || len(s.SideEffects[0].Body) != 1 {
+		t.Errorf("side %+v", s.SideEffects)
+	}
+	if !s.TickSide(0, true) || !strings.Contains(s.String(), "- [x] export\n") {
+		t.Errorf("tick:\n%s", s.String())
+	}
+}
+
+func TestLint(t *testing.T) {
+	s := Parse("/x", "---\nphase: plan\n---\n# T\n\n- [~] a\n- [~] b\n\n## Questions\n"+
+		"- Garder ?\n  - oui\n  - non\n"+
+		"- Migrer ?\n  - (a) script\n  - (b) migration\n"+
+		"- Seul ?\n  - (a) oui\n"+
+		"- Lequel ?\n  - (a) x\n  - (b) y\n  - Recommandation : (c)\n")
+	var got []string
+	for _, p := range s.Lint() {
+		got = append(got, p.String())
+	}
+	all := strings.Join(got, "\n")
+	for _, want := range []string{"ligne 7 : 2 tâches en cours", "ligne 10 : question « Garder ? » : 2 sous-puces sans clé",
+		"ligne 13 : question « Migrer ? » : pas de recommandation", "ligne 16 : question « Seul ? » : une seule option",
+		"ligne 18 : question « Lequel ? » : la recommandation nomme (c)"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing %q in:\n%s", want, all)
+		}
+	}
+	if len(got) != 5 {
+		t.Errorf("%d problems:\n%s", len(got), all)
 	}
 }

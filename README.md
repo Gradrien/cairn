@@ -60,7 +60,8 @@ checked off before the PR counts as ready.
 
 **Approve with one click.** When the plan is ready, the chantier jumps to the top. A card at the top of its detail says
 what it waits for and since when, with the buttons that do it. Answer the open questions right under them (`› répondre`,
-or `e`: your answer goes to the agent as is), press `Valider`, and the agent starts building.
+or `e`): a question with options opens as a list, like the agent's own questions, with its recommendation marked;
+pick one, or answer in your own words. Press `Valider`, and the agent starts building.
 
 **The screen follows the phase.** While planning, the questions, tasks and side effects come first. While building, what
 is in progress and what is left; finished tasks fold away. Before a push, the side effects still to check. In review, the
@@ -322,7 +323,11 @@ form. If a `repo` is wrong, cairn says so on startup and points to the file.
 
 - **Plan files.** Agents keep `~/.cairn/chantiers/<TICKET>.md` up to date through the `cairn` skill (`skill/SKILL.md`):
   front matter (`phase`, `attente`, `push`), a summary, tasks (`[ ]`, `[~]`, `[x]`), `## Questions`,
-  `## Effets de bord` (side effects), `## Tester à la main` (manual test steps), `## Preuves` (proofs).
+  `## Effets de bord` (side effects), `## Tester à la main` (manual test steps), `## Preuves` (proofs). cairn reads
+  it as an outline: what is written under an item (sub-items, indented paragraphs, code) stays with it, however the
+  agent indents it. `cairn sync` also checks the plan of the current ticket and tells the agent what cairn could not
+  show as meant (an option without a key, a choice with no recommendation…), the way a tool call that does not match
+  its schema is sent back to the model.
 - **Matching.** A worktree belongs to a ticket when its branch contains the key (`eng-123`), with the prefix of the
   project whose repository it is. An agent belongs to it when it works in that worktree, or when its name or title
   mentions the ticket. A PR belongs to it when the tracker links them, or when it comes from the chantier's branch.

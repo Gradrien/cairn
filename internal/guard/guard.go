@@ -158,3 +158,10 @@ func resolve(base, p string) string {
 	}
 	return filepath.Join(base, p)
 }
+
+// PlanAt is the plan of the chantier checked out in dir, with its key; a nil
+// plan means dir is not on a chantier's branch.
+func PlanAt(dir string, keys []string, chantiersDir string) (string, *state.State) {
+	key, s, _ := chantierAt(dir, keys, chantiersDir)
+	return key, s
+}

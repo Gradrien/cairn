@@ -18,6 +18,7 @@ import (
 	"cairn/internal/home"
 	"cairn/internal/i18n"
 	"cairn/internal/images"
+	"cairn/internal/state"
 	"cairn/internal/tui"
 	"cairn/internal/update"
 )
@@ -40,7 +41,9 @@ func usage() string {
   cairn projects   liste les projets suivis
   cairn open       affiche cairn dans son propre espace herdr, ou revient à l'espace
                    d'avant s'il est déjà devant (c'est la touche herdr prefix+a)
-  cairn sync       pousse la phase de chaque chantier dans la barre latérale herdr
+  cairn sync [TICKET]
+                   pousse la phase de chaque chantier dans la barre latérale herdr, et
+                   vérifie le plan du chantier courant (ou de TICKET)
                    (appelé par les agents après avoir modifié leur fichier de chantier)
   cairn guard      hook Claude Code (PreToolUse) : sur un chantier, bloque git push tant que
                    le push n'est pas autorisé, gh pr create tant que la PR ne l'est pas,
@@ -61,7 +64,9 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
   cairn projects   lists the projects
   cairn open       shows cairn in its own herdr workspace, or goes back to the previous
                    workspace if cairn is already in front (herdr key prefix+a)
-  cairn sync       pushes each ticket's phase to herdr's sidebar
+  cairn sync [TICKET]
+                   pushes each ticket's phase to herdr's sidebar, and checks the plan
+                   of the current ticket (or of TICKET)
                    (called by agents after they edit their ticket file)
   cairn guard      Claude Code hook (PreToolUse): on a ticket, blocks git push until the
                    push is allowed, gh pr create until the PR is, and gh pr merge always
@@ -156,13 +161,50 @@ func main() {
 			fail(err)
 		}
 	case "sync":
-		if err := sync(cfg); err != nil {
+		// The plan is checked first: an agent that cannot reach herdr must
+		// still hear that its plan does not show as it meant.
+		report := lintPlan(cfg, flag.Arg(1))
+		err := sync(cfg)
+		if report != "" {
+			fmt.Print(report)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, i18n.T("cairn :", "cairn:"), err)
+			}
+			os.Exit(1)
+		}
+		if err != nil {
 			fail(err)
 		}
 	default:
 		flag.Usage()
 		os.Exit(2)
 	}
+}
+
+// lintPlan checks the plan of the ticket key, or of the chantier checked out
+// in the current directory, and says what to fix; "" when it is fine.
+func lintPlan(cfg config.Config, key string) string {
+	var s *state.State
+	if key != "" {
+		key = strings.ToUpper(key)
+		s, _ = state.Load(state.PathFor(config.ChantiersDir(), key))
+	} else if dir, err := os.Getwd(); err == nil {
+		key, s = guard.PlanAt(dir, cfg.Keys(), config.ChantiersDir())
+	}
+	if s == nil {
+		return ""
+	}
+	problems := s.Lint()
+	if len(problems) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, i18n.T("cairn : le plan de %s (%s) ne s'affiche pas comme tu l'as voulu. Corrige ces points, puis relance `cairn sync` :\n",
+		"cairn: the plan of %s (%s) does not show the way you meant. Fix these points, then run `cairn sync` again:\n"), key, s.Path)
+	for _, p := range problems {
+		fmt.Fprintf(&b, "  - %s\n", p)
+	}
+	return b.String()
 }
 
 // sync pushes sidebar tokens from local state only (no network).

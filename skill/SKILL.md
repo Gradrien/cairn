@@ -39,7 +39,11 @@ attente: Valider le plan   # seulement quand tu as besoin d'une décision humain
 - [ ] une tâche vérifiable à faire
 
 ## Questions
-- Une question qui attend une réponse humaine ?
+- Une question ouverte qui attend une réponse humaine ?
+- **Ciblage** : que fait-on pour un deal sans métier ?
+  - (a) Garder le ciblage actuel : le compteur affiche 0.
+  - (b) Élargir l'envoi aux expertises de la spé : change aussi le premier envoi.
+  - Recommandation : (a), parce qu'il ne change pas qui reçoit l'email.
 - [x] Une question tranchée → la réponse retenue
 
 ## Effets de bord
@@ -74,7 +78,16 @@ cairn affiche tout ce fichier :
   les fichiers de **Existant**) les met en sous-puces indentées, un par ligne, jamais en un paragraphe numéroté :
   l'humain lit l'approche point par point ;
 - `- [~]` marque la tâche **en cours** : il n'y en a qu'une à la fois, et c'est celle sur laquelle tu travailles maintenant ;
-- sous `## Questions`, les questions sans `[x]` sont affichées comme **ouvertes** ;
+- sous `## Questions`, les questions sans `[x]` sont affichées comme **ouvertes**. Une question à choix
+  s'affiche comme dans ton chat : l'humain sélectionne une option, ou répond avec ses mots. Pour ça :
+  - une puce par question, sans case `[ ]` tant qu'elle est ouverte, et le contexte dans son texte ou dans des
+    sous-puces sans clé ;
+  - les choix en sous-puces `(a)`, `(b)`, `(c)`… : un choix par sous-puce, avec sa conséquence après « : ». Ne
+    mets pas une option en puce de premier niveau, ce serait une autre question ;
+  - puis une sous-puce `Recommandation : (x), parce que…`. cairn la met en avant ;
+  - une fois tranchée : `- [x] La question → la réponse retenue`.
+- ce que tu écris sous un élément (sous-puces, paragraphe indenté, bloc de code) s'affiche sous lui, à toutes les
+  sections : une tâche peut détailler ses étapes ou ses cas d'erreur en sous-puces ;
 - `## Effets de bord` est suivi à part (« 2/3 vérifiés ») ;
 - sous `## Preuves`, chaque élément de liste est une preuve ;
 - `## Comment ça marche` s'ouvre en plein écran (`i`) : c'est là que l'humain lit comment le ticket est construit.
@@ -111,8 +124,9 @@ toutes. Ce qu'elles établissent va sous `## Approche`, les tâches en dessous.
    existe déjà.
 4. **Choisir l'approche.** S'il y a plus d'une façon de faire, compare-les en une ligne chacune et garde la plus simple
    qui remplit les critères (**Choix**, **Écarté** avec la raison). Si le choix engage le produit ou l'architecture
-   (comportement visible, modèle de données, nouvelle dépendance), ne tranche pas seul : pose la question avec les
-   options, la conséquence de chacune et ta recommandation. Écris ce que tu ne fais pas (**Hors périmètre**).
+   (comportement visible, modèle de données, nouvelle dépendance), ne tranche pas seul : pose la question sous
+   `## Questions`, avec les options en `(a)`, `(b)`…, la conséquence de chacune et ta recommandation (voir « Le
+   fichier »). Écris ce que tu ne fais pas (**Hors périmètre**).
 5. **Lever le risque d'abord.** Repère ce qui peut faire échouer le plan : une API ou une bibliothèque mal connue, un
    volume de données, un comportement que tu supposes sans l'avoir vu (**Risque**). Vérifie-le pendant le plan (lis le
    code, lance une commande courte). Si ce n'est pas possible, fais-en la première tâche, en disant ce qu'on fait si
@@ -197,7 +211,10 @@ toutes. Ce qu'elles établissent va sous `## Approche`, les tâches en dessous.
   Si le changement ne peut pas s'essayer à la main (refacto interne, script de migration sans effet visible), écris
   juste une ligne sous le titre qui dit pourquoi et ce qui le couvre à la place (les tests, la CI).
 - **Les preuves** sont des choses réellement exécutées : la commande, son résultat et la date. Jamais une affirmation sans exécution.
-- **Après chaque modification du fichier**, lance `cairn sync` pour mettre à jour la barre latérale de herdr. S'il échoue, ce n'est pas grave : continue.
+- **Après chaque modification du fichier**, lance `cairn sync` (depuis le worktree du ticket, ou `cairn sync <TICKET>`).
+  Il met à jour la barre latérale de herdr et **vérifie le plan** : s'il liste des points (« ligne 134 : question
+  « … » : pas de recommandation… »), c'est que cairn ne peut pas afficher le fichier comme tu l'as voulu. Corrige-les
+  et relance-le. S'il échoue pour une autre raison (herdr absent), ce n'est pas grave : continue.
 - **Le ticket vit là où le projet le range.** Avec Linear ou Sprintosaur, ses règles s'appliquent toujours (PR liée au
   ticket, commentaire de fin) : lis-le avec l'outil du tracker (MCP Linear, skill sprintosaur). Sans tracker, le ticket
   n'est que ce fichier : son titre dit tout, ce qui manque se demande sous `## Questions`. Dans tous les cas, mets la clé
