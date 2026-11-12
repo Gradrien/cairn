@@ -108,7 +108,7 @@ func (m Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
-	return m.framed(m.screen())
+	return m.framed(m.highlighted(m.screen()))
 }
 
 func (m Model) screen() string {
