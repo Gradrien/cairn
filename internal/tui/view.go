@@ -665,7 +665,11 @@ func (m Model) chantierButtons(c *chantier.Chantier) []button {
 		push(button{"i", howTitle(), plan.HowItWorks != "" || c.Phase >= chantier.Build})
 	}
 	push(button{"o", "Ticket", c.Issue != nil && c.Issue.URL != ""})
-	push(button{"x", i18n.T("Fermer", "Close"), c.Phase == chantier.Shipped})
+	if abandonable(c) {
+		push(button{"x", i18n.T("Abandonner", "Abandon"), true})
+	} else {
+		push(button{"x", i18n.T("Fermer", "Close"), c.Phase == chantier.Shipped})
+	}
 	return bs
 }
 

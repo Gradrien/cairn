@@ -428,9 +428,37 @@ func TestCloseAsksFirst(t *testing.T) {
 	if m.busy != "" {
 		t.Fatal("nothing happens before you confirm")
 	}
-	// Not shipped: nothing to close.
-	m.overlay, m.cursor = "", 0
+	// Not shipped, no plan and no worktree: nothing to close or abandon.
+	bare := &chantier.Chantier{Key: "YAK-771", Phase: chantier.ToPlan, Issue: &tracker.Issue{ID: "YAK-771", Title: "Rien"}}
+	m.chantiers = append(m.chantiers, bare)
+	m.all = m.chantiers
+	m.overlay, m.cursor = "", len(m.chantiers)-1
 	if m = press(t, m, "x"); m.overlay != "" {
-		t.Fatal("only a shipped chantier closes")
+		t.Fatal("a ticket with nothing to put away does not close")
+	}
+}
+
+func TestAbandonAsksFirst(t *testing.T) {
+	m := fixture(t, 160, 45)
+	c := &chantier.Chantier{Key: "YAK-772", Phase: chantier.Plan, Worktree: "/w/772", Branch: "adrien/yak-772",
+		State: &state.State{}, PRs: []tracker.PullRequest{{Number: 9, State: "draft"}},
+		Issue: &tracker.Issue{ID: "YAK-772", Title: "Plus pour moi", Status: "Todo"}}
+	m.chantiers = append(m.chantiers, c)
+	m.all = m.chantiers
+	m.cursor = len(m.chantiers) - 1
+	if text := strings.Join(screen(m), "\n"); !strings.Contains(text, "x Abandonner") {
+		t.Errorf("detail misses the abandon button:\n%s", text)
+	}
+	m = press(t, m, "x")
+	next, _ := m.Update(closeRiskMsg{key: "YAK-772", risk: closeRisk{unpushed: 1}})
+	m = next.(Model)
+	text := strings.Join(screen(m), "\n")
+	for _, want := range []string{"Abandonner YAK-772 ?", "1 commit absent de GitHub sera perdu", "#9", "reste ouverte", "désassigne-le", "Abandonner et supprimer le worktree"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("confirmation misses %q:\n%s", want, text)
+		}
+	}
+	if m.busy != "" {
+		t.Fatal("nothing happens before you confirm")
 	}
 }
