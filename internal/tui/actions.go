@@ -131,10 +131,12 @@ type cleanedMsg struct {
 // herdr workspace (agents included) are removed and its plan archived. On its
 // own it only runs when nothing can be lost: no uncommitted change, no commit
 // missing from GitHub, no agent at work. force is you closing it by hand
-// after seeing what goes. The main checkout is never touched.
+// after seeing what goes. The main checkout is never touched. A chantier
+// that is not shipped is one you abandon: the same cleanup, said as such.
 func (m Model) cleanup(c *chantier.Chantier, force bool) tea.Cmd {
 	key, wt := c.Key, c.Worktree
 	linked := wt != "" && !c.Main
+	abandon := c.Phase != chantier.Shipped
 	for _, a := range c.Agents {
 		if a.Status == "working" && !force {
 			return func() tea.Msg {
@@ -173,13 +175,18 @@ func (m Model) cleanup(c *chantier.Chantier, force bool) tea.Cmd {
 		}
 		dir := config.ChantiersDir()
 		if _, err := os.Stat(state.PathFor(dir, key)); err == nil || linked {
-			_ = journal.Append(dir, key, "rangé")
+			_ = journal.Append(dir, key, map[bool]string{false: "rangé", true: "abandonné"}[abandon])
 			if err := journal.Archive(dir, key); err != nil {
 				return cleanedMsg{key: key, err: err}
 			}
 		}
 		text := ""
-		if linked {
+		switch {
+		case abandon && linked:
+			text = key + i18n.T(" abandonné : worktree et espace herdr supprimés, plan archivé.", " abandoned: worktree and herdr workspace removed, plan archived.")
+		case abandon:
+			text = key + i18n.T(" abandonné : plan archivé.", " abandoned: plan archived.")
+		case linked:
 			text = key + i18n.T(" livré : worktree et espace herdr supprimés, plan archivé.", " shipped: worktree and herdr workspace removed, plan archived.")
 		}
 		return cleanedMsg{key: key, text: text}
@@ -208,12 +215,18 @@ type closeRiskMsg struct {
 	risk closeRisk
 }
 
-// openClose asks before closing a shipped chantier: worktree, herdr
-// workspace and agents go, the plan is archived.
+// abandonable: a chantier not shipped that has something to put away, a plan
+// or a worktree of its own. Its ticket and PR are left as they are.
+func abandonable(c *chantier.Chantier) bool {
+	return c != nil && c.Phase != chantier.Shipped && (c.State != nil || (c.Worktree != "" && !c.Main))
+}
+
+// openClose asks before closing a shipped chantier, or abandoning one you no
+// longer take: worktree, herdr workspace and agents go, the plan is archived.
 func (m Model) openClose() (tea.Model, tea.Cmd) {
 	c := m.selected()
-	if c == nil || c.Phase != chantier.Shipped {
-		m.say(i18n.T("Seul un chantier livré se ferme : sa PR doit être mergée.", "Only a shipped ticket closes: its PR must be merged."), nil)
+	if c == nil || (c.Phase != chantier.Shipped && !abandonable(c)) {
+		m.say(i18n.T("Rien à fermer ni à abandonner : ce ticket n'a ni plan ni worktree.", "Nothing to close or abandon: this ticket has no plan and no worktree."), nil)
 		return m, nil
 	}
 	m.overlay, m.closeKey, m.closeRisk = "close", c.Key, nil

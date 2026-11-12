@@ -250,7 +250,7 @@ review from the PR view.
 | `v` | Valider | approve what is waiting (plan approved → Build) |
 | `e` | Répondre | answer the plan's open questions; the answer goes to the agent |
 | `a` | Autoriser le push | review what will leave, then allow that commit to leave (push, PR, retries; free once the PR is open) |
-| `x` | Fermer le chantier | on a shipped ticket: see what would be lost, then remove its worktree and archive its plan |
+| `x` | Fermer le chantier / Abandonner | on a shipped ticket: see what would be lost, then remove its worktree and archive its plan. On a ticket you no longer take (not shipped, with a plan or a worktree): the same, its branch, PR and ticket left as they are |
 | `h` | Tester ici | try the chantier in your main checkout, where the env, secrets, packages and running stack already are: it moves to the branch's last commit (detached), your uncommitted changes there are stashed; `h` again catches up with new commits, then puts the checkout back and restores them |
 | `U` | Mettre à jour | see what changed on `main` since your install, then update and restart cairn |
 | `c` | Commentaires | PR conversation and images |

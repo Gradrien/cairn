@@ -282,7 +282,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 				{"e", i18n.T("répondre aux questions", "answer the questions")},
 				{"a", i18n.T("autoriser le push", "allow the push")},
 				{"P", i18n.T("ouvrir la PR", "open the PR")},
-				{"x", i18n.T("fermer un chantier livré", "close a shipped ticket")},
+				{"x", i18n.T("fermer un chantier livré, ou l'abandonner", "close a shipped ticket, or abandon one")},
 				{"h", i18n.T("tester dans le dépôt principal", "test in the main checkout")},
 				{"f", i18n.T("corriger la CI", "fix the CI")},
 				{"p", i18n.T("planifier", "plan")},
@@ -434,7 +434,12 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 			return nil, 0, 0, nil, nil
 		}
 		row := func(k, v string) { content = append(content, hang(lbl(k), v, inner())...) }
-		content = append(content, sErr.Render(fmt.Sprintf(i18n.T("Fermer %s ?", "Close %s?"), c.Key)), sMuted.Render(trunc(c.Title(), inner())), "")
+		abandon := c.Phase != chantier.Shipped
+		title := fmt.Sprintf(i18n.T("Fermer %s ?", "Close %s?"), c.Key)
+		if abandon {
+			title = fmt.Sprintf(i18n.T("Abandonner %s ?", "Abandon %s?"), c.Key)
+		}
+		content = append(content, sErr.Render(title), sMuted.Render(trunc(c.Title(), inner())), "")
 		if c.Worktree != "" && !c.Main {
 			row("Worktree", tilde(c.Worktree)+sMuted.Render(i18n.T(" : supprimé", ": removed")))
 		}
@@ -443,7 +448,19 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 		}
 		row("Plan", i18n.T("archivé dans ~/.cairn/archive", "archived in ~/.cairn/archive"))
 		if c.Branch != "" {
-			row(i18n.T("Branche", "Branch"), c.Branch+sMuted.Render(i18n.T(" : gardée (mergée sur GitHub)", ": kept (merged on GitHub)")))
+			note := i18n.T(" : gardée (mergée sur GitHub)", ": kept (merged on GitHub)")
+			if abandon {
+				note = i18n.T(" : gardée", ": kept")
+			}
+			row(i18n.T("Branche", "Branch"), c.Branch+sMuted.Render(note))
+		}
+		if abandon {
+			if pr := c.OpenPR(); pr != nil {
+				row("PR", fmt.Sprintf("#%d", pr.Number)+sMuted.Render(i18n.T(" : reste ouverte, ferme-la sur GitHub", ": stays open, close it on GitHub")))
+			}
+			if c.Issue != nil {
+				row("Ticket", i18n.T("inchangé", "unchanged")+sMuted.Render(i18n.T(" : désassigne-le si tu ne le prends plus", ": unassign it if you no longer take it")))
+			}
 		}
 		content = append(content, "")
 		r := m.closeRisk
@@ -466,8 +483,15 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 			}
 		}
 		content = append(content, "")
+		confirm := i18n.T("Fermer et supprimer le worktree", "Close and remove the worktree")
+		switch {
+		case abandon && c.Worktree != "" && !c.Main:
+			confirm = i18n.T("Abandonner et supprimer le worktree", "Abandon and remove the worktree")
+		case abandon:
+			confirm = i18n.T("Abandonner et archiver le plan", "Abandon and archive the plan")
+		}
 		buttonsRow([]button{
-			{"enter", i18n.T("Fermer et supprimer le worktree", "Close and remove the worktree"), true},
+			{"enter", confirm, true},
 			{"esc", i18n.T("Annuler", "Cancel"), true},
 		}, true)
 	case "localtest":
