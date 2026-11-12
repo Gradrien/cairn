@@ -114,6 +114,8 @@ type Model struct {
 	closeRisk   *closeRisk
 	answerQ     string // open question being answered, "" if none
 	answerText  string
+	answerOpt   int               // option under the cursor; len(options) is "another answer"
+	answerFree  bool              // typing an answer of your own
 	answered    map[string]string // answers sent, by answerKey
 	manualSel   string            // manual test step whose actions are open, by answerKey
 	manualAsk   bool              // typing what the selected step shows instead
@@ -960,6 +962,10 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 		var i int
 		fmt.Sscan(arg, &i)
 		return m.startAnswer(i)
+	case "answeropt":
+		var i, j int
+		fmt.Sscanf(arg, "%d:%d", &i, &j)
+		return m.clickOption(i, j)
 	case "manual", "manual-ok", "manual-ko":
 		var i int
 		fmt.Sscan(arg, &i)

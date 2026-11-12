@@ -34,7 +34,9 @@ import (
 type Task struct {
 	Text  string
 	Done  bool
-	Doing bool // "- [~]": started, not finished
+	Doing bool   // "- [~]": started, not finished
+	Body  []Item // what is written under it: sub-items, paragraphs, code
+	Line  int    // body line of its box
 }
 
 // Item is a list item of a prose section, with its nesting level (0 for a
@@ -42,6 +44,8 @@ type Task struct {
 type Item struct {
 	Text  string
 	Depth int
+	Plain bool // a paragraph, not a list item: shown without a bullet
+	Code  bool // a line of a code block
 }
 
 type State struct {
@@ -54,7 +58,7 @@ type State struct {
 	Title       string // the first "# " heading, without its "KEY · " prefix
 	Tasks       []Task
 	SideEffects []Task
-	Questions   []Task
+	Questions   []Question
 	Proofs      []string
 	Summary     []string
 	Approach    []Item   // "## Approche": what the plan settled (problem, done when, choice…)
@@ -66,15 +70,14 @@ type State struct {
 	sideAt      []int    // body line of each side effect, to tick it
 	UpdatedAt   time.Time
 	front       []string // raw frontmatter lines, kept for round-trips
+	bodyAt      int      // file line (0-based) where the body starts
 	body        string
 }
 
 var (
-	taskRe  = regexp.MustCompile(`^\s*[-*] \[([ xX~-])\]\s+(.*)$`)
-	itemRe  = regexp.MustCompile(`^\s*[-*]\s+(.*)$`)
+	taskRe  = regexp.MustCompile(`^\s*(?:[-*+]|\d{1,3}[.)]|[a-zA-Z][.)]|\([a-zA-Z0-9]{1,2}\))\s+\[([ xX~-])\]\s+(.*)$`)
 	proofHd = regexp.MustCompile(`(?i)^#{1,6}\s+(preuves?|proofs?)\b`)
 	sideHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(effets? de bord|side[ -]effects?)`)
-	apprIt  = regexp.MustCompile(`^(\s*)([-*]|\d+[.)])\s+(.*)$`)
 	apprHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(approche|approach)\b`)
 	questHd = regexp.MustCompile(`(?i)^#{1,6}\s+questions?`)
 	testHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(tester [àa] la main|tests? manuels?|manual tests?|test by hand)\b`)
@@ -112,6 +115,7 @@ func Parse(path, text string) *State {
 			if strings.TrimSpace(lines[i]) == "---" {
 				s.front = lines[1:i]
 				s.body = strings.Join(lines[i+1:], "\n")
+				s.bodyAt = i + 1
 				break
 			}
 		}
@@ -135,117 +139,179 @@ func Parse(path, text string) *State {
 			s.PR = v
 		}
 	}
-	section := "" // "", "proofs", "side", "questions", "approach", "how", "manual", "other"
-	seenH2 := false
-	var how, rep []string
-	for i, l := range strings.Split(s.body, "\n") {
+	s.parseBody()
+	return s
+}
+
+// parseBody cuts the body into sections at their headings, then reads each
+// section as an outline (see outline.go).
+func (s *State) parseBody() {
+	lines := strings.Split(s.body, "\n")
+	type sec struct {
+		kind     string // "", "proofs", "side", "questions", "approach", "how", "reprise", "manual", "other"
+		from, to int
+	}
+	var secs []sec
+	kind, start, fence := "", 0, ""
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if fence != "" {
+			if strings.HasPrefix(t, fence) {
+				fence = ""
+			}
+			continue
+		}
+		if m := outFence.FindStringSubmatch(l); m != nil {
+			fence = m[1]
+			continue
+		}
 		// "Comment ça marche" and "Reprise" are prose with their own "###"
 		// headings: each runs to the next "#" or "##" heading, kept whole.
-		if section == "how" && !h12Re.MatchString(l) {
-			how = append(how, l)
+		if !headRe.MatchString(l) || (kind == "how" || kind == "reprise") && !h12Re.MatchString(l) {
 			continue
 		}
-		if section == "reprise" && !h12Re.MatchString(l) {
-			rep = append(rep, l)
+		if t, ok := strings.CutPrefix(l, "# "); ok && s.Title == "" {
+			s.Title = strings.TrimSpace(t)
+			if k, rest, ok := strings.Cut(s.Title, " · "); ok && strings.EqualFold(k, s.Ticket) {
+				s.Title = strings.TrimSpace(rest)
+			}
+		}
+		secs = append(secs, sec{kind, start, i})
+		start = i + 1
+		switch {
+		case howHd.MatchString(l):
+			kind = "how"
+		case repHd.MatchString(l):
+			kind = "reprise"
+		case proofHd.MatchString(l):
+			kind = "proofs"
+		case sideHd.MatchString(l):
+			kind = "side"
+		case questHd.MatchString(l):
+			kind = "questions"
+		case apprHd.MatchString(l):
+			kind = "approach"
+		case testHd.MatchString(l):
+			kind = "manual"
+		case h2Re.MatchString(l), kind == "how", kind == "reprise":
+			kind = "other"
+		}
+	}
+	secs = append(secs, sec{kind, start, len(lines)})
+
+	var how, rep []string
+	task := func(n *node) Task {
+		return Task{Text: n.Text, Done: n.done(), Doing: n.doing(), Body: body(n.Kids, 0), Line: n.Line}
+	}
+	addTask := func(n *node) { s.Tasks = append(s.Tasks, task(n)) }
+	for _, sc := range secs {
+		part := lines[sc.from:sc.to]
+		switch sc.kind {
+		case "how":
+			how = append(how, part...)
+			continue
+		case "reprise":
+			rep = append(rep, part...)
 			continue
 		}
-		if howHd.MatchString(l) {
-			section, seenH2 = "how", true
-			continue
-		}
-		if repHd.MatchString(l) {
-			section, seenH2 = "reprise", true
-			continue
-		}
-		if headRe.MatchString(l) {
-			if t, ok := strings.CutPrefix(l, "# "); ok && s.Title == "" {
-				s.Title = strings.TrimSpace(t)
-				if k, rest, ok := strings.Cut(s.Title, " · "); ok && strings.EqualFold(k, s.Ticket) {
-					s.Title = strings.TrimSpace(rest)
+		nodes := outline(part, sc.from)
+		switch sc.kind {
+		case "proofs":
+			var walk func([]*node)
+			walk = func(ns []*node) {
+				for _, n := range ns {
+					if n.item() {
+						s.Proofs = append(s.Proofs, n.Text)
+						walk(n.Kids)
+					}
 				}
 			}
-			switch {
-			case proofHd.MatchString(l):
-				section = "proofs"
-			case sideHd.MatchString(l):
-				section = "side"
-			case questHd.MatchString(l):
-				section = "questions"
-			case apprHd.MatchString(l):
-				section = "approach"
-			case testHd.MatchString(l):
-				section = "manual"
-			case h2Re.MatchString(l):
-				section = "other"
-			}
-			if h2Re.MatchString(l) {
-				seenH2 = true
-			}
-			continue
-		}
-		if section == "proofs" {
-			if m := itemRe.FindStringSubmatch(l); m != nil {
-				s.Proofs = append(s.Proofs, m[1])
-			}
-			continue
-		}
-		if section == "manual" {
-			if m := taskRe.FindStringSubmatch(l); m != nil {
-				s.ManualSteps = append(s.ManualSteps, Task{Text: m[2], Done: m[1] == "x" || m[1] == "X"})
-				s.manualAt = append(s.manualAt, i)
-			} else if m := itemRe.FindStringSubmatch(l); m != nil {
-				s.ManualSetup = append(s.ManualSetup, m[1])
-			} else if t := strings.TrimSpace(l); t != "" {
-				s.ManualSetup = append(s.ManualSetup, t)
-			}
-			continue
-		}
-		if m := taskRe.FindStringSubmatch(l); m != nil {
-			t := Task{Text: m[2], Done: m[1] == "x" || m[1] == "X", Doing: m[1] == "~" || m[1] == "-"}
-			switch section {
-			case "side":
-				s.SideEffects = append(s.SideEffects, t)
-				s.sideAt = append(s.sideAt, i)
-			case "questions":
-				s.Questions = append(s.Questions, t)
-			default:
-				s.Tasks = append(s.Tasks, t)
-			}
-			continue
-		}
-		if section == "approach" {
-			t := strings.TrimSpace(l)
-			switch m := apprIt.FindStringSubmatch(l); {
-			case m != nil:
-				text := strings.TrimSpace(m[3])
-				if m[2] != "-" && m[2] != "*" {
-					text = m[2] + " " + text // keep the number of a numbered item
+			walk(nodes)
+		case "side":
+			boxed(nodes, func(n *node) {
+				s.SideEffects = append(s.SideEffects, task(n))
+				s.sideAt = append(s.sideAt, n.Line)
+			})
+		case "manual":
+			var walk func([]*node)
+			walk = func(ns []*node) {
+				for _, n := range ns {
+					switch {
+					case n.Box != 0:
+						s.ManualSteps = append(s.ManualSteps, task(n))
+						s.manualAt = append(s.manualAt, n.Line)
+						boxed(n.Kids, func(k *node) {
+							s.ManualSteps = append(s.ManualSteps, task(k))
+							s.manualAt = append(s.manualAt, k.Line)
+						})
+						continue
+					case n.item():
+						s.ManualSetup = append(s.ManualSetup, n.label())
+					case n.Code:
+						s.ManualSetup = append(s.ManualSetup, strings.TrimSpace(n.Text))
+					default:
+						s.ManualSetup = append(s.ManualSetup, n.Lines...)
+					}
+					walk(n.Kids)
 				}
-				indent := len(strings.ReplaceAll(m[1], "\t", "  "))
-				s.Approach = append(s.Approach, Item{Text: text, Depth: min(indent/2, 2)})
-			case t == "":
-			case len(s.Approach) > 0 && strings.HasPrefix(l, " "):
-				// a wrapped item continues the previous one
-				s.Approach[len(s.Approach)-1].Text += " " + t
-			default:
-				s.Approach = append(s.Approach, Item{Text: t})
 			}
-			continue
-		}
-		if section == "questions" {
-			if m := itemRe.FindStringSubmatch(l); m != nil {
-				s.Questions = append(s.Questions, Task{Text: m[1]})
+			walk(nodes)
+		case "questions":
+			s.readQuestions(nodes)
+		case "approach":
+			var walk func([]*node, int)
+			walk = func(ns []*node, depth int) {
+				for _, n := range ns {
+					if n.Box != 0 {
+						addTask(n)
+						boxed(n.Kids, addTask)
+						continue
+					}
+					s.Approach = append(s.Approach, Item{Text: n.label(), Depth: min(depth, 2), Plain: n.plain(), Code: n.Code})
+					walk(n.Kids, depth+1)
+				}
 			}
-			continue
-		}
-		if t := strings.TrimSpace(l); !seenH2 && t != "" && !itemRe.MatchString(l) && !strings.HasPrefix(t, "(Le plan arrive") {
-			s.Summary = append(s.Summary, t)
+			walk(nodes, 0)
+		case "":
+			for _, n := range nodes {
+				if !n.item() && !n.Code && !strings.HasPrefix(n.Text, "(Le plan arrive") {
+					s.Summary = append(s.Summary, n.Lines...)
+				}
+			}
+			boxed(nodes, addTask)
+		default:
+			boxed(nodes, addTask)
 		}
 	}
 	s.HowItWorks = strings.TrimSpace(strings.Join(how, "\n"))
 	s.Reprise = strings.TrimSpace(strings.Join(rep, "\n"))
-	return s
 }
+
+// readQuestions reads "## Questions": each item is a question. Paragraphs at
+// the margin after a question, and option or recommendation items written
+// at the margin right after it, still belong to it.
+func (s *State) readQuestions(nodes []*node) {
+	for i := 0; i < len(nodes); i++ {
+		n := nodes[i]
+		if !n.item() {
+			continue // text before the first question
+		}
+		var extra []*node
+		for i+1 < len(nodes) {
+			k := nodes[i+1]
+			_, isOpt := option(k)
+			loose := !k.item() || k.Box == 0 && (isOpt && !isDigits(k.Marker) || recoRe.MatchString(k.Text))
+			if !loose {
+				break
+			}
+			extra = append(extra, k)
+			i++
+		}
+		s.Questions = append(s.Questions, question(n, extra))
+	}
+}
+
+func isDigits(marker string) bool { return marker != "" && marker[0] >= '0' && marker[0] <= '9' }
 
 // TickManual checks (or unchecks) manual step i in the file's body; Save
 // writes it.
@@ -300,11 +366,11 @@ func Count(ts []Task, done bool) int {
 }
 
 // OpenQuestions are the questions not yet answered.
-func (s *State) OpenQuestions() []string {
-	var out []string
+func (s *State) OpenQuestions() []Question {
+	var out []Question
 	for _, q := range s.Questions {
 		if !q.Done {
-			out = append(out, q.Text)
+			out = append(out, q)
 		}
 	}
 	return out

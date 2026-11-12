@@ -455,6 +455,10 @@ func (m Model) detailLayout(w int) detail {
 	m.secCost(b, c)
 	if s != nil {
 		b.add("", sDim.Render(i18n.T("plan : ", "plan: ")+tilde(s.Path)))
+		if p := s.Lint(); len(p) > 0 {
+			b.add(sWarn.Render(fmt.Sprintf(i18n.T("⚠ %s : cairn sync les signale à l'agent", "⚠ %s: cairn sync reports them to the agent"),
+				plural(len(p), i18n.T("point de forme dans le plan", "formatting issue in the plan"), i18n.T("points de forme dans le plan", "formatting issues in the plan")))))
+		}
 	}
 	return b.detail
 }
@@ -472,20 +476,68 @@ func (m Model) secQuestions(b *detailBuilder, c *chantier.Chantier) {
 	}
 	b.section(i18n.T("Questions ouvertes", "Open questions"), sWarn.Render(fmt.Sprint(len(qs))), "")
 	for i, q := range qs {
-		if reply, ok := m.answered[answerKey(c.Key, q)]; ok {
-			b.add(hang("  "+sGood.Render("✓")+" ", sMuted.Render(plainMD(q)), b.w)...)
+		if i > 0 {
+			b.add("")
+		}
+		if reply, ok := m.answered[answerKey(c.Key, q.Text)]; ok {
+			b.add(hang("  "+sGood.Render("✓")+" ", sMuted.Render(plainMD(q.Text)), b.w)...)
 			b.add(hang("    "+sGood.Render(i18n.T("↳ envoyé à l'agent : ", "↳ sent to the agent: ")), reply, b.w)...)
 			continue
 		}
-		text := plainMD(q)
-		if m.answerQ != q {
+		active := m.answerQ == q.Text
+		text := plainMD(q.Text)
+		if !active {
 			text += "  " + sKey.Render(i18n.T("› répondre", "› answer"))
 		}
 		b.addT(fmt.Sprintf("answer:%d", i), hang("  "+sWarn.Render("?")+" ", text, b.w)...)
-		if m.answerQ == q {
-			b.add(m.answerBox(b.w)...)
+		for _, it := range q.Body {
+			b.add(bodyLines(it, "    ", b.w)...)
+		}
+		n := len(q.Options)
+		for j, o := range q.Options {
+			cur := active && !m.answerFree && m.answerOpt == j
+			mark, txt := "  ", plainMD(o.Text)
+			if cur {
+				mark, txt = sKey.Render("›")+" ", sBold.Render(txt)
+			}
+			if j == q.Recommended {
+				txt += "  " + sGood.Render(i18n.T("★ recommandé", "★ recommended"))
+			}
+			b.addT(fmt.Sprintf("answeropt:%d:%d", i, j), hang("    "+mark+sKey.Render("("+o.Key+")")+" ", txt, b.w)...)
+		}
+		if q.Recommendation != "" {
+			b.add(hang("      "+sMuted.Render("★")+" ", sMuted.Render(plainMD(q.Recommendation)), b.w)...)
+		}
+		if !active {
+			continue
+		}
+		if n > 0 {
+			mark, txt := "  ", sMuted.Render(i18n.T("✎ Autre réponse, ou une question pour l'agent…", "✎ Another answer, or a question for the agent…"))
+			if m.answerOpt >= n || m.answerFree {
+				mark, txt = sKey.Render("›")+" ", i18n.T("✎ Autre réponse, ou une question pour l'agent…", "✎ Another answer, or a question for the agent…")
+			}
+			b.addT(fmt.Sprintf("answeropt:%d:%d", i, n), "    "+mark+txt)
+		}
+		if m.answerFree {
+			b.add(m.answerBox(b.w, n > 0)...)
+		} else {
+			b.add("      " + sKey.Render("↑↓") + sMuted.Render(i18n.T(" choisir   ", " choose   ")) + sKey.Render("↵") +
+				sMuted.Render(i18n.T(" envoyer à l'agent   ", " send to the agent   ")) + sKey.Render("esc") + sMuted.Render(i18n.T(" annuler", " cancel")))
 		}
 	}
+}
+
+// bodyLines renders what the plan writes under an item: sub-items with a
+// bullet by depth, paragraphs, code. base is the item's text column.
+func bodyLines(it state.Item, base string, w int) []string {
+	indent := base + strings.Repeat("  ", it.Depth)
+	switch {
+	case it.Code:
+		return hang(indent+"  ", sMuted.Render(strings.TrimRight(it.Text, " ")), w)
+	case it.Plain:
+		return hang(indent, sSoft.Render(plainMD(it.Text)), w)
+	}
+	return hang(indent+sMuted.Render(approachBullets[min(it.Depth, 2)])+" ", sSoft.Render(plainMD(it.Text)), w)
 }
 
 func (m Model) secTasks(b *detailBuilder, c *chantier.Chantier) {
@@ -508,6 +560,9 @@ func (m Model) secTasks(b *detailBuilder, c *chantier.Chantier) {
 	for _, t := range s.Tasks {
 		if !(fold && t.Done) {
 			b.add(hang("  "+taskIcon(t)+" ", plainMD(t.Text), b.w)...)
+			for _, it := range t.Body {
+				b.add(bodyLines(it, "    ", b.w)...)
+			}
 		}
 	}
 	switch {
@@ -547,6 +602,9 @@ func (m Model) secSide(b *detailBuilder, c *chantier.Chantier) {
 		for i, t := range s.SideEffects {
 			if t.Done == pass {
 				b.addT(fmt.Sprintf("side:%d", i), hang("  "+taskIcon(t)+" ", plainMD(t.Text), b.w)...)
+				for _, it := range t.Body {
+					b.addT(fmt.Sprintf("side:%d", i), bodyLines(it, "    ", b.w)...)
+				}
 			}
 		}
 	}
@@ -596,6 +654,9 @@ func (m Model) secManual(b *detailBuilder, c *chantier.Chantier) {
 			icon = sErr.Render("✗ ")
 		}
 		b.addT(fmt.Sprintf("manual:%d", i), hang("  "+icon+" ", text, b.w)...)
+		for _, it := range t.Body {
+			b.addT(fmt.Sprintf("manual:%d", i), bodyLines(it, "     ", b.w)...)
+		}
 		if reported && !t.Done {
 			b.add(hang("     "+sErr.Render(i18n.T("↳ signalé à l'agent : ", "↳ reported to the agent: ")), report, b.w)...)
 		}
@@ -680,6 +741,9 @@ func approachLines(it state.Item, w int) []string {
 		bullet, rest = m[1], m[2] // a numbered point keeps its number as bullet
 	}
 	prefix := strings.Repeat("  ", it.Depth+1) + sMuted.Render(bullet) + " "
+	if it.Plain || it.Code {
+		prefix = strings.Repeat("  ", it.Depth+2)
+	}
 	lines := hang(prefix, plainMD(label+rest), w)
 	if label != "" {
 		if first, ok := strings.CutPrefix(lines[0], prefix+label); ok {
