@@ -108,6 +108,43 @@ Décision : on garde le titre.
 	}
 }
 
+func TestApproach(t *testing.T) {
+	s := Parse("/x", `---
+phase: plan
+---
+# YAK-1 · titre
+
+Ajouter la colonne Modèle.
+
+## Approche
+- **Problème** : les admins recopient le modèle.
+- **Choix** : une colonne dans le mapper,
+  avec formatModel.
+- **Écarté** : le SQL.
+
+- [ ] select
+- [ ] mapper
+
+## Questions
+- Libellé ou code ?
+`)
+	if len(s.Summary) != 1 {
+		t.Fatalf("summary %q", s.Summary)
+	}
+	want := []string{"**Problème** : les admins recopient le modèle.", "**Choix** : une colonne dans le mapper, avec formatModel.", "**Écarté** : le SQL."}
+	if len(s.Approach) != len(want) {
+		t.Fatalf("approach %q", s.Approach)
+	}
+	for i := range want {
+		if s.Approach[i] != want[i] {
+			t.Fatalf("approach[%d] = %q, want %q", i, s.Approach[i], want[i])
+		}
+	}
+	if len(s.Tasks) != 2 {
+		t.Fatalf("tasks under the approach must stay tasks: %+v", s.Tasks)
+	}
+}
+
 func TestEnglishAliases(t *testing.T) {
 	s := Parse("/x", "---\nwaiting: Ready to push\npush: allowed\n---\nGoal\n\n- [x] a\n\n## Side effects\n- [ ] b\n\n## Proofs\n- tests pass\n")
 	if s.Waiting != "Ready to push" || !s.PushAllowed() || len(s.SideEffects) != 1 || len(s.Proofs) != 1 {

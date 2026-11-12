@@ -402,13 +402,16 @@ func (m Model) detailLayout(w int) detail {
 		m.secQuestions(b, c)
 		m.secTasks(b, c)
 		m.secGoal(b, c)
+		m.secApproach(b, c)
 		m.secPR(b, c, false)
 	case c.Phase <= chantier.Plan && s != nil && s.Waiting != "":
-		// A plan to approve leads with its questions, even with a PR already open.
+		// A plan to approve leads with its questions, then what it settled:
+		// the goal and the approach, before the tasks that carry it out.
 		m.secQuestions(b, c)
+		m.secGoal(b, c)
+		m.secApproach(b, c)
 		m.secTasks(b, c)
 		m.secSide(b, c)
-		m.secGoal(b, c)
 		m.secPR(b, c, false)
 		m.secProofs(b, c)
 		m.secCode(b, c)
@@ -422,6 +425,7 @@ func (m Model) detailLayout(w int) detail {
 		m.secProofs(b, c)
 		m.secTasks(b, c)
 		m.secGoal(b, c)
+		m.secApproach(b, c)
 	case c.Phase == chantier.Build:
 		m.secQuestions(b, c)
 		m.secTasks(b, c)
@@ -430,6 +434,7 @@ func (m Model) detailLayout(w int) detail {
 		m.secProofs(b, c)
 		m.secSide(b, c)
 		m.secGoal(b, c)
+		m.secApproach(b, c)
 		m.secCode(b, c)
 		m.secPR(b, c, false)
 	default:
@@ -437,6 +442,7 @@ func (m Model) detailLayout(w int) detail {
 		m.secTasks(b, c)
 		m.secSide(b, c)
 		m.secGoal(b, c)
+		m.secApproach(b, c)
 		m.secManual(b, c)
 		m.secHow(b, c)
 		m.secProofs(b, c)
@@ -619,6 +625,26 @@ func (m Model) secGoal(b *detailBuilder, c *chantier.Chantier) {
 	b.add(lines...)
 	if len(lines) > 3 {
 		b.addT("fold:goal", "  "+sKey.Render(i18n.T("‹ replier", "‹ fold")))
+	}
+}
+
+// secApproach shows "## Approche": in full while the plan waits for approval,
+// folded once the work is under way (it is then a reference).
+func (m Model) secApproach(b *detailBuilder, c *chantier.Chantier) {
+	s := c.State
+	if s == nil || len(s.Approach) == 0 {
+		return
+	}
+	b.section(i18n.T("Approche", "Approach"), "", "")
+	if c.Phase >= chantier.Build && !m.unfolded(c.Key, "approach") {
+		b.addT("fold:approach", "  "+sMuted.Render(plural(len(s.Approach), i18n.T("point", "item"), i18n.T("points", "items")))+"  "+sKey.Render(i18n.T("› afficher", "› show")))
+		return
+	}
+	for _, a := range s.Approach {
+		b.add(hang("  • ", plainMD(a), b.w)...)
+	}
+	if c.Phase >= chantier.Build {
+		b.addT("fold:approach", "  "+sKey.Render(i18n.T("‹ replier", "‹ fold")))
 	}
 }
 

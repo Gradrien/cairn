@@ -20,7 +20,16 @@ attente: Valider le plan   # seulement quand tu as besoin d'une décision humain
 ---
 # YAK-788 · <titre>
 
-<2 à 5 lignes : l'objectif et les décisions prises>
+<1 ou 2 lignes : l'objectif>
+
+## Approche
+- **Problème** : les admins ne voient pas le modèle d'un freelance dans l'export, ils le recopient à la main.
+- **Fini quand** : l'export a une colonne « Modèle » avec le libellé ; vide si le modèle manque ; l'import CSV marche toujours.
+- **Existant** : `exportFreelances` (`lib/export/freelances.ts:42`) construit les lignes ; `formatModel` (`lib/labels.ts:12`) donne déjà le libellé sur la fiche.
+- **Choix** : ajouter le champ au select et une colonne au mapper, avec `formatModel`.
+- **Écarté** : le libellé calculé en SQL, qui dupliquerait `formatModel`.
+- **Risque** : aucun ; l'import ignore les colonnes inconnues (`lib/import/csv.ts:30`), vérifié.
+- **Hors périmètre** : l'export des missions (YAK-905).
 
 - [x] une tâche faite
 - [~] la tâche en cours
@@ -57,6 +66,8 @@ Lance `pnpm dev`, connecte-toi en admin, ouvre /freelances.
 
 cairn affiche tout ce fichier :
 - le paragraphe avant le premier `##` devient l'**objectif** ;
+- `## Approche` garde ce que le plan a établi (voir « Construire le plan ») : des puces simples, sans case à cocher,
+  sinon elles seraient comptées comme des tâches ;
 - `- [~]` marque la tâche **en cours** : il n'y en a qu'une à la fois, et c'est celle sur laquelle tu travailles maintenant ;
 - sous `## Questions`, les questions sans `[x]` sont affichées comme **ouvertes** ;
 - `## Effets de bord` est suivi à part (« 2/3 vérifiés ») ;
@@ -70,24 +81,72 @@ cairn affiche tout ce fichier :
 
 L'avancement du code (commits, fichiers) et de la PR (CI, review) est lu directement dans git et GitHub : ne le recopie pas.
 
+## Construire le plan
+
+Le plan décide de la façon dont le ticket sera construit, et c'est un **agent neuf** qui le construira, avec ce seul
+fichier : ce que tu as compris en explorant et que tu n'écris pas est perdu à la passation. Suis ces étapes dans
+l'ordre. Leur profondeur suit la taille du ticket : pour un XS, chacune tient en une ligne ; un L ou un XL les déroule
+toutes. Ce qu'elles établissent va sous `## Approche`, les tâches en dessous.
+
+1. **Comprendre le besoin.** Lis le ticket et ses commentaires. Écris le problème en une phrase : qui est gêné, par
+   quoi (**Problème**). Puis les critères d'acceptation : ce qui sera vrai et vérifiable quand le ticket sera fini,
+   cas limites compris (vide, erreur, droits) et ce qui ne doit pas changer (**Fini quand**). Ce que le ticket ne
+   tranche pas devient tout de suite une question sous `## Questions` ; continue sur le reste en notant l'hypothèse
+   que tu fais.
+2. **Adapter la démarche au type de ticket.**
+   - **Bug** : reproduis-le (commande, test ou étapes), trouve la cause et pas seulement l'endroit où elle se voit,
+     et prévois un test qui échoue avant le correctif.
+   - **Feature** : suis le parcours de l'utilisateur, de l'écran ou de l'appel jusqu'aux données.
+   - **Refacto** : liste les comportements qui ne doivent pas bouger et ce qui le garantit (des tests existants, ou à
+     écrire d'abord).
+3. **Partir de l'existant.** Avant d'imaginer une solution, regarde comment le code fait aujourd'hui, ce qui existe
+   déjà de semblable dans le dépôt (pattern, composant, helper, endpoint) et quels tests couvrent la zone
+   (**Existant**, avec des `fichier:ligne`). Confie ces recherches à `cairn-explorer`, plusieurs en parallèle : un pour
+   le code touché, un pour les cas semblables, un pour les tests. La bonne solution ressemble le plus souvent à ce qui
+   existe déjà.
+4. **Choisir l'approche.** S'il y a plus d'une façon de faire, compare-les en une ligne chacune et garde la plus simple
+   qui remplit les critères (**Choix**, **Écarté** avec la raison). Si le choix engage le produit ou l'architecture
+   (comportement visible, modèle de données, nouvelle dépendance), ne tranche pas seul : pose la question avec les
+   options, la conséquence de chacune et ta recommandation. Écris ce que tu ne fais pas (**Hors périmètre**).
+5. **Lever le risque d'abord.** Repère ce qui peut faire échouer le plan : une API ou une bibliothèque mal connue, un
+   volume de données, un comportement que tu supposes sans l'avoir vu (**Risque**). Vérifie-le pendant le plan (lis le
+   code, lance une commande courte). Si ce n'est pas possible, fais-en la première tâche, en disant ce qu'on fait si
+   l'hypothèse tombe.
+6. **Recenser les effets de bord**, toujours : ce que le changement peut casser ou modifier ailleurs.
+   - les autres appelants et écrans du code touché ;
+   - les autres parties du dépôt (autres apps d'un monorepo, paquets partagés) ;
+   - les données existantes et leur rattrapage ;
+   - la compatibilité avec ce qui tourne déjà (clients, jobs, liens, formats de fichier) ;
+   - les permissions ;
+   - les migrations, et comment revenir en arrière si le changement casse en production ;
+   - les notifications et les jobs ;
+   - les performances.
+
+   Chaque effet de bord devient une tâche qui le vérifie, sous `## Effets de bord`. Si tu n'en trouves aucun, écris
+   pourquoi en une ligne.
+7. **Découper en tâches.** Ordonne-les selon leurs dépendances, la plus risquée d'abord. Chaque tâche dit **où** elle
+   agit (fichier ou fonction, en `code`) et **comment on sait qu'elle est finie** (un test, une commande, un
+   comportement), et laisse le code dans un état qui compile et passe les tests. Préfère des tranches qui traversent le
+   ticket de bout en bout à des couches (« tout le back, puis tout le front »). Les tests sont des tâches comme les
+   autres : lesquels ajouter ou modifier, à quel niveau (unitaire, intégration), et la commande qui servira de preuve.
+   « Gérer le cas vide » ne suffit pas ; « `exportFreelances` : 0 freelance → fichier avec les seuls en-têtes, test
+   unitaire » suffit.
+8. **Relire le plan comme le constructeur le lira.** Avant de t'arrêter, vérifie que :
+   - chaque critère de **Fini quand** est couvert par une tâche ;
+   - un agent qui n'a que ce fichier peut construire sans refaire l'exploration ni choisir à ta place ;
+   - chaque nom propre au projet est expliqué ou pointé par un `fichier:ligne` ;
+   - les questions ouvertes sont celles qui bloquent vraiment, pas des points que tu peux vérifier toi-même.
+
+   Puis mets `attente: Valider le plan`, lance `cairn sync` et arrête-toi, sans coder.
+
 ## Les règles
 
-- **La taille suit le ticket.** XS ou S : quelques tâches, pas de prose. L ou XL : un plan plus détaillé, mais toujours en tâches vérifiables. Pas d'autre fichier de plan.
-- **Les effets de bord font partie du plan, toujours.** Avant de valider, cherche ce que le changement peut casser ou modifier ailleurs :
-  - les autres appelants et écrans du code touché ;
-  - les autres parties du dépôt (autres apps d'un monorepo, paquets partagés) ;
-  - les données existantes et leur rattrapage ;
-  - les permissions ;
-  - les migrations ;
-  - les notifications et les jobs ;
-  - les performances.
-
-  Chaque effet de bord devient une tâche qui le vérifie, sous `## Effets de bord`. Si tu n'en trouves aucun, écris pourquoi en une ligne.
-  L'humain peut cocher un effet de bord dans cairn quand il a vérifié le comportement lui-même : ne décoche
-  jamais une case qu'il a cochée.
+- **La taille suit le ticket.** XS ou S : une `## Approche` de quelques lignes et quelques tâches. L ou XL : un plan plus détaillé, mais toujours en tâches vérifiables. Pas d'autre fichier de plan.
+- **Les effets de bord font partie du plan, toujours** (voir « Construire le plan », étape 6). L'humain peut cocher
+  un effet de bord dans cairn quand il a vérifié le comportement lui-même : ne décoche jamais une case qu'il a cochée.
 - **Les phases** :
-  - `plan` : tu explores et tu écris les tâches. Tu termines par `attente: Valider le plan`, puis tu **t'arrêtes**, sans coder.
-  - `build` : l'humain a validé. Passe une tâche en `[~]` quand tu la commences, puis en `[x]` dès qu'elle est finie. Ajoute le travail découvert en cours de route et retire ce qui s'est révélé inutile.
+  - `plan` : tu suis « Construire le plan ». Tu termines par `attente: Valider le plan`, puis tu **t'arrêtes**, sans coder.
+  - `build` : l'humain a validé. Passe une tâche en `[~]` quand tu la commences, puis en `[x]` dès qu'elle est finie. Ajoute le travail découvert en cours de route et retire ce qui s'est révélé inutile. Si tu changes d'approche, corrige `## Approche` et dis pourquoi en une ligne.
   - `review` : la PR est ouverte. Si on te demande des changements, fais-les en local, puis redemande le push comme ci-dessous.
   - « Livré » est détecté seul quand la PR est mergée : ne l'écris pas.
 - **Jamais de push ni de PR sans feu vert humain, et deux feux verts distincts.** Ne lance pas `git push`,

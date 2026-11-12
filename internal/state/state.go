@@ -12,6 +12,7 @@
 //	a short summary (objective, decisions) before the first "##" heading;
 //	tasks "- [ ]" todo, "- [~]" in progress, "- [x]" done;
 //	"## Effets de bord": tasks that check what the change may break elsewhere;
+//	"## Approche": what the plan settled before building (plain items);
 //	"## Questions": open questions ("- [x]" once answered);
 //	"## Preuves": every list item is a proof;
 //	"## Comment ça marche": how the change works, kept as markdown for the
@@ -49,6 +50,7 @@ type State struct {
 	Questions   []Task
 	Proofs      []string
 	Summary     []string
+	Approach    []string // "## Approche": what the plan settled (problem, done when, choice…), one item per line
 	HowItWorks  string   // the "## Comment ça marche" section, raw markdown
 	Reprise     string   // the "## Reprise" section: an agent's handoff to the next one
 	ManualSetup []string // "## Tester à la main": what to set up before the steps
@@ -65,6 +67,7 @@ var (
 	itemRe  = regexp.MustCompile(`^\s*[-*]\s+(.*)$`)
 	proofHd = regexp.MustCompile(`(?i)^#{1,6}\s+(preuves?|proofs?)\b`)
 	sideHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(effets? de bord|side[ -]effects?)`)
+	apprHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(approche|approach)\b`)
 	questHd = regexp.MustCompile(`(?i)^#{1,6}\s+questions?`)
 	testHd  = regexp.MustCompile(`(?i)^#{1,6}\s+(tester [àa] la main|tests? manuels?|manual tests?|test by hand)\b`)
 	howHd   = regexp.MustCompile(`(?i)^##\s+(comment [çc]a marche|how it works)\b`)
@@ -124,7 +127,7 @@ func Parse(path, text string) *State {
 			s.PR = v
 		}
 	}
-	section := "" // "", "proofs", "side", "questions", "how", "manual", "other"
+	section := "" // "", "proofs", "side", "questions", "approach", "how", "manual", "other"
 	seenH2 := false
 	var how, rep []string
 	for i, l := range strings.Split(s.body, "\n") {
@@ -160,6 +163,8 @@ func Parse(path, text string) *State {
 				section = "side"
 			case questHd.MatchString(l):
 				section = "questions"
+			case apprHd.MatchString(l):
+				section = "approach"
 			case testHd.MatchString(l):
 				section = "manual"
 			case h2Re.MatchString(l):
@@ -197,6 +202,17 @@ func Parse(path, text string) *State {
 				s.Questions = append(s.Questions, t)
 			default:
 				s.Tasks = append(s.Tasks, t)
+			}
+			continue
+		}
+		if section == "approach" {
+			if m := itemRe.FindStringSubmatch(l); m != nil {
+				s.Approach = append(s.Approach, strings.TrimSpace(m[1]))
+			} else if t := strings.TrimSpace(l); t != "" && len(s.Approach) > 0 && strings.HasPrefix(l, " ") {
+				// a wrapped item continues the previous one
+				s.Approach[len(s.Approach)-1] += " " + t
+			} else if t != "" {
+				s.Approach = append(s.Approach, t)
 			}
 			continue
 		}

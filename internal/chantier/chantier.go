@@ -362,17 +362,15 @@ func Slug(title string, max int) string {
 // guide says where the agent reads the ticket (see tracker.Tracker.Guide).
 func PlanPrompt(key, title, statePath, guide string) string {
 	return fmt.Sprintf(i18n.T("Planifie le ticket %s « %s » avec le workflow cairn (skill cairn). "+
-		"%s, explore le code, puis écris le plan dans %s, "+
-		"à la taille du ticket. Recense les effets de bord : tout ce que le changement peut casser ou modifier ailleurs "+
-		"(autres appelants et écrans, autres parties du dépôt, données existantes, permissions, migrations, notifications, "+
-		"performances), avec pour chacun une tâche qui le vérifie. Confie ces recherches au sous-agent cairn-explorer (plusieurs en parallèle "+
-		"si les questions sont indépendantes) plutôt que de lire le dépôt toi-même. Termine par `attente: Valider le plan` et arrête-toi : ne code rien avant ma validation.",
+		"%s, puis construis le plan en suivant la section « Construire le plan » du skill, étape par étape, et écris-le dans %s. "+
+		"Le plan doit suffire à un agent neuf pour construire le ticket sans refaire l'exploration. Confie les recherches dans le dépôt "+
+		"au sous-agent cairn-explorer (plusieurs en parallèle si les questions sont indépendantes) plutôt que de le lire toi-même. "+
+		"Termine par `attente: Valider le plan` et arrête-toi : ne code rien avant ma validation.",
 		"Plan ticket %s \"%s\" with the cairn workflow (cairn skill). "+
-			"%s, explore the code, then write the plan in %s, "+
-			"sized to the ticket. List the side effects: everything the change can break or alter elsewhere "+
-			"(other callers and screens, other parts of the repository, existing data, permissions, migrations, notifications, "+
-			"performance), each with a task that checks it. Hand these searches to the cairn-explorer subagent (several in parallel "+
-			"when the questions are independent) rather than reading the repository yourself. Finish with `attente: Valider le plan` and stop: write no code before I approve."),
+			"%s, then build the plan by following the \"Construire le plan\" section of the skill, step by step, and write it in %s. "+
+			"The plan must let a new agent build the ticket without exploring again. Hand searches in the repository "+
+			"to the cairn-explorer subagent (several in parallel when the questions are independent) rather than reading it yourself. "+
+			"Finish with `attente: Valider le plan` and stop: write no code before I approve."),
 		key, title, guide, statePath)
 }
 
