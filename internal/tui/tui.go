@@ -1140,9 +1140,9 @@ func (m Model) diff() tea.Cmd {
 // TUI's own terminal, or for the engine, which has no screen, in a new tab.
 func (m Model) runShown(name, dir string, env []string, argv ...string) tea.Cmd {
 	if m.engine {
-		if len(env) > 0 {
-			argv = append(append([]string{"env"}, env...), argv...)
-		}
+		// The tab's terminal starts from herdr-core's environment: give it
+		// the PATH cairn found its programs in (browsediff…).
+		argv = append(append([]string{"env", "PATH=" + os.Getenv("PATH")}, env...), argv...)
 		return func() tea.Msg { return doneMsg{err: mux.OpenTab(name, dir, argv)} }
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)

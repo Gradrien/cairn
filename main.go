@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -193,11 +194,14 @@ func main() {
 			return // an engine already runs
 		}
 		defer lock.Close()
-		// The engine stays up while the app runs: should it ever stop, it
-		// starts again with a fresh model.
+		// The engine stays up while the app runs: should its model ever stop,
+		// it starts again fresh. A signal (install.sh, hc kill) stops it.
+		stop := make(chan os.Signal, 1)
+		signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+		go func() { <-stop; lock.Close(); os.Exit(0) }()
 		for {
 			m := tui.New(cfg).WithUpdates(updates()).Headless()
-			if _, err := tea.NewProgram(m, tea.WithInput(nil), tea.WithoutRenderer()).Run(); err != nil {
+			if _, err := tea.NewProgram(m, tea.WithInput(nil), tea.WithoutRenderer(), tea.WithoutSignalHandler()).Run(); err != nil {
 				fmt.Fprintln(os.Stderr, "cairn serve:", err)
 			}
 			time.Sleep(time.Second)

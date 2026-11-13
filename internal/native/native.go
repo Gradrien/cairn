@@ -5,6 +5,8 @@
 package native
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -126,4 +128,38 @@ func Running() bool {
 	}
 	f.Close()
 	return false
+}
+
+// appHome is the Herdr app's folder: the only place its images load from.
+func appHome() string {
+	if h := os.Getenv("HERDR_APP_HOME"); h != "" {
+		return h
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "herdr-app")
+}
+
+// Thumb copies an image file where the app can show it, under the cairn
+// detail mod, and returns that path relative to the app's folder; "" when the
+// file is gone. A copy is made once per file version.
+func Thumb(path string) string {
+	st, err := os.Stat(path)
+	if err != nil || st.IsDir() {
+		return ""
+	}
+	sum := sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d", path, st.Size(), st.ModTime().UnixNano())))
+	rel := filepath.Join("mods", "cairn-detail", "proofs", hex.EncodeToString(sum[:8])+strings.ToLower(filepath.Ext(path)))
+	dst := filepath.Join(appHome(), rel)
+	if _, err := os.Stat(dst); err == nil {
+		return rel
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || os.MkdirAll(filepath.Dir(dst), 0o755) != nil {
+		return ""
+	}
+	tmp := dst + ".tmp"
+	if os.WriteFile(tmp, data, 0o644) != nil || os.Rename(tmp, dst) != nil {
+		return ""
+	}
+	return rel
 }

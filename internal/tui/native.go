@@ -58,6 +58,8 @@ type nativeRow struct {
 type nativeItem struct {
 	Text  string `json:"text"`
 	Image string `json:"image,omitempty"` // a proof's screenshot, to open
+	Thumb string `json:"thumb,omitempty"` // its copy the app can show, relative to the app's folder
+	Gone  bool   `json:"gone,omitempty"`  // the screenshot's file no longer exists
 	Depth int    `json:"depth,omitempty"`
 	Plain bool   `json:"plain,omitempty"`
 	Code  bool   `json:"code,omitempty"`
@@ -427,7 +429,12 @@ func (m Model) nativeSection(c *chantier.Chantier, id string) *nativeSection {
 		}
 		sec := &nativeSection{ID: id, Title: i18n.T("Preuves", "Proofs"), Count: fmt.Sprint(len(s.Proofs))}
 		for _, p := range s.Proofs {
-			sec.Items = append(sec.Items, nativeItem{Text: p, Image: untilde(imagePath(p))})
+			it := nativeItem{Text: p, Image: untilde(imagePath(p))}
+			if it.Image != "" {
+				it.Thumb = native.Thumb(it.Image)
+				it.Gone = it.Thumb == ""
+			}
+			sec.Items = append(sec.Items, it)
 		}
 		return sec
 	case "how":

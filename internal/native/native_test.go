@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -43,5 +44,27 @@ func TestLock(t *testing.T) {
 	f.Close()
 	if Running() {
 		t.Error("the lock goes with the engine")
+	}
+}
+
+func TestThumb(t *testing.T) {
+	app := t.TempDir()
+	t.Setenv("HERDR_APP_HOME", app)
+	src := filepath.Join(t.TempDir(), "Capture.PNG")
+	if err := os.WriteFile(src, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rel := Thumb(src)
+	if !strings.HasPrefix(rel, filepath.Join("mods", "cairn-detail", "proofs")) || !strings.HasSuffix(rel, ".png") {
+		t.Fatalf("the copy goes under the detail mod: %q", rel)
+	}
+	if data, _ := os.ReadFile(filepath.Join(app, rel)); string(data) != "png" {
+		t.Error("the image is copied as is")
+	}
+	if Thumb(src) != rel {
+		t.Error("the same file version keeps its copy")
+	}
+	if Thumb(filepath.Join(t.TempDir(), "gone.png")) != "" {
+		t.Error("a missing file has no copy")
 	}
 }

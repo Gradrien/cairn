@@ -173,7 +173,7 @@ func ensureEngine() error {
 	if err != nil {
 		self = "cairn"
 	}
-	if err := mux.StartEngine(EngineName, "/usr/bin/env", "CAIRN_MUX=herdr-app", self, "serve"); err != nil {
+	if err := mux.StartEngine(EngineName, "/usr/bin/env", "PATH="+os.Getenv("PATH"), "CAIRN_MUX=herdr-app", self, "serve"); err != nil {
 		return err
 	}
 	for i := 0; i < 30 && !native.Running(); i++ {

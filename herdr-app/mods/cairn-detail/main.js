@@ -6,8 +6,8 @@
 // its confirmations) and runs what this panel asks with `cairn do`, the same
 // code as the TUI's keys and clicks. Every key the TUI knows works here once
 // the panel has the keyboard (a click on it).
-import { View, div } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, TextView, Scrollbar } from "gpui-base";
+import { View, div, image } from "gpui-kit";
+import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
 import { agents, run, exec, readTextFile, watchFolder, nextCommand, theme, settings } from "herdr";
 
 const CAIRN = "@CAIRN@";
@@ -198,15 +198,108 @@ export default class CairnDetail extends View {
     return { warn: t.blocked, danger: t.ansi1, good: t.ansi2, accent: t.accent, dim: t.dim, muted: t.muted, line: t.muted }[tone] ?? t.muted;
   }
 
-  md(id, text, t, color) {
-    return div()
+  // inline renders one paragraph: `code` in cyan, **bold**, [links](url),
+  // word by word so it wraps like text.
+  inline(id, text, t, color, bold) {
+    const runs = [];
+    const re = /(`[^`]+`)|(\*\*[^*]+\*\*|__[^_]+__)|(\[[^\]]+\]\([^)\s]+\))/g;
+    let last = 0;
+    for (const m of text.matchAll(re)) {
+      if (m.index > last) runs.push({ kind: "text", text: text.slice(last, m.index) });
+      if (m[1]) runs.push({ kind: "code", text: m[1].slice(1, -1) });
+      else if (m[2]) runs.push({ kind: "bold", text: m[2].slice(2, -2) });
+      else {
+        const [, label, url] = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(m[3]);
+        runs.push({ kind: "link", text: label, url });
+      }
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) runs.push({ kind: "text", text: text.slice(last) });
+    const words = [];
+    for (const r of runs) {
+      const parts = r.text.split(/(\s+)/);
+      for (let i = 0; i < parts.length; i += 2) {
+        const word = parts[i];
+        const space = (parts[i + 1] ?? "") !== "";
+        if (word === "") {
+          if (space && words.length) words[words.length - 1].space = true;
+          continue;
+        }
+        words.push({ ...r, text: word, space });
+      }
+    }
+    return h_flex()
+      .flex_wrap()
       .min_w(0)
       .text_color(color ?? t.foreground)
-      .child(
-        TextView.markdown(id, text ?? "")
-          .selectable(true)
-          .on_link_click((url) => open(url)),
+      .children(
+        words.map((w, i) => {
+          const label = w.space ? w.text + "\u00a0" : w.text;
+          let e = div().child(label);
+          if (w.kind === "code") e = e.font_family(this.mono).text_size(12).text_color(t.ansi6);
+          if (w.kind === "bold" || bold) e = e.font_semibold();
+          if (w.kind === "link") e = e.id(`${id}-l${i}`).text_color(t.accent).cursor_pointer().hover((s) => s.opacity(0.8)).on_click(() => open(w.url));
+          return e;
+        }),
       );
+  }
+
+  // md renders the markdown plans and comments are written in: headings,
+  // lists, quotes, code blocks and tables, then each paragraph inline.
+  md(id, text, t, color, bold) {
+    const blocks = [];
+    const lines = (text ?? "").replace(/\r/g, "").split("\n");
+    let para = [];
+    const flush = () => {
+      if (para.length) blocks.push(this.inline(`${id}-p${blocks.length}`, para.join(" "), t, color, bold));
+      para = [];
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^\s*```/.test(line)) {
+        flush();
+        const code = [];
+        for (i++; i < lines.length && !/^\s*```/.test(lines[i]); i++) code.push(lines[i]);
+        blocks.push(v_flex().px(8).py(6).rounded(6).bg(t.raised).font_family(this.mono).text_size(11.5).text_color(t.ansi6).children(code.map((l) => div().child(l || " "))));
+        continue;
+      }
+      if (/^\s*\|/.test(line)) {
+        flush();
+        blocks.push(div().font_family(this.mono).text_size(11.5).text_color(t.muted).child(line.trim()));
+        continue;
+      }
+      const h = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (h) {
+        flush();
+        blocks.push(div().pt(blocks.length ? 8 : 0).text_size(h[1].length <= 1 ? 15 : h[1].length === 2 ? 14 : 13).child(this.inline(`${id}-h${i}`, h[2], t, t.foreground, true)));
+        continue;
+      }
+      const li = /^(\s*)([-*+]|\d+[.)])\s+(?:\[([ xX~])\]\s+)?(.*)$/.exec(line);
+      if (li) {
+        flush();
+        const depth = Math.floor(li[1].replace(/\t/g, "  ").length / 2);
+        const bullet = li[3] !== undefined ? ({ x: "✓", X: "✓", "~": "◐" }[li[3]] ?? "○") : /\d/.test(li[2]) ? li[2] : ["•", "◦", "·"][Math.min(depth, 2)];
+        blocks.push(
+          h_flex()
+            .pl(depth * 14)
+            .gap(6)
+            .items_start()
+            .child(div().flex_none().min_w(10).text_color(li[3] === "x" || li[3] === "X" ? t.ansi2 : t.dim).child(bullet))
+            .child(div().flex_1().min_w(0).child(this.inline(`${id}-li${i}`, li[4], t, color, bold))),
+        );
+        continue;
+      }
+      const q = /^>\s?(.*)$/.exec(line);
+      if (q) {
+        flush();
+        blocks.push(div().pl(8).border_l(2).border_color(t.border).child(this.inline(`${id}-q${i}`, q[1], t, t.muted)));
+        continue;
+      }
+      if (line.trim() === "") flush();
+      else para.push(line.trim());
+    }
+    flush();
+    return v_flex().min_w(0).gap(4).children(blocks);
   }
 
   button(id, label, { primary, enabled = true, tone, hint } = {}, onClick, t) {
@@ -257,7 +350,17 @@ export default class CairnDetail extends View {
             .items_start()
             .when(Boolean(bullet), (e) => e.child(div().w(10).flex_none().text_color(it.image ? t.accent : t.dim).child(bullet)))
             .child(div().flex_1().min_w(0).child(this.md(`${id}-${i}-t`, it.text, t, it.image ? t.accent : t.muted)));
-          return it.image ? row.rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => open(it.image)) : row;
+          if (!it.image) return row;
+          if (it.gone) return v_flex().child(row).child(div().pl(pad + 16).text_size(11).text_color(t.dim).child(this.fr() ? "capture introuvable : le fichier a été supprimé" : "screenshot missing: the file was deleted"));
+          return v_flex()
+            .id(`${id}-${i}-img`)
+            .gap(4)
+            .rounded(6)
+            .cursor_pointer()
+            .hover((s) => s.bg(t.hover))
+            .on_click(() => open(it.image))
+            .child(row)
+            .when(Boolean(it.thumb), (e) => e.child(div().pl(pad + 16).child(image(it.thumb).w(260).h(160).rounded(6).border_1().border_color(t.border))));
         }),
       );
   }
@@ -314,7 +417,7 @@ export default class CairnDetail extends View {
     const writing = this.freeQ === q.index;
     return v_flex()
       .gap(6)
-      .child(h_flex().gap(6).items_start().child(div().w(14).flex_none().text_color(t.blocked).font_bold().child("?")).child(div().flex_1().min_w(0).child(this.md(`${id}-t`, q.text, t))))
+      .child(h_flex().gap(6).items_start().child(div().w(14).flex_none().text_color(t.blocked).font_bold().child("?")).child(div().flex_1().min_w(0).child(this.md(`${id}-t`, q.text, t, t.foreground, true))))
       .when((q.body ?? []).length > 0, (e) => e.child(this.items(`${id}-b`, q.body, t, 20)))
       .children(
         (q.options ?? []).map((o, j) =>
