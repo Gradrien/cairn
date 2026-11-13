@@ -27,7 +27,14 @@ type exportBoard struct {
 	UI        string            `json:"ui,omitempty"`
 	Home      string            `json:"home_workspace,omitempty"`
 	Shipped   int               `json:"shipped"`
+	ShippedOf []exportRef       `json:"shipped_list"`
+	Others    []exportAgent     `json:"others"` // agents on no known chantier
 	Chantiers []exportChantier  `json:"chantiers"`
+}
+
+type exportRef struct {
+	Key   string `json:"key"`
+	Title string `json:"title"`
 }
 
 type exportChantier struct {
@@ -69,7 +76,7 @@ func phaseID(p chantier.Phase) string {
 }
 
 func (m Model) board() exportBoard {
-	b := exportBoard{Lang: i18n.Lang(), Mux: mux.Name(), UI: m.cfg.UI, Chantiers: []exportChantier{}, Groups: map[string]string{
+	b := exportBoard{ShippedOf: []exportRef{}, Others: []exportAgent{}, Lang: i18n.Lang(), Mux: mux.Name(), UI: m.cfg.UI, Chantiers: []exportChantier{}, Groups: map[string]string{
 		"wait":   i18n.T("Attend ta décision", "Waiting for you"),
 		"work":   i18n.T("En cours", "In progress"),
 		"toplan": i18n.T("À planifier", "To plan"),
@@ -81,6 +88,7 @@ func (m Model) board() exportBoard {
 	for _, c := range m.all {
 		if m.isShipped(c) {
 			b.Shipped++
+			b.ShippedOf = append(b.ShippedOf, exportRef{c.Key, c.Title()})
 			continue
 		}
 		e := exportChantier{Key: c.Key, Project: c.Project, Title: c.Title(), Phase: c.Phase.Label(),
@@ -103,6 +111,9 @@ func (m Model) board() exportBoard {
 			e.Agents = append(e.Agents, exportAgent{Name: a.Label(), Kind: a.Kind, Status: a.Status, Pane: a.PaneID})
 		}
 		b.Chantiers = append(b.Chantiers, e)
+	}
+	for _, a := range m.others {
+		b.Others = append(b.Others, exportAgent{Name: a.Label(), Kind: a.Kind, Status: a.Status, Pane: a.PaneID})
 	}
 	return b
 }

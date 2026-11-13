@@ -205,6 +205,10 @@ type nativeDetail struct {
 	Buttons  []nativeButton  `json:"buttons"`
 	Primary  bool            `json:"primary"` // the first button is what to do now
 	How      *nativeHow      `json:"how,omitempty"`
+	Pick     *nativePick     `json:"pick,omitempty"`
+	Settings []nativeSetting `json:"settings,omitempty"`
+	Board    []nativeColumn  `json:"board,omitempty"`
+	Palette  *nativePalette  `json:"palette,omitempty"`
 	Comments *nativeComments `json:"comments,omitempty"`
 	Other    *nativeOther    `json:"other,omitempty"`
 	Key      string          `json:"key,omitempty"`
@@ -497,6 +501,15 @@ func (m Model) nativeDetail() nativeDetail {
 		d.How = m.nativeHow()
 	case "comments":
 		d.Comments = m.nativeComments()
+	case "pick":
+		d.Pick = m.nativePick()
+	case "settings":
+		d.Settings = m.nativeSettings()
+	case "board":
+		d.Board = m.nativeBoard()
+	}
+	if m.overlay == "palette" {
+		d.Palette = m.nativePalette()
 	}
 	if a := m.selectedOther(); a != nil {
 		o := &nativeOther{Name: a.Label(), Status: a.Status, Title: a.Title, Dir: tilde(a.Dir()), Pane: a.PaneID, Targets: []string{}}
@@ -508,7 +521,7 @@ func (m Model) nativeDetail() nativeDetail {
 	if m.flash != "" {
 		d.Flash = &nativeFlash{Text: nativeText(m.flash), Error: m.flashErr}
 	}
-	if m.overlay == "push" || m.overlay == "close" || m.overlay == "localtest" {
+	if m.overlay == "push" || m.overlay == "close" || m.overlay == "localtest" || m.overlay == "help" {
 		box, x0, y0, hits, rows := m.overlayLayout()
 		o := &nativeOverlay{Kind: m.overlay}
 		buttonRows := map[int]bool{}
@@ -606,6 +619,9 @@ func (m *Model) exportDetail() {
 
 // runRequest runs one request on the model, the way the TUI's key or click would.
 func (m Model) runRequest(r native.Request) (Model, tea.Cmd) {
+	if mm, cmd, ok := m.runViewRequest(r); ok {
+		return mm, cmd
+	}
 	if r.Key != "" {
 		m.wantKey = strings.ToUpper(r.Key)
 		m.focusWanted()

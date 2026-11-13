@@ -43,12 +43,36 @@ export default class CairnDetail extends View {
       return s;
     };
     this.boxes = {
-      fr: { answer: box("Ta réponse, ou une question pour l'agent…"), report: box("Ce que tu vois…"), ask: box("Ta question sur ce ticket…") },
-      en: { answer: box("Your answer, or a question for the agent…"), report: box("What you see…"), ask: box("Your question about this ticket…") },
+      fr: {
+        answer: box("Ta réponse, ou une question pour l'agent…"),
+        report: box("Ce que tu vois…"),
+        ask: box("Ta question sur ce ticket…"),
+        search: box("Chercher un chantier, une action, une commande…"),
+        pick: box("Numéro ou clé du ticket (123, YAK-123), ou titre"),
+        setting: box("Valeur"),
+      },
+      en: {
+        answer: box("Your answer, or a question for the agent…"),
+        report: box("What you see…"),
+        ask: box("Your question about this ticket…"),
+        search: box("Search a ticket, an action, a command…"),
+        pick: box("Ticket number or key (123, YAK-123), or title"),
+        setting: box("Value"),
+      },
     };
+    this.palSel = 0;
+    this.editRow = null; // settings row being edited
     for (const lang of ["fr", "en"]) {
-      this.boxes[lang].answer.on("submit", (_e, cx) => this.sendFree(cx));
-      this.boxes[lang].ask.on("submit", (_e, cx) => this.sendAsk(cx));
+      const b = this.boxes[lang];
+      b.answer.on("submit", (_e, cx) => this.sendFree(cx));
+      b.ask.on("submit", (_e, cx) => this.sendAsk(cx));
+      b.search.on("change", (_e, cx) => {
+        this.palSel = 0;
+        cx.notify();
+      });
+      b.search.on("submit", (_e, cx) => this.runPalette(cx));
+      b.pick.on("submit", (_e, cx) => this.sendPick(cx));
+      b.setting.on("submit", (_e, cx) => this.sendSetting(cx));
     }
     this.load(cx);
     cx.spawn(async (cx) => {
@@ -82,7 +106,14 @@ export default class CairnDetail extends View {
           this.openStep = this.freeQ = null;
         }
         if (d.view !== "how") this.asking = false;
+        if (d.view !== "settings") this.editRow = null;
+        const opened = d.palette && !this.d?.palette;
         this.d = d;
+        if (opened) {
+          this.box("search").set_value("");
+          this.palSel = 0;
+          this.box("search").focus();
+        }
         this.pending = false;
       } catch {
         return;
@@ -117,12 +148,75 @@ export default class CairnDetail extends View {
     cx.notify();
   }
 
+  // askFor acts on another chantier than the one shown.
+  askFor(key, cx, action, ...args) {
+    this.pending = true;
+    cx.spawn(async (cx) => {
+      const r = await cairn("do", key, action, ...args).catch((e) => ({ code: 1, stderr: String(e) }));
+      if (r.code !== 0) {
+        this.error = (r.stderr || r.stdout).trim();
+        this.pending = false;
+      }
+      cx.notify();
+    });
+    cx.notify();
+  }
+
+  // found is ctrl+k's entries matching what is typed, as the TUI's matchWords.
+  found() {
+    const words = this.box("search").value().toLowerCase().split(/\s+/).filter(Boolean);
+    return (this.d?.palette?.entries ?? []).map((e, index) => ({ ...e, index })).filter((e) => words.every((w) => e.label.toLowerCase().includes(w)));
+  }
+
+  runPalette(cx, index) {
+    const list = this.found();
+    const e = index !== undefined ? list.find((x) => x.index === index) : list[this.palSel];
+    if (!e) return;
+    this.handle.focus();
+    this.askFor("-", cx, "palette-run", "--index", String(e.index));
+  }
+
+  sendPick(cx) {
+    const box = this.box("pick");
+    const text = box.value().trim();
+    if (!text) return;
+    box.set_value("");
+    this.handle.focus();
+    this.askFor("-", cx, "pick-type", "--text", text);
+  }
+
+  sendSetting(cx) {
+    if (this.editRow === null) return;
+    const row = this.editRow;
+    const text = this.box("setting").value();
+    this.editRow = null;
+    this.handle.focus();
+    this.askFor("-", cx, "settings-set", "--index", String(row), "--text", text);
+  }
+
   // key does what the TUI's key does on the screen the engine is on; the few
   // that the panel draws itself are handled here.
   key(k, cx) {
     const d = this.d;
     if (!d) return;
     const view = d.view || "";
+    if (d.palette) {
+      if (k === "esc") return this.askFor("-", cx, "cancel");
+      if (k === "enter") return this.runPalette(cx);
+      if (k === "up" || k === "down") {
+        const n = this.found().length;
+        this.palSel = n ? (this.palSel + (k === "down" ? 1 : n - 1)) % n : 0;
+        cx.notify();
+      }
+      return;
+    }
+    if (k === "/" || k === "ctrl+k") return this.askFor("-", cx, "palette", "--text", "");
+    if (d.overlay?.kind === "help") return this.askFor("-", cx, "cancel");
+    if (view === "pick" && k !== "esc" && k !== "tab") {
+      this.box("pick").focus();
+      return;
+    }
+    if (view === "settings" && (k === "enter" || k === " ")) return;
     if (d.overlay && (k === "enter" || k === "esc" || d.overlay.buttons.some((b) => b.key === k))) return this.ask(cx, "overlay", k);
     if (k === "esc" && (this.freeQ !== null || this.asking || this.openStep !== null)) {
       this.freeQ = this.openStep = null;
@@ -175,9 +269,13 @@ export default class CairnDetail extends View {
   }
 
   onKey(e, cx) {
+    if (this.typing && this.d?.palette && (e.key === "up" || e.key === "down" || e.key === "escape")) {
+      cx.stop_propagation();
+      return this.key(KEYS[e.key], cx);
+    }
     if (this.typing) {
       if (e.key === "escape") {
-        this.freeQ = this.openStep = null;
+        this.freeQ = this.openStep = this.editRow = null;
         this.asking = false;
         this.handle.focus();
         cx.stop_propagation();
@@ -606,13 +704,23 @@ export default class CairnDetail extends View {
       .bg(t.popover)
       .border_1()
       .border_color(t.accent)
-      .children(o.lines.map((l, i) => div().text_size(12).text_color(i === 0 ? t.foreground : t.muted).when(i === 0, (e) => e.font_semibold()).child(l || " ")))
+      .children(
+        o.lines.map((l, i) =>
+          div()
+            .text_size(o.kind === "help" ? 11.5 : 12)
+            .when(o.kind === "help", (e) => e.font_family(this.mono))
+            .text_color(i === 0 ? t.foreground : t.muted)
+            .when(i === 0, (e) => e.font_semibold())
+            .child(l || " "),
+        ),
+      )
       .child(
         h_flex()
           .pt(6)
           .gap(6)
           .flex_wrap()
-          .children(o.buttons.map((b, i) => this.button(`ov-${b.key}`, b.label, { primary: i === 0 }, (cx) => this.ask(cx, "overlay", b.key), t))),
+          .children(o.buttons.map((b, i) => this.button(`ov-${b.key}`, b.label, { primary: i === 0 }, (cx) => this.ask(cx, "overlay", b.key), t)))
+          .when(o.kind === "help", (e) => e.child(this.button("ov-close", this.fr() ? "Fermer" : "Close", { hint: "esc" }, (cx) => this.askFor("-", cx, "cancel"), t))),
       );
   }
 
@@ -630,7 +738,7 @@ export default class CairnDetail extends View {
         .when(Boolean(d.meta), (e) => e.child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(d.meta)))
         .when(Boolean(d.url), (e) => e.child(this.link("ticket", "Ticket ↗", () => open(d.url), t, t.dim))),
     );
-    if (d.overlay) kids.push(this.overlay(d.overlay, t));
+    if (d.overlay && d.overlay.kind !== "help") kids.push(this.overlay(d.overlay, t));
     if (d.card) kids.push(this.card(d.card, t));
     kids.push(
       h_flex()
@@ -775,6 +883,214 @@ export default class CairnDetail extends View {
     return kids;
   }
 
+  pick(d, t) {
+    const p = d.pick;
+    const fr = this.fr();
+    if (!p) return [];
+    const kids = [];
+    if (p.projects.length > 1)
+      kids.push(
+        h_flex()
+          .pt(12)
+          .gap(6)
+          .flex_wrap()
+          .children(p.projects.map((name, i) => this.button(`proj-${i}`, name, { primary: i === p.project }, (cx) => this.askFor("-", cx, "pick-project", "--index", String(i)), t))),
+      );
+    kids.push(
+      div()
+        .pt(12)
+        .text_size(12)
+        .text_color(t.muted)
+        .child(
+          p.creates
+            ? fr ? `Tracker local (${p.tracker}) : tape le titre du nouveau ticket.` : `Local tracker (${p.tracker}): type the new ticket's title.`
+            : fr ? `Tickets libres de ${p.tracker}, les plus prioritaires d'abord. Un clic le prend et lance son plan.` : `Free tickets of ${p.tracker}, most urgent first. A click takes it and starts its plan.`,
+        ),
+    );
+    kids.push(
+      h_flex()
+        .pt(8)
+        .gap(6)
+        .child(div().flex_1().min_w(0).h(30).px(8).flex().items_center().rounded(7).border_1().border_color(t.accent).child(Input.new(this.box("pick")).h_full().text_size(12.5)))
+        .child(this.button("pick-go", p.creates ? (fr ? "Créer" : "Create") : fr ? "Prendre" : "Take", { primary: true }, (cx) => this.sendPick(cx), t)),
+    );
+    if (p.error) kids.push(div().pt(10).text_size(12).text_color(t.ansi1).child(p.error));
+    if (p.loading) kids.push(div().pt(12).text_color(t.dim).child(fr ? "Chargement des tickets…" : "Loading the tickets…"));
+    else if (!p.creates && !p.issues.length) kids.push(div().pt(12).text_color(t.dim).child(fr ? "Aucun ticket libre." : "No free ticket."));
+    kids.push(
+      v_flex()
+        .pt(8)
+        .gap(2)
+        .children(
+          p.issues.map((is, i) =>
+            h_flex()
+              .id(`issue-${i}`)
+              .px(8)
+              .py(6)
+              .gap(8)
+              .items_start()
+              .rounded(7)
+              .cursor_pointer()
+              .hover((s) => s.bg(t.hover))
+              .on_click((_e, cx) => this.askFor("-", cx, "pick-take", "--index", String(i)))
+              .child(div().flex_none().font_family(this.mono).text_size(12).text_color(t.accent).child(is.key))
+              .child(div().flex_1().min_w(0).child(this.inline(`issue-${i}-t`, is.title, t)))
+              .child(div().flex_none().text_size(11).text_color(t.dim).child([is.priority, is.estimate].filter(Boolean).join(" · ")))
+              .when(Boolean(is.url), (e) => e.child(this.link(`issue-${i}-url`, "↗", () => open(is.url), t, t.dim))),
+          ),
+        ),
+    );
+    return kids;
+  }
+
+  settings(d, t) {
+    const fr = this.fr();
+    const kids = [];
+    for (const r of d.settings ?? []) {
+      if (r.kind === "header") {
+        kids.push(div().pt(18).pb(4).text_size(11.5).font_semibold().text_color(t.dim).child(r.label));
+        continue;
+      }
+      if (this.editRow === r.index) {
+        kids.push(
+          v_flex()
+            .px(8)
+            .py(6)
+            .gap(6)
+            .rounded(7)
+            .bg(t.raised)
+            .child(div().text_size(12).text_color(t.muted).child(r.label))
+            .child(
+              this.inputRow(`set-${r.index}`, this.box("setting"), t, (cx) => this.sendSetting(cx), (cx) => {
+                this.editRow = null;
+                cx.notify();
+              }),
+            )
+            .when(Boolean(r.hint), (e) => e.child(div().text_size(11).text_color(t.dim).child(r.hint))),
+        );
+        continue;
+      }
+      if (r.kind === "delete" || r.kind === "add") {
+        const label = r.kind === "delete" ? (r.confirm ? (fr ? "Cliquer encore pour retirer ce projet" : "Click again to remove this project") : r.label) : r.label;
+        kids.push(
+          h_flex()
+            .pt(4)
+            .child(
+              this.button(`set-${r.index}`, label, { tone: r.kind === "delete" ? "danger" : undefined }, (cx) => {
+                if (r.kind === "add") {
+                  this.editRow = r.index;
+                  this.box("setting").set_value("");
+                  this.box("setting").focus();
+                  return cx.notify();
+                }
+                this.askFor("-", cx, "settings-do", "--index", String(r.index));
+              }, t),
+            ),
+        );
+        continue;
+      }
+      kids.push(
+        h_flex()
+          .id(`set-${r.index}`)
+          .px(8)
+          .py(5)
+          .gap(10)
+          .items_start()
+          .rounded(7)
+          .cursor_pointer()
+          .hover((s) => s.bg(t.hover))
+          .tooltip(r.hint || r.label)
+          .on_click((_e, cx) => {
+            if (r.kind === "cycle") return this.askFor("-", cx, "settings-do", "--index", String(r.index));
+            this.editRow = r.index;
+            this.box("setting").set_value(r.raw ?? "");
+            this.box("setting").focus();
+            cx.notify();
+          })
+          .child(div().w(150).flex_none().text_size(12).text_color(t.muted).child(r.label))
+          .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(r.default ? t.dim : t.foreground).child(r.value || "—"))
+          .child(div().flex_none().text_size(11).text_color(t.dim).child(r.kind === "cycle" ? "⇄" : "✎")),
+      );
+    }
+    return kids;
+  }
+
+  board(d, t) {
+    const kids = [];
+    for (const col of d.board ?? []) {
+      kids.push(
+        h_flex()
+          .pt(16)
+          .pb(4)
+          .gap(8)
+          .child(div().text_size(11.5).font_semibold().text_color(t.dim).child(col.phase))
+          .child(div().text_size(11).text_color(t.dim).child(String(col.cards.length))),
+      );
+      for (const c of col.cards)
+        kids.push(
+          v_flex()
+            .id(`card-${c.key}`)
+            .mb(4)
+            .p(8)
+            .gap(3)
+            .rounded(8)
+            .border_1()
+            .border_color(c.waiting ? t.blocked : t.border)
+            .cursor_pointer()
+            .hover((s) => s.bg(t.hover))
+            .on_click((_e, cx) => this.askFor(c.key, cx, "select"))
+            .child(
+              h_flex()
+                .gap(8)
+                .child(div().flex_none().font_family(this.mono).text_size(12).text_color(t.accent).child(c.key))
+                .child(div().flex_1().min_w(0).truncate().child(c.title))
+                .when(Boolean(c.tasks), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(c.tasks))),
+            )
+            .when(Boolean(c.waiting), (e) => e.child(div().text_size(12).text_color(t.blocked).truncate().child(`⚠ ${c.waiting}`))),
+        );
+    }
+    return kids;
+  }
+
+  palette(d, t) {
+    const fr = this.fr();
+    const list = this.found().slice(0, 40);
+    const sel = Math.min(this.palSel, Math.max(0, list.length - 1));
+    return v_flex()
+      .mt(12)
+      .p(10)
+      .gap(6)
+      .rounded(9)
+      .bg(t.popover)
+      .border_1()
+      .border_color(t.accent)
+      .child(div().h(30).px(8).flex().items_center().rounded(7).border_1().border_color(t.border).child(Input.new(this.box("search")).h_full().text_size(13)))
+      .child(
+        v_flex()
+          .gap(1)
+          .children(
+            list.map((e, i) =>
+              h_flex()
+                .id(`pal-${e.index}`)
+                .px(8)
+                .h(28)
+                .gap(8)
+                .items_center()
+                .rounded(6)
+                .when(i === sel, (x) => x.bg(t.selected))
+                .cursor_pointer()
+                .hover((s) => s.bg(t.hover))
+                .on_click((_e, cx) => this.runPalette(cx, e.index))
+                .child(div().w(14).flex_none().text_color(e.icon === "⚠" ? t.blocked : e.icon === "✓" ? t.ansi2 : t.dim).child(e.icon))
+                .child(div().flex_1().min_w(0).truncate().child(e.label))
+                .when(Boolean(e.hint), (x) => x.child(div().flex_none().font_family(this.mono).text_size(11).text_color(t.dim).child(e.hint))),
+            ),
+          ),
+      )
+      .when(!list.length, (e) => e.child(div().px(8).text_size(12).text_color(t.dim).child(fr ? "Rien ne correspond." : "Nothing matches.")))
+      .child(div().px(8).text_size(11).text_color(t.dim).child(fr ? "↑↓ choisir · ↵ lancer · esc fermer" : "↑↓ choose · ↵ run · esc close"));
+  }
+
   render() {
     const t = theme();
     this.mono = settings().font_family ?? "JetBrains Mono";
@@ -790,8 +1106,18 @@ export default class CairnDetail extends View {
     } else if (view === "comments") {
       title = `PR #${d.comments?.number ?? ""} · ${d.title ?? ""}`;
       body = this.comments(d, t);
-    } else if (view !== "") body = [div().pt(16).text_color(t.muted).child(fr ? "Cet écran arrive bientôt en natif. esc pour revenir." : "This screen comes natively soon. esc to go back.")];
-    else body = this.home(d, t);
+    } else if (view === "pick") {
+      title = fr ? "Nouveau ticket" : "New ticket";
+      body = this.pick(d, t);
+    } else if (view === "settings") {
+      title = fr ? "Réglages" : "Settings";
+      body = this.settings(d, t);
+    } else if (view === "board") {
+      title = fr ? "Tableau par phase" : "Board by phase";
+      body = this.board(d, t);
+    } else body = this.home(d, t);
+    if (d?.palette) body = [this.palette(d, t), ...body];
+    else if (d?.overlay?.kind === "help") body = [this.overlay(d.overlay, t), ...body];
     const status = this.error || d?.busy || (this.pending ? "…" : d?.flash?.text);
     const buttons = d?.buttons ?? [];
     return v_flex()

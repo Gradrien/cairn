@@ -78,3 +78,36 @@ func TestNativeRequests(t *testing.T) {
 		t.Errorf("an unknown chantier is said, not acted on: %q", m.flash)
 	}
 }
+
+func TestNativeScreens(t *testing.T) {
+	t.Setenv("CAIRN_HOME", t.TempDir())
+	m := fixture(t, 140, 40)
+	m.all = m.chantiers
+	m, _ = m.runRequest(native.Request{Action: "palette"})
+	d := m.nativeDetail()
+	if d.Palette == nil || len(d.Palette.Entries) == 0 {
+		t.Fatal("ctrl+k exports its entries")
+	}
+	open := -1
+	for i, e := range d.Palette.Entries {
+		if e.Icon == "#" && strings.HasPrefix(e.Label, "YAK-712") {
+			open = i
+		}
+	}
+	m, _ = m.runRequest(native.Request{Key: "YAK-861", Action: "palette-run", Index: open})
+	if m.overlay != "" || m.selected().Key != "YAK-712" {
+		t.Errorf("a palette entry runs as the TUI's, and the palette closes: %q %q", m.overlay, m.selected().Key)
+	}
+	m.view = "board"
+	if d := m.nativeDetail(); len(d.Board) != 5 || d.Board[1].Phase != "Plan" || d.Board[1].Cards[0].Key != "YAK-861" {
+		t.Errorf("the board has a column per phase: %+v", d.Board)
+	}
+	m, _ = m.runRequest(native.Request{Key: "YAK-800", Action: "select"})
+	if m.view != "" || m.selected().Key != "YAK-800" {
+		t.Error("selecting a card leaves the board for the chantier")
+	}
+	m, _ = m.runRequest(native.Request{Action: "key", Arg: "?"})
+	if d := m.nativeDetail(); d.Overlay == nil || d.Overlay.Kind != "help" || len(d.Overlay.Lines) < 5 {
+		t.Errorf("? exports the help: %+v", d.Overlay)
+	}
+}
