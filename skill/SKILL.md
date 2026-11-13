@@ -68,7 +68,7 @@ Lance `pnpm dev`, connecte-toi en admin, ouvre /freelances.
 
 ## Preuves
 - `pnpm test --filter yak-query` ✓ 42 tests (2026-11-03 14:20)
-- capture : /chemin/vers/capture.png
+- capture : ~/.cairn/proofs/YAK-12/apres-redimension.png
 ```
 
 cairn affiche tout ce fichier :
@@ -89,7 +89,10 @@ cairn affiche tout ce fichier :
 - ce que tu écris sous un élément (sous-puces, paragraphe indenté, bloc de code) s'affiche sous lui, à toutes les
   sections : une tâche peut détailler ses étapes ou ses cas d'erreur en sous-puces ;
 - `## Effets de bord` est suivi à part (« 2/3 vérifiés ») ;
-- sous `## Preuves`, chaque élément de liste est une preuve ;
+- sous `## Preuves`, chaque élément de liste est une preuve. Une capture y est un chemin absolu vers un fichier
+  image, et cairn la montre en vignette. Enregistre tes captures dans `~/.cairn/proofs/<TICKET>/` (crée le dossier),
+  jamais dans un dossier temporaire ou le scratchpad de ta session : ils sont effacés, et l'humain ne verrait plus
+  qu'une capture introuvable ;
 - `## Comment ça marche` s'ouvre en plein écran (`i`) : c'est là que l'humain lit comment le ticket est construit.
 - `## Tester à la main` s'affiche comme une liste d'étapes que l'humain coche dans cairn au fur et à mesure. Quand
   une étape ne marche pas, cairn t'envoie l'étape et ce que l'humain voit à la place : corrige le code (ou l'étape si
@@ -181,7 +184,7 @@ toutes. Ce qu'elles établissent va sous `## Approche`, les tâches en dessous.
     « Ouvrir la PR » et te relance. Ouvre-la alors, lie-la au ticket et passe en `phase: review`.
   - **Une fois la PR ouverte**, tes pushes suivants (correctifs de CI, retours de review) passent sans redemander : la
     relecture se fait sur la PR.
-- **Images dans une PR : jamais de chemin relatif.** `![avant](./before.png)` est résolu par GitHub en `/pull/before.png`, c'est un lien mort. N'utilise que des URLs d'images réellement hébergées, par exemple des pièces jointes GitHub (`https://github.com/user-attachments/assets/…`) téléversées via le navigateur, puis vérifie qu'elles s'affichent. Si tu ne peux pas téléverser, n'insère pas d'image : garde les captures en local et cite leur chemin absolu sous `## Preuves`, cairn les affiche.
+- **Images dans une PR : jamais de chemin relatif.** `![avant](./before.png)` est résolu par GitHub en `/pull/before.png`, c'est un lien mort. N'utilise que des URLs d'images réellement hébergées, par exemple des pièces jointes GitHub (`https://github.com/user-attachments/assets/…`) téléversées via le navigateur, puis vérifie qu'elles s'affichent. Si tu ne peux pas téléverser, n'insère pas d'image : garde les captures dans `~/.cairn/proofs/<TICKET>/` et cite leur chemin sous `## Preuves`, cairn les affiche.
 - **`attente:`** n'apparaît que quand une décision humaine bloque. Écris-la en quelques mots (« Choisir entre migration et script »), pose la question dans ta réponse, puis attends. Retire la ligne une fois la réponse obtenue.
 - **`## Comment ça marche` explique le code à l'humain.** Il doit pouvoir répondre seul aux questions sur le ticket
   (« où est sauvée la taille ? », « quand tourne la synchro ? ») sans lire le diff. Écris-la pendant le build, dès
