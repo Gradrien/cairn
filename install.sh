@@ -204,9 +204,11 @@ PY
 )"
   [[ -z "$bound" ]] || echo "! cmd+shift+a fait déjà « $bound » : lie une autre touche à \"mod.open:cairn-toggle\" dans $keys"
   # The engine of the native panels runs the old build until it restarts.
-  pkill -f "$cairn_bin serve" 2>/dev/null && sleep 0.5 || true
+  lock="${CAIRN_HOME:-$HOME/.cairn}/cache/engine.lock"
+  if [[ -s "$lock" ]] && kill "$(cat "$lock")" 2>/dev/null; then sleep 0.5; fi
   CAIRN_MUX=herdr-app "$cairn_bin" ensure || true
-  echo "✓ Herdr : cairn est dans la barre latérale, entre Spaces et Agents (layout « cairn », cmd+shift+l pour changer de layout), cmd+shift+a ouvre la TUI"
+  echo "✓ Herdr : cairn est dans la barre latérale, entre Spaces et Agents (layout « cairn », cmd+shift+l pour changer de layout), cmd+shift+a ouvre cairn"
+  echo "  Tout natif, sans TUI : \"ui\": \"native\" dans ~/.cairn/config.json"
 fi
 
 if [[ "${1:-}" == "--rex" ]]; then
