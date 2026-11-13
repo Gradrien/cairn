@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -15,8 +14,9 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"cairn/internal/chantier"
-	"cairn/internal/config"
 	"cairn/internal/i18n"
+	"cairn/internal/native"
+	"cairn/internal/progress"
 	"cairn/internal/state"
 )
 
@@ -26,8 +26,6 @@ import (
 // sections and their order, the confirmations are the TUI's own, and a
 // request runs the same code as the key or click it stands for.
 
-func DetailFile() string         { return filepath.Join(config.Dir(), "cache", "detail.json") }
-func RequestsDir() string        { return filepath.Join(config.Dir(), "cache", "requests") }
 func nativeText(s string) string { return strings.TrimRight(xansi.Strip(s), " ") }
 
 type nativeButton struct {
@@ -59,6 +57,7 @@ type nativeRow struct {
 
 type nativeItem struct {
 	Text  string `json:"text"`
+	Image string `json:"image,omitempty"` // a proof's screenshot, to open
 	Depth int    `json:"depth,omitempty"`
 	Plain bool   `json:"plain,omitempty"`
 	Code  bool   `json:"code,omitempty"`
@@ -148,8 +147,64 @@ type nativeFlash struct {
 	Error bool   `json:"error,omitempty"`
 }
 
+// nativeHow is the "how it works" view: the agent's explanation, or for a
+// ticket shipped before it wrote one, its plan.
+type nativeHow struct {
+	Key      string `json:"key"`
+	Title    string `json:"title"`
+	Markdown string `json:"markdown,omitempty"`
+	Note     string `json:"note,omitempty"`
+	Archived bool   `json:"archived,omitempty"`
+	CanAsk   bool   `json:"can_ask"`
+}
+
+type nativeEntry struct {
+	Index  int    `json:"index"`
+	Author string `json:"author"`
+	Kind   string `json:"kind"`
+	State  string `json:"state,omitempty"`
+	Where  string `json:"where,omitempty"`
+	Ago    string `json:"ago"`
+	Body   string `json:"body"`
+	Bot    bool   `json:"bot,omitempty"`
+	New    bool   `json:"new,omitempty"`
+}
+
+type nativeImage struct {
+	N      int    `json:"n"`
+	URL    string `json:"url"`
+	Broken bool   `json:"broken,omitempty"`
+}
+
+// nativeComments is the PR conversation view.
+type nativeComments struct {
+	Number   int           `json:"number"`
+	URL      string        `json:"url"`
+	Error    string        `json:"error,omitempty"`
+	Loading  bool          `json:"loading,omitempty"`
+	ShowBots bool          `json:"show_bots"`
+	Entries  []nativeEntry `json:"entries"`
+	Images   []nativeImage `json:"images"`
+}
+
+// nativeOther is an agent on no known ticket, which can be attached to one.
+type nativeOther struct {
+	Name    string   `json:"name"`
+	Status  string   `json:"status"`
+	Title   string   `json:"title"`
+	Dir     string   `json:"dir"`
+	Pane    string   `json:"pane"`
+	Targets []string `json:"targets"`
+}
+
 type nativeDetail struct {
 	Lang     string          `json:"lang"`
+	View     string          `json:"view"` // "", how, comments, pick, settings, board
+	Buttons  []nativeButton  `json:"buttons"`
+	Primary  bool            `json:"primary"` // the first button is what to do now
+	How      *nativeHow      `json:"how,omitempty"`
+	Comments *nativeComments `json:"comments,omitempty"`
+	Other    *nativeOther    `json:"other,omitempty"`
 	Key      string          `json:"key,omitempty"`
 	Title    string          `json:"title,omitempty"`
 	Meta     string          `json:"meta,omitempty"`
@@ -188,6 +243,68 @@ func nativeItems(items []state.Item) []nativeItem {
 	var out []nativeItem
 	for _, it := range items {
 		out = append(out, nativeItem{Text: it.Text, Depth: it.Depth, Plain: it.Plain, Code: it.Code})
+	}
+	return out
+}
+
+func untilde(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[2:])
+		}
+	}
+	return p
+}
+
+func (m Model) nativeHow() *nativeHow {
+	h := m.howSubj()
+	if h == nil {
+		return nil
+	}
+	out := &nativeHow{Key: h.key, Title: h.title, Markdown: h.plan.HowItWorks, Archived: !h.archivedAt.IsZero(), CanAsk: m.askDir(h) != ""}
+	switch {
+	case out.Markdown != "":
+	case out.Archived:
+		out.Note = i18n.T("Livré avant que l'agent l'explique : voici son plan, ce qui a été fait.", "Shipped before the agent explained it: here is its plan, what was done.")
+		body := strings.TrimSpace(h.plan.Body())
+		if k, rest, ok := strings.Cut(body, "\n"); ok && strings.HasPrefix(k, "# ") {
+			body = rest
+		}
+		out.Markdown = body
+	default:
+		out.Note = i18n.T("L'agent n'a pas encore expliqué comment ce ticket est construit.", "The agent has not explained yet how this ticket is built.")
+		if h.agent() == "" {
+			out.Note += " " + i18n.T("Aucun agent sur ce chantier pour l'écrire.", "No agent on this ticket to write it.")
+		}
+	}
+	return out
+}
+
+func (m Model) nativeComments() *nativeComments {
+	url, num := m.prURLOf()
+	out := &nativeComments{Number: num, URL: url, ShowBots: m.showBots, Entries: []nativeEntry{}, Images: []nativeImage{}}
+	switch {
+	case m.threadErr != nil:
+		out.Error = m.threadErr.Error()
+		return out
+	case m.thread == nil:
+		out.Loading = true
+		return out
+	}
+	since, tracked := time.Time{}, false
+	if m.seen != nil {
+		since, tracked = m.seen.get(m.threadKey)
+	}
+	for i, e := range m.thread.Entries {
+		ne := nativeEntry{Index: i, Author: e.Author, Kind: e.Kind, State: e.State, Ago: progress.Ago(e.At), Body: e.Body, Bot: e.Bot,
+			New: tracked && e.Kind != "description" && e.At.After(since)}
+		if e.Kind == "inline" {
+			ne.Where = fmt.Sprintf("%s:%d", e.Path, e.Line)
+		}
+		out.Entries = append(out.Entries, ne)
+	}
+	for i, u := range m.thread.Images {
+		out.Images = append(out.Images, nativeImage{N: i + 1, URL: u, Broken: m.thread.Broken[i+1]})
 	}
 	return out
 }
@@ -310,7 +427,17 @@ func (m Model) nativeSection(c *chantier.Chantier, id string) *nativeSection {
 		}
 		sec := &nativeSection{ID: id, Title: i18n.T("Preuves", "Proofs"), Count: fmt.Sprint(len(s.Proofs))}
 		for _, p := range s.Proofs {
-			sec.Items = append(sec.Items, nativeItem{Text: p})
+			sec.Items = append(sec.Items, nativeItem{Text: p, Image: untilde(imagePath(p))})
+		}
+		return sec
+	case "how":
+		plan, _ := m.planOf(c)
+		if plan == nil || (plan.HowItWorks == "" && c.Phase < chantier.Build) {
+			return nil
+		}
+		sec := &nativeSection{ID: id, Title: howTitle(), Hint: i18n.T("pour répondre aux questions sur le ticket", "to answer questions on the ticket"), Text: plan.HowItWorks}
+		if plan.HowItWorks == "" {
+			sec.Lines = []string{i18n.T("Pas encore écrit par l'agent.", "Not written by the agent yet.")}
 		}
 		return sec
 	case "code":
@@ -354,7 +481,23 @@ func (m Model) nativeSection(c *chantier.Chantier, id string) *nativeSection {
 }
 
 func (m Model) nativeDetail() nativeDetail {
-	d := nativeDetail{Lang: i18n.Lang(), Busy: m.busy}
+	d := nativeDetail{Lang: i18n.Lang(), Busy: m.busy, View: m.view, Primary: m.primaryFirst(), Buttons: []nativeButton{}}
+	for _, b := range m.buttons() {
+		d.Buttons = append(d.Buttons, nativeButton{Key: b.key, Label: b.label, Enabled: b.enabled})
+	}
+	switch m.view {
+	case "how":
+		d.How = m.nativeHow()
+	case "comments":
+		d.Comments = m.nativeComments()
+	}
+	if a := m.selectedOther(); a != nil {
+		o := &nativeOther{Name: a.Label(), Status: a.Status, Title: a.Title, Dir: tilde(a.Dir()), Pane: a.PaneID, Targets: []string{}}
+		for _, c := range m.chantiers {
+			o.Targets = append(o.Targets, c.Key)
+		}
+		d.Other = o
+	}
 	if m.flash != "" {
 		d.Flash = &nativeFlash{Text: nativeText(m.flash), Error: m.flashErr}
 	}
@@ -444,7 +587,7 @@ func (m *Model) exportDetail() {
 	if err != nil || bytes.Equal(data, m.detailOut) {
 		return
 	}
-	path := DetailFile()
+	path := native.DetailFile()
 	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
 		return
 	}
@@ -454,67 +597,8 @@ func (m *Model) exportDetail() {
 	}
 }
 
-// nativeRequest is what the native window asks for. Key selects the
-// chantier first; Action is then one of:
-//   - "key": Arg is a TUI key ("a", "v", "p", "enter"…), run as if pressed;
-//   - "confirm" / "cancel": the open confirmation, as enter / esc;
-//   - "overlay": Arg is a key of the open confirmation's buttons;
-//   - "answer": open question Index, with option Option, or Text in your words;
-//   - "side": tick or untick side effect Index;
-//   - "manual-ok" / "manual-ko": manual step Index works, or fails as Text says;
-//   - "fold": unfold or fold section Arg ("tasks", "goal", "approach").
-type nativeRequest struct {
-	Key    string `json:"key"`
-	Action string `json:"action"`
-	Arg    string `json:"arg,omitempty"`
-	Index  int    `json:"index,omitempty"`
-	Option *int   `json:"option,omitempty"`
-	Text   string `json:"text,omitempty"`
-}
-
-// Request drops a request for the running cairn, which runs it within 300 ms.
-func Request(key, action, arg string, index int, option *int, text string) error {
-	data, err := json.Marshal(nativeRequest{Key: key, Action: action, Arg: arg, Index: index, Option: option, Text: text})
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(RequestsDir(), 0o755); err != nil {
-		return err
-	}
-	name := fmt.Sprintf("%d-%d.json", time.Now().UnixNano(), os.Getpid())
-	tmp := filepath.Join(RequestsDir(), "."+name)
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(RequestsDir(), name))
-}
-
-// takeRequests returns the waiting requests, oldest first, and removes them.
-func takeRequests() []nativeRequest {
-	dir := RequestsDir()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
-	var out []nativeRequest
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		path := filepath.Join(dir, e.Name())
-		data, err := os.ReadFile(path)
-		_ = os.Remove(path)
-		var r nativeRequest
-		if err == nil && json.Unmarshal(data, &r) == nil {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 // runRequest runs one request on the model, the way the TUI's key or click would.
-func (m Model) runRequest(r nativeRequest) (Model, tea.Cmd) {
+func (m Model) runRequest(r native.Request) (Model, tea.Cmd) {
 	if r.Key != "" {
 		m.wantKey = strings.ToUpper(r.Key)
 		m.focusWanted()
@@ -561,6 +645,12 @@ func (m Model) runRequest(r nativeRequest) (Model, tea.Cmd) {
 			mm.manualText = r.Text
 			next, cmd = mm.sendManualReport()
 		}
+	case "comment":
+		next, cmd = m.sendComment(r.Index)
+	case "ask":
+		next, cmd = m.askAside(r.Text)
+	case "attach":
+		next, cmd = m.attach(strings.ToUpper(r.Arg))
 	case "fold":
 		c := m.selected()
 		k := c.Key + ":" + r.Arg

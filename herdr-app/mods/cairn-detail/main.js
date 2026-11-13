@@ -1,22 +1,23 @@
-// cairn: one chantier, in the Herdr app's right panel (next to Files and
+// cairn: the chantier, in the Herdr app's right panel (next to Files and
 // Changes). Written by cairn's install.sh --herdr-app; run it again to update it.
 //
-// The running cairn is the engine: it writes the selected chantier to
-// detail.json (its card, sections and confirmations, the TUI's own) and runs
-// what this panel asks with `cairn do`, the same code as its keys and clicks.
+// cairn serve is the engine: it writes what to show to detail.json (the
+// chantier's card and sections, the screen it is on and that screen's buttons,
+// its confirmations) and runs what this panel asks with `cairn do`, the same
+// code as the TUI's keys and clicks. Every key the TUI knows works here once
+// the panel has the keyboard (a click on it).
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView, Scrollbar } from "gpui-base";
-import { agents, run, exec, readTextFile, watchFolder, theme, settings } from "herdr";
+import { agents, run, exec, readTextFile, watchFolder, nextCommand, theme, settings } from "herdr";
 
 const CAIRN = "@CAIRN@";
 const PATH = "@PATH@";
 const DETAIL = "@DETAIL@";
-const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
-// Keys whose screen only the TUI has for now: they open it there.
-const TUI_ONLY = new Set(["c", "i", "n", "s", "t"]);
+const KEYS = { escape: "esc", enter: "enter", up: "up", down: "down", left: "left", right: "right", pageup: "pgup", pagedown: "pgdown", space: " ", tab: "tab" };
 
 const folder = (path) => path.slice(0, path.lastIndexOf("/"));
 const cairn = (...args) => exec("/usr/bin/env", ["PATH=" + PATH, "CAIRN_MUX=herdr-app", CAIRN, ...args]);
+const open = (target) => exec("open", [target]);
 
 export default class CairnDetail extends View {
   init(_props, cx) {
@@ -24,12 +25,31 @@ export default class CairnDetail extends View {
     this.picked = {}; // question index → option index, before sending
     this.freeQ = null; // question answered in your own words
     this.openStep = null; // manual step whose ✓ / ✗ are open
-    // Input state can only be made here or in a handler: one box of each kind,
-    // shown under the question or step it is open for, per language.
-    this.boxes = {
-      fr: { answer: InputState.new({ placeholder: "Ta réponse, ou une question pour l'agent…" }), report: InputState.new({ placeholder: "Ce que tu vois…" }) },
-      en: { answer: InputState.new({ placeholder: "Your answer, or a question for the agent…" }), report: InputState.new({ placeholder: "What you see…" }) },
+    this.asking = false; // a question for an agent aside, in "how it works"
+    this.typing = false;
+    this.handle = cx.focus_handle();
+    // Input state can only be made here or in a handler: one box of each kind
+    // and language, shown under the question, step or view it is open for.
+    const box = (placeholder) => {
+      const s = InputState.new({ placeholder });
+      s.on("focus", (_e, cx) => {
+        this.typing = true;
+        cx.notify();
+      });
+      s.on("blur", (_e, cx) => {
+        this.typing = false;
+        cx.notify();
+      });
+      return s;
     };
+    this.boxes = {
+      fr: { answer: box("Ta réponse, ou une question pour l'agent…"), report: box("Ce que tu vois…"), ask: box("Ta question sur ce ticket…") },
+      en: { answer: box("Your answer, or a question for the agent…"), report: box("What you see…"), ask: box("Your question about this ticket…") },
+    };
+    for (const lang of ["fr", "en"]) {
+      this.boxes[lang].answer.on("submit", (_e, cx) => this.sendFree(cx));
+      this.boxes[lang].ask.on("submit", (_e, cx) => this.sendAsk(cx));
+    }
     this.load(cx);
     cx.spawn(async (cx) => {
       for (;;) {
@@ -39,6 +59,13 @@ export default class CairnDetail extends View {
           return;
         }
         this.load(cx);
+      }
+    });
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const c = await nextCommand();
+        if (c === "focus") this.handle.focus();
+        cx.notify();
       }
     });
     cx.timer.every(15000, (cx) => this.load(cx));
@@ -54,6 +81,7 @@ export default class CairnDetail extends View {
           this.picked = {};
           this.openStep = this.freeQ = null;
         }
+        if (d.view !== "how") this.asking = false;
         this.d = d;
       } catch {
         return;
@@ -66,11 +94,17 @@ export default class CairnDetail extends View {
     return (this.d?.lang ?? "fr") !== "en";
   }
 
-  ask(cx, ...args) {
+  box(kind) {
+    return this.boxes[this.fr() ? "fr" : "en"][kind];
+  }
+
+  // ask sends a request to the engine: cairn do KEY ACTION ARGS.
+  ask(cx, action, ...args) {
     this.error = null;
+    const key = this.d?.key || "-";
     cx.spawn(async (cx) => {
       try {
-        const r = await cairn("do", this.d.key, ...args);
+        const r = await cairn("do", key, action, ...args);
         if (r.code !== 0) this.error = (r.stderr || r.stdout).trim();
       } catch (e) {
         this.error = String(e);
@@ -79,40 +113,106 @@ export default class CairnDetail extends View {
     });
   }
 
+  // key does what the TUI's key does on the screen the engine is on; the few
+  // that the panel draws itself are handled here.
   key(k, cx) {
-    if (k === "o" && this.d.url) return exec("open", [this.d.url]);
-    if (k === "e") return; // the questions are right here
-    if (TUI_ONLY.has(k)) {
-      cx.spawn(async () => {
-        await cairn("do", this.d.key, "key", k);
-        await cairn("open", this.d.key);
-      });
+    const d = this.d;
+    if (!d) return;
+    const view = d.view || "";
+    if (d.overlay && (k === "enter" || k === "esc" || d.overlay.buttons.some((b) => b.key === k))) return this.ask(cx, "overlay", k);
+    if (k === "esc" && (this.freeQ !== null || this.asking || this.openStep !== null)) {
+      this.freeQ = this.openStep = null;
+      this.asking = false;
+      cx.notify();
+      return;
+    }
+    if (view === "" && k === "o" && d.url) return open(d.url);
+    if (view === "" && k === "e") {
+      const q = (d.sections ?? []).find((s) => s.id === "questions")?.questions?.find((q) => !q.answered);
+      if (q) {
+        this.freeQ = q.index;
+        this.box("answer").set_value("");
+        cx.notify();
+      }
+      return;
+    }
+    if (view === "how" && k === "e") {
+      this.asking = d.how?.can_ask ?? false;
+      this.box("ask").set_value("");
+      cx.notify();
+      return;
+    }
+    if (view === "comments" && k === "i") {
+      for (const img of d.comments?.images ?? []) if (!img.broken && /^https?:/.test(img.url)) open(img.url);
       return;
     }
     this.ask(cx, "key", k);
   }
 
-  input(kind) {
-    return this.boxes[this.fr() ? "fr" : "en"][kind];
+  sendFree(cx) {
+    const box = this.box("answer");
+    const text = box.value().trim();
+    if (!text || this.freeQ === null) return;
+    box.set_value("");
+    const q = this.freeQ;
+    this.freeQ = null;
+    this.handle.focus();
+    this.ask(cx, "answer", "--index", String(q), "--text", text);
   }
 
+  sendAsk(cx) {
+    const box = this.box("ask");
+    const text = box.value().trim();
+    if (!text) return;
+    box.set_value("");
+    this.asking = false;
+    this.handle.focus();
+    this.ask(cx, "ask", "--text", text);
+  }
+
+  onKey(e, cx) {
+    if (this.typing) {
+      if (e.key === "escape") {
+        this.freeQ = this.openStep = null;
+        this.asking = false;
+        this.handle.focus();
+        cx.stop_propagation();
+        cx.notify();
+      }
+      return;
+    }
+    const m = e.modifiers ?? {};
+    if (m.platform || m.alt) return; // the app's own shortcuts
+    let k = KEYS[e.key] ?? (e.key_char && e.key_char.length === 1 ? e.key_char : e.key);
+    if (m.control && e.key.length === 1) k = "ctrl+" + e.key;
+    if (!k || (k.length > 1 && !Object.values(KEYS).includes(k) && !k.startsWith("ctrl+"))) return;
+    cx.stop_propagation();
+    this.key(k, cx);
+  }
 
   toneColor(tone, t) {
     return { warn: t.blocked, danger: t.ansi1, good: t.ansi2, accent: t.accent, dim: t.dim, muted: t.muted, line: t.muted }[tone] ?? t.muted;
   }
 
   md(id, text, t, color) {
-    return div().min_w(0).text_color(color ?? t.foreground).child(TextView.markdown(id, text ?? "").selectable(true));
+    return div()
+      .min_w(0)
+      .text_color(color ?? t.foreground)
+      .child(
+        TextView.markdown(id, text ?? "")
+          .selectable(true)
+          .on_link_click((url) => open(url)),
+      );
   }
 
-  button(id, label, { primary, enabled = true, tone } = {}, onClick, t) {
+  button(id, label, { primary, enabled = true, tone, hint } = {}, onClick, t) {
     const bg = primary && enabled ? t.solid : t.raised;
     const fg = !enabled ? t.dim : primary ? t.solid_foreground : tone ? this.toneColor(tone, t) : t.foreground;
-    return div()
+    return h_flex()
       .id(id)
       .h(28)
       .px(10)
-      .flex()
+      .gap(6)
       .flex_none()
       .items_center()
       .rounded(7)
@@ -122,6 +222,19 @@ export default class CairnDetail extends View {
       .text_size(12)
       .text_color(fg)
       .when(enabled, (e) => e.cursor_pointer().hover((s) => s.opacity(0.88)).on_click((_e, cx) => onClick(cx)))
+      .when(Boolean(hint), (e) => e.child(div().font_family(this.mono).text_size(10.5).text_color(primary && enabled ? fg : t.dim).child(hint)))
+      .child(label);
+  }
+
+  link(id, label, onClick, t, color) {
+    return div()
+      .id(id)
+      .flex_none()
+      .text_size(12)
+      .text_color(color ?? t.accent)
+      .cursor_pointer()
+      .hover((s) => s.opacity(0.8))
+      .on_click((_e, cx) => onClick(cx))
       .child(label);
   }
 
@@ -132,13 +245,15 @@ export default class CairnDetail extends View {
         (list ?? []).map((it, i) => {
           const pad = indent + (it.depth ?? 0) * 14;
           if (it.code) return div().pl(pad + 14).font_family(this.mono).text_size(11.5).text_color(t.muted).child(it.text);
-          const bullet = it.plain ? "" : ["•", "◦", "·"][Math.min(it.depth ?? 0, 2)];
-          return h_flex()
+          const bullet = it.image ? "▣" : it.plain ? "" : ["•", "◦", "·"][Math.min(it.depth ?? 0, 2)];
+          const row = h_flex()
+            .id(`${id}-${i}`)
             .pl(pad)
             .gap(6)
             .items_start()
-            .when(Boolean(bullet), (e) => e.child(div().w(8).flex_none().text_color(t.dim).child(bullet)))
-            .child(div().flex_1().min_w(0).child(this.md(`${id}-${i}`, it.text, t, t.muted)));
+            .when(Boolean(bullet), (e) => e.child(div().w(10).flex_none().text_color(it.image ? t.accent : t.dim).child(bullet)))
+            .child(div().flex_1().min_w(0).child(this.md(`${id}-${i}-t`, it.text, t, it.image ? t.accent : t.muted)));
+          return it.image ? row.rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => open(it.image)) : row;
         }),
       );
   }
@@ -168,16 +283,19 @@ export default class CairnDetail extends View {
       .gap(3)
       .rounded(6)
       .when(Boolean(onClick), (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => onClick(cx)))
-      .child(
-        h_flex()
-          .gap(6)
-          .items_start()
-          .child(this.icon(task.state, t))
-          .child(div().flex_1().min_w(0).child(this.md(`${id}-t`, task.text, t, task.state === "done" ? t.muted : t.foreground))),
-      )
+      .child(h_flex().gap(6).items_start().child(this.icon(task.state, t)).child(div().flex_1().min_w(0).child(this.md(`${id}-t`, task.text, t, task.state === "done" ? t.muted : t.foreground))))
       .when((task.body ?? []).length > 0, (e) => e.child(this.items(`${id}-b`, task.body, t, 20)))
       .when(Boolean(task.reported), (e) => e.child(div().pl(20).text_size(12).text_color(t.ansi1).child((this.fr() ? "↳ signalé à l'agent : " : "↳ reported to the agent: ") + task.reported)))
       .when(Boolean(extra), (e) => e.child(extra));
+  }
+
+  inputRow(id, box, t, send, cancel) {
+    const fr = this.fr();
+    return h_flex()
+      .gap(6)
+      .child(div().flex_1().min_w(0).h(28).px(8).flex().items_center().rounded(7).border_1().border_color(t.accent).child(Input.new(box).h_full().text_size(12)))
+      .child(this.button(`${id}-send`, fr ? "Envoyer" : "Send", { primary: true }, send, t))
+      .child(this.button(`${id}-cancel`, fr ? "Annuler" : "Cancel", {}, cancel, t));
   }
 
   question(q, t) {
@@ -186,11 +304,10 @@ export default class CairnDetail extends View {
     if (q.answered)
       return v_flex()
         .gap(3)
-        .child(h_flex().gap(6).child(div().w(14).text_color(t.ansi2).child("✓")).child(div().flex_1().min_w(0).text_color(t.muted).child(this.md(`${id}-t`, q.text, t, t.muted))))
+        .child(h_flex().gap(6).child(div().w(14).text_color(t.ansi2).child("✓")).child(div().flex_1().min_w(0).child(this.md(`${id}-t`, q.text, t, t.muted))))
         .child(div().pl(20).text_size(12).text_color(t.ansi2).child((fr ? "↳ envoyé à l'agent : " : "↳ sent to the agent: ") + q.answered));
     const picked = this.picked[q.index] ?? (q.options ?? []).findIndex((o) => o.recommended);
     const writing = this.freeQ === q.index;
-    const free = this.input("answer");
     return v_flex()
       .gap(6)
       .child(h_flex().gap(6).items_start().child(div().w(14).flex_none().text_color(t.blocked).font_bold().child("?")).child(div().flex_1().min_w(0).child(this.md(`${id}-t`, q.text, t))))
@@ -223,50 +340,29 @@ export default class CairnDetail extends View {
       .child(
         h_flex()
           .ml(20)
-          .gap(6)
+          .gap(10)
+          .items_center()
           .when((q.options ?? []).length > 0, (e) =>
-            e.child(
-              this.button(`${id}-send`, fr ? "Envoyer le choix" : "Send the choice", { primary: true, enabled: picked >= 0 }, (cx) => this.ask(cx, "answer", "--index", String(q.index), "--option", String(picked)), t),
-            ),
+            e.child(this.button(`${id}-send`, fr ? "Envoyer le choix" : "Send the choice", { primary: true, enabled: picked >= 0 }, (cx) => this.ask(cx, "answer", "--index", String(q.index), "--option", String(picked)), t)),
           )
           .when(!writing, (e) =>
             e.child(
-              div()
-                .id(`${id}-write`)
-                .text_size(12)
-                .text_color(t.dim)
-                .cursor_pointer()
-                .hover((s) => s.text_color(t.foreground))
-                .on_click((_e, cx) => {
-                  this.freeQ = q.index;
-                  free.set_value("");
-                  cx.notify();
-                })
-                .child(fr ? "✎ Répondre dans tes mots" : "✎ Answer in your words"),
+              this.link(`${id}-write`, fr ? "✎ Répondre dans tes mots" : "✎ Answer in your words", (cx) => {
+                this.freeQ = q.index;
+                this.box("answer").set_value("");
+                cx.notify();
+              }, t, t.dim),
             ),
           ),
       )
       .when(writing, (e) =>
         e.child(
-          h_flex()
-            .ml(20)
-            .gap(6)
-            .child(div().flex_1().min_w(0).h(28).px(8).flex().items_center().rounded(7).border_1().border_color(t.accent).child(Input.new(free).h_full().text_size(12)))
-            .child(
-              this.button(`${id}-sendfree`, fr ? "Envoyer" : "Send", { primary: true }, (cx) => {
-                const text = free.value().trim();
-                if (!text) return;
-                free.set_value("");
-                this.freeQ = null;
-                this.ask(cx, "answer", "--index", String(q.index), "--text", text);
-              }, t),
-            )
-            .child(
-              this.button(`${id}-cancelfree`, fr ? "Annuler" : "Cancel", {}, (cx) => {
-                this.freeQ = null;
-                cx.notify();
-              }, t),
-            ),
+          div().ml(20).child(
+            this.inputRow(`${id}-free`, this.box("answer"), t, (cx) => this.sendFree(cx), (cx) => {
+              this.freeQ = null;
+              cx.notify();
+            }),
+          ),
         ),
       );
   }
@@ -279,35 +375,46 @@ export default class CairnDetail extends View {
     else if (sec.id === "manual") {
       kids.push(...(sec.setup ?? []).map((l, i) => h_flex().gap(6).child(div().w(14).text_color(t.dim).child("·")).child(div().flex_1().min_w(0).child(this.md(`setup-${i}`, l, t, t.muted)))));
       for (const k of sec.tasks ?? []) {
-        const open = this.openStep === k.index && k.state !== "done";
-        const report = this.input("report");
-        const extra = open
-          ? h_flex()
+        const isOpen = this.openStep === k.index && k.state !== "done";
+        const report = this.box("report");
+        const extra = isOpen
+          ? v_flex()
               .pl(20)
               .gap(6)
-              .child(this.button(`ok-${k.index}`, fr ? "✓ ça marche" : "✓ it works", { tone: "good" }, (cx) => this.ask(cx, "manual-ok", "--index", String(k.index)), t))
-              .child(div().flex_1().min_w(0).h(28).px(8).flex().items_center().rounded(7).border_1().border_color(t.border).child(Input.new(report).h_full().text_size(12)))
+              .child(h_flex().child(this.button(`ok-${k.index}`, fr ? "✓ ça marche" : "✓ it works", { tone: "good" }, (cx) => this.ask(cx, "manual-ok", "--index", String(k.index)), t)))
               .child(
-                this.button(`ko-${k.index}`, fr ? "✗ ça ne marche pas" : "✗ it fails", { tone: "danger" }, (cx) => {
+                this.inputRow(`ko-${k.index}`, report, t, (cx) => {
                   const text = report.value().trim();
                   if (!text) return;
                   report.set_value("");
+                  this.openStep = null;
                   this.ask(cx, "manual-ko", "--index", String(k.index), "--text", text);
-                }, t),
+                }, (cx) => {
+                  this.openStep = null;
+                  cx.notify();
+                }),
               )
           : null;
         kids.push(
           this.task(`manual-${k.index}`, k, t, (cx) => {
             if (k.state === "done") return this.ask(cx, "manual-ok", "--index", String(k.index));
             this.openStep = this.openStep === k.index ? null : k.index;
-            this.input("report").set_value("");
+            this.box("report").set_value("");
             cx.notify();
           }, extra),
         );
       }
     } else if (sec.tasks) kids.push(...sec.tasks.map((k) => this.task(`${sec.id}-${k.index}`, k, t)));
     else if (sec.id === "goal") kids.push(this.md("goal", sec.text, t));
-    else if (sec.id === "approach") kids.push(this.items("approach", sec.items, t));
+    else if (sec.id === "how") {
+      if (sec.text) {
+        const intro = sec.text.split(/\n#+ /)[0];
+        const mechs = [...sec.text.matchAll(/^#+\s+(.+)$/gm)].map((m) => m[1]);
+        kids.push(this.md("how-intro", intro, t, t.muted));
+        if (mechs.length) kids.push(div().text_size(12).text_color(t.dim).child(mechs.join(" · ")));
+      } else kids.push(div().text_size(12).text_color(t.muted).child((sec.lines ?? []).join(" ")));
+      kids.push(h_flex().pt(2).child(this.link("how-open", sec.text ? (fr ? "› Tout lire" : "› Read it all") : fr ? "› Demander l'explication" : "› Ask for it", (cx) => this.key("i", cx), t)));
+    } else if (sec.id === "approach") kids.push(this.items("approach", sec.items, t));
     else if (sec.id === "proofs") kids.push(this.items("proofs", sec.items, t));
     else if (sec.code) {
       const c = sec.code;
@@ -324,13 +431,14 @@ export default class CairnDetail extends View {
       if (c.last) kids.push(div().text_color(t.muted).truncate().child((fr ? "dernier : " : "last: ") + c.last));
       kids.push(div().font_family(this.mono).text_size(11.5).text_color(t.dim).truncate().child(c.branch));
       kids.push(div().font_family(this.mono).text_size(11.5).text_color(t.dim).truncate().child(c.folder));
+      kids.push(h_flex().pt(2).child(this.link("diff", fr ? "› Relire le diff" : "› Review the diff", (cx) => this.key("d", cx), t)));
     } else if (sec.pr) {
       const p = sec.pr;
       const failing = (p.failed ?? []).length > 0;
       kids.push(
         h_flex()
           .gap(8)
-          .child(div().id("pr-link").text_color(t.accent).cursor_pointer().hover((s) => s.opacity(0.8)).on_click(() => exec("open", [p.url])).child(`#${p.number}`))
+          .child(this.link("pr-link", `#${p.number} ↗`, () => open(p.url), t))
           .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(p.line || p.error || p.state)),
       );
       if ((p.checks ?? []).length > 0) {
@@ -349,8 +457,8 @@ export default class CairnDetail extends View {
         h_flex()
           .pt(4)
           .gap(6)
-          .when(failing, (e) => e.child(this.button("fix-ci", fr ? "Corriger la CI" : "Fix CI", { tone: "danger" }, (cx) => this.key("f", cx), t)))
-          .child(this.button("comments", fr ? "Commentaires et images" : "Comments and images", {}, (cx) => this.key("c", cx), t)),
+          .when(failing, (e) => e.child(this.button("fix-ci", fr ? "Corriger la CI" : "Fix CI", { tone: "danger", hint: "f" }, (cx) => this.key("f", cx), t)))
+          .child(this.button("comments", fr ? "Commentaires et images" : "Comments and images", { hint: "c" }, (cx) => this.key("c", cx), t)),
       );
     } else if (sec.lines) kids.push(v_flex().font_family(this.mono).text_size(11.5).text_color(t.muted).children(sec.lines.map((l) => div().child(l || " "))));
     else if (sec.hint) return div().pt(14).text_size(12).text_color(this.toneColor(sec.tone, t)).child(`${sec.title} : ${sec.hint}`);
@@ -369,7 +477,6 @@ export default class CairnDetail extends View {
       .bg(t.raised)
       .border_1()
       .border_color(t.border)
-      .border_l(3)
       .child(h_flex().gap(8).items_center().child(div().flex_1().min_w(0).font_semibold().text_color(color).child(c.title)).when(Boolean(c.since), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(c.since))))
       .when(Boolean(c.sub), (e) => e.child(div().text_size(12).text_color(t.muted).child(c.sub)))
       .when((c.actions ?? []).length > 0, (e) =>
@@ -378,7 +485,7 @@ export default class CairnDetail extends View {
             .pt(4)
             .gap(6)
             .flex_wrap()
-            .children(c.actions.map((b, i) => this.button(`card-${b.key}`, b.label, { primary: c.primary && i === 0, enabled: b.enabled }, (cx) => this.key(b.key, cx), t))),
+            .children(c.actions.map((b, i) => this.button(`card-${b.key}`, b.label, { primary: c.primary && i === 0, enabled: b.enabled, hint: b.key === "enter" ? "↵" : b.key }, (cx) => this.key(b.key, cx), t))),
         ),
       );
   }
@@ -402,19 +509,200 @@ export default class CairnDetail extends View {
       );
   }
 
+  // The chantier: what it waits for, where it stands, its sections.
+  home(d, t) {
+    const fr = this.fr();
+    if (d.other) return this.other(d.other, t);
+    if (!d.key) return [div().pt(16).text_color(t.dim).child(fr ? "Choisis un chantier dans la barre latérale." : "Pick a chantier in the sidebar.")];
+    const kids = [];
+    kids.push(
+      h_flex()
+        .pt(10)
+        .gap(8)
+        .items_center()
+        .when(Boolean(d.meta), (e) => e.child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(d.meta)))
+        .when(Boolean(d.url), (e) => e.child(this.link("ticket", "Ticket ↗", () => open(d.url), t, t.dim))),
+    );
+    if (d.overlay) kids.push(this.overlay(d.overlay, t));
+    if (d.card) kids.push(this.card(d.card, t));
+    kids.push(
+      h_flex()
+        .pt(14)
+        .gap(6)
+        .items_center()
+        .flex_wrap()
+        .children(
+          (d.flow ?? []).flatMap((s, i) => {
+            const color = s.state === "done" ? t.ansi2 : s.state === "current" ? t.accent : t.dim;
+            const label = s.state === "done" ? `${s.label} ✓` : s.state === "current" ? `${s.label} ●` : s.label;
+            const pill = div().text_size(12).text_color(color).when(s.state === "current", (e) => e.font_semibold()).child(label);
+            return i ? [div().text_size(12).text_color(t.dim).child("→"), pill] : [pill];
+          }),
+        ),
+    );
+    for (const r of d.status ?? [])
+      kids.push(
+        h_flex()
+          .pt(4)
+          .gap(8)
+          .items_start()
+          .text_size(12)
+          .child(div().w(42).flex_none().text_color(t.dim).child(r.label))
+          .child(div().flex_1().min_w(0).text_color(this.toneColor(r.tone, t)).child(r.note ? `${r.text} — ${r.note}` : r.text)),
+      );
+    if (d.no_plan) kids.push(div().pt(10).text_size(12).text_color(t.muted).child(fr ? "Pas de plan cairn pour ce chantier : seuls le code et la PR sont suivis." : "No cairn plan for this ticket: only the code and the PR are tracked."));
+    for (const s of d.sections ?? []) kids.push(this.section(s, t));
+    const live = new Map(agents().map((a) => [a.address, a.status]));
+    const list = (d.agents ?? []).map((a) => ({ ...a, status: live.get(a.pane) ?? a.status }));
+    if (list.length) {
+      kids.push(this.header({ title: "Agents", hint: fr ? "clic pour y aller" : "click to go there" }, t));
+      for (const a of list)
+        kids.push(
+          h_flex()
+            .id(`agent-${a.pane}`)
+            .px(6)
+            .h(28)
+            .gap(8)
+            .items_center()
+            .rounded(6)
+            .cursor_pointer()
+            .hover((s) => s.bg(t.hover))
+            .on_click(() => run("pane.focus", { terminal: a.pane }))
+            .child(div().size(7).rounded(4).bg({ working: t.working, blocked: t.blocked, done: t.done }[a.status] ?? t.idle))
+            .child(div().font_semibold().child(a.name))
+            .child(div().text_color(t.muted).child(a.status)),
+        );
+    }
+    if (d.plan) kids.push(div().pt(18).text_size(11).text_color(t.dim).truncate().child((fr ? "plan : " : "plan: ") + d.plan));
+    if (d.lint > 0) kids.push(div().text_size(11).text_color(t.blocked).child(fr ? `⚠ ${d.lint} point(s) de forme dans le plan` : `⚠ ${d.lint} formatting issue(s) in the plan`));
+    return kids;
+  }
+
+  // An agent on no known ticket: attach it to one.
+  other(o, t) {
+    const fr = this.fr();
+    return [
+      h_flex().pt(12).gap(8).items_center().child(div().font_semibold().child(o.name)).child(div().text_color(t.muted).child(o.status)),
+      div().pt(4).text_size(12).text_color(t.muted).child(o.title),
+      div().text_size(11.5).font_family(this.mono).text_color(t.dim).child(o.dir),
+      div().pt(8).text_size(12).text_color(t.muted).child(fr ? "Cet agent ne travaille sur aucun ticket connu." : "This agent works on no known ticket."),
+      h_flex().pt(6).child(this.button("go-other", fr ? "Aller à l'agent" : "Go to the agent", { hint: "↵" }, () => run("pane.focus", { terminal: o.pane }), t)),
+      this.header({ title: fr ? "Rattacher à un chantier" : "Attach to a ticket", hint: fr ? "l'agent prend le nom du ticket" : "the agent takes the ticket's name" }, t),
+      ...o.targets.map((k) => h_flex().child(this.link(`attach-${k}`, `› ${k}`, (cx) => this.ask(cx, "attach", k), t))),
+    ];
+  }
+
+  how(d, t) {
+    const h = d.how;
+    const fr = this.fr();
+    if (!h) return [div().pt(16).text_color(t.dim).child(fr ? "Pas de plan cairn pour ce chantier." : "No cairn plan for this ticket.")];
+    const kids = [];
+    if (h.note) kids.push(div().pt(12).text_size(12).text_color(t.muted).child(h.note));
+    if (this.asking)
+      kids.push(
+        v_flex()
+          .pt(12)
+          .gap(6)
+          .child(div().text_size(12).text_color(t.muted).child(fr ? "Un agent à part lit le code et te répond, sans toucher au chantier." : "An agent aside reads the code and answers, without touching the ticket."))
+          .child(
+            this.inputRow("ask", this.box("ask"), t, (cx) => this.sendAsk(cx), (cx) => {
+              this.asking = false;
+              cx.notify();
+            }),
+          ),
+      );
+    if (h.markdown) kids.push(div().pt(12).child(this.md(`how-${h.key}`, h.markdown, t)));
+    return kids;
+  }
+
+  comments(d, t) {
+    const c = d.comments;
+    const fr = this.fr();
+    if (!c || c.loading) return [div().pt(16).text_color(t.dim).child(fr ? "Chargement de la conversation…" : "Loading the conversation…")];
+    if (c.error) return [div().pt(16).text_color(t.ansi1).child(c.error)];
+    const images = new Map(c.images.map((i) => [i.n, i]));
+    const withLinks = (body) =>
+      body.replace(/\[image (\d+)\]/g, (_s, n) => {
+        const img = images.get(Number(n));
+        if (!img || img.broken || !/^https?:/.test(img.url)) return fr ? `[image ${n} : lien cassé]` : `[image ${n}: broken link]`;
+        return `[🖼 image ${n}](${img.url})`;
+      });
+    const kids = [];
+    for (const e of c.entries) {
+      let body = withLinks(e.body);
+      if (e.bot && !c.show_bots) {
+        const lines = body.split("\n");
+        if (lines.length > 8) body = lines.slice(0, 8).join("\n") + `\n\n*… ${lines.length - 8} ${fr ? "lignes de bot masquées" : "bot lines hidden"}*`;
+      }
+      const kind =
+        e.state === "APPROVED"
+          ? [fr ? "review approuvée" : "review approved", t.ansi2]
+          : e.state === "CHANGES_REQUESTED"
+            ? [fr ? "changements demandés" : "changes requested", t.ansi1]
+            : e.kind === "inline"
+              ? [e.where, t.working]
+              : [e.kind, t.dim];
+      kids.push(
+        v_flex()
+          .mt(12)
+          .p(10)
+          .gap(6)
+          .rounded(9)
+          .border_1()
+          .border_color(e.new ? t.accent : t.border)
+          .child(
+            h_flex()
+              .gap(8)
+              .items_center()
+              .text_size(12)
+              .when(e.new, (x) => x.child(div().text_color(t.accent).child("●")))
+              .child(div().font_semibold().text_color(e.bot ? t.muted : t.foreground).child(e.bot ? `${e.author} (bot)` : e.author))
+              .child(div().text_color(kind[1]).truncate().child(kind[0]))
+              .child(div().text_color(t.dim).child(e.ago))
+              .child(div().flex_1())
+              .when(e.kind !== "description", (x) => x.child(this.link(`send-${e.index}`, "→ agent", (cx) => this.ask(cx, "comment", "--index", String(e.index)), t))),
+          )
+          .child(this.md(`entry-${e.index}`, body, t, e.bot ? t.muted : t.foreground)),
+      );
+    }
+    return kids;
+  }
+
   render() {
     const t = theme();
     this.mono = settings().font_family ?? "JetBrains Mono";
     const d = this.d;
     const fr = this.fr();
-    const shell = v_flex().id("cairn-detail").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13);
-    if (!d || !d.key)
-      return shell.child(
-        div().p(16).text_color(t.dim).child(fr ? "Choisis un chantier dans la barre latérale." : "Pick a chantier in the sidebar."),
-      );
-    const live = new Map(agents().map((a) => [a.address, a.status]));
-    const list = (d.agents ?? []).map((a) => ({ ...a, status: live.get(a.pane) ?? a.status }));
-    return shell
+    const view = d?.view || "";
+    let title = d?.title ?? "cairn";
+    let body;
+    if (!d) body = [div().pt(16).text_color(t.dim).child(fr ? "cairn démarre…" : "cairn is starting…")];
+    else if (view === "how") {
+      title = (fr ? "Comment ça marche · " : "How it works · ") + (d.how?.title ?? "");
+      body = this.how(d, t);
+    } else if (view === "comments") {
+      title = `PR #${d.comments?.number ?? ""} · ${d.title ?? ""}`;
+      body = this.comments(d, t);
+    } else if (view !== "") body = [div().pt(16).text_color(t.muted).child(fr ? "Cet écran arrive bientôt en natif. esc pour revenir." : "This screen comes natively soon. esc to go back.")];
+    else body = this.home(d, t);
+    const status = this.error || d?.busy || d?.flash?.text;
+    const buttons = d?.buttons ?? [];
+    return v_flex()
+      .id("cairn-detail")
+      .track_focus(this.handle)
+      .on_key_down((e, cx) => this.onKey(e, cx))
+      .on_mouse_down("left", () => {
+        if (!this.typing) this.handle.focus();
+      })
+      .size_full()
+      .min_h(0)
+      .rounded(10)
+      .overflow_hidden()
+      .bg(t.background)
+      .border_1()
+      .border_color(t.border)
+      .text_color(t.foreground)
+      .text_size(13)
       .child(
         h_flex()
           .h(42)
@@ -424,25 +712,14 @@ export default class CairnDetail extends View {
           .items_center()
           .border_b(1)
           .border_color(t.border)
-          .child(div().flex_none().font_family(this.mono).text_size(12).text_color(t.accent).child(d.key))
-          .child(div().flex_1().min_w(0).truncate().font_semibold().child(d.title))
-          .child(
-            div()
-              .id("open-tui")
-              .flex_none()
-              .text_size(11)
-              .text_color(t.dim)
-              .cursor_pointer()
-              .hover((s) => s.text_color(t.foreground))
-              .tooltip(fr ? "Ouvrir dans la TUI" : "Open in the TUI")
-              .on_click(() => cairn("open", d.key))
-              .child("TUI"),
-          )
+          .when(view !== "", (e) => e.child(this.link("back", fr ? "← Retour" : "← Back", (cx) => this.key("esc", cx), t, t.dim)))
+          .when(view === "" && Boolean(d?.key), (e) => e.child(div().flex_none().font_family(this.mono).text_size(12).text_color(t.accent).child(d.key)))
+          .child(div().flex_1().min_w(0).truncate().font_semibold().child(title))
           .child(
             div()
               .id("close-panel")
               .flex_none()
-              .text_size(13)
+              .text_size(14)
               .text_color(t.dim)
               .cursor_pointer()
               .hover((s) => s.text_color(t.foreground))
@@ -450,93 +727,43 @@ export default class CairnDetail extends View {
               .child("×"),
           ),
       )
+      .when(Boolean(status), (e) =>
+        e.child(
+          div()
+            .flex_none()
+            .px(14)
+            .py(6)
+            .border_b(1)
+            .border_color(t.border)
+            .text_size(12)
+            .text_color(this.error || d?.flash?.error ? t.ansi1 : t.muted)
+            .child(status),
+        ),
+      )
       .child(
         div()
           .flex_1()
           .min_h(0)
           .relative()
-          .child(
-            v_flex()
-              .id("cairn-detail-body")
-              .absolute()
-              .inset_0()
-              .overflow_y_scroll()
-              .px(14)
-              .pb(20)
-              .child(
-                h_flex()
-                  .pt(10)
-                  .gap(8)
-                  .items_center()
-                  .when(Boolean(d.meta), (e) => e.child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(d.meta)))
-                  .when(Boolean(d.url), (e) => e.child(div().id("ticket").flex_none().text_size(11).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground)).on_click(() => exec("open", [d.url])).child(fr ? "Ticket ↗" : "Ticket ↗"))),
-              )
-              .when(Boolean(d.flash) || Boolean(this.error) || Boolean(d.busy), (e) =>
-                e.child(
-                  div()
-                    .mt(10)
-                    .px(10)
-                    .py(6)
-                    .rounded(7)
-                    .bg(t.hover)
-                    .text_size(12)
-                    .text_color(this.error || d.flash?.error ? t.ansi1 : t.muted)
-                    .child(this.error || d.busy || d.flash?.text),
-                ),
-              )
-              .when(Boolean(d.overlay), (e) => e.child(this.overlay(d.overlay, t)))
-              .when(Boolean(d.card), (e) => e.child(this.card(d.card, t)))
-              .child(
-                h_flex()
-                  .pt(14)
-                  .gap(6)
-                  .items_center()
-                  .flex_wrap()
-                  .children(
-                    (d.flow ?? []).flatMap((s, i) => {
-                      const color = s.state === "done" ? t.ansi2 : s.state === "current" ? t.accent : t.dim;
-                      const label = s.state === "done" ? `${s.label} ✓` : s.state === "current" ? `${s.label} ●` : s.label;
-                      const pill = div().text_size(12).text_color(color).when(s.state === "current", (e) => e.font_semibold()).child(label);
-                      return i ? [div().text_size(12).text_color(t.dim).child("→"), pill] : [pill];
-                    }),
-                  ),
-              )
-              .children(
-                (d.status ?? []).map((r) =>
-                  h_flex()
-                    .pt(4)
-                    .gap(8)
-                    .items_start()
-                    .text_size(12)
-                    .child(div().w(42).flex_none().text_color(t.dim).child(r.label))
-                    .child(div().flex_1().min_w(0).text_color(this.toneColor(r.tone, t)).child(r.note ? `${r.text} — ${r.note}` : r.text)),
-                ),
-              )
-              .when(d.no_plan, (e) => e.child(div().pt(10).text_size(12).text_color(t.muted).child(fr ? "Pas de plan cairn pour ce chantier : seuls le code et la PR sont suivis." : "No cairn plan for this ticket: only the code and the PR are tracked.")))
-              .children((d.sections ?? []).map((s) => this.section(s, t)))
-              .when(list.length > 0, (e) =>
-                e.child(this.header({ title: "Agents", hint: fr ? "clic pour y aller" : "click to go there" }, t)).children(
-                  list.map((a) =>
-                    h_flex()
-                      .id(`agent-${a.pane}`)
-                      .px(6)
-                      .h(28)
-                      .gap(8)
-                      .items_center()
-                      .rounded(6)
-                      .cursor_pointer()
-                      .hover((s) => s.bg(t.hover))
-                      .on_click(() => run("pane.focus", { terminal: a.pane }))
-                      .child(div().size(7).rounded(4).bg({ working: t.working, blocked: t.blocked, done: t.done }[a.status] ?? t.idle))
-                      .child(div().font_semibold().child(a.name))
-                      .child(div().text_color(t.muted).child(a.status)),
-                  ),
-                ),
-              )
-              .when(Boolean(d.plan), (e) => e.child(div().pt(18).text_size(11).text_color(t.dim).truncate().child((fr ? "plan : " : "plan: ") + d.plan)))
-              .when(d.lint > 0, (e) => e.child(div().text_size(11).text_color(t.blocked).child(fr ? `⚠ ${d.lint} point(s) de forme dans le plan` : `⚠ ${d.lint} formatting issue(s) in the plan`))),
-          )
+          .child(v_flex().id("cairn-detail-body").absolute().inset_0().overflow_y_scroll().px(14).pb(20).children(body))
           .child(Scrollbar.vertical("cairn-detail-body").absolute().inset_0()),
+      )
+      .when(buttons.length > 0, (e) =>
+        e.child(
+          h_flex()
+            .flex_none()
+            .px(10)
+            .py(8)
+            .gap(6)
+            .flex_wrap()
+            .border_t(1)
+            .border_color(t.border)
+            .children(
+              buttons.map((b, i) =>
+                this.button(`foot-${b.key}`, b.label, { primary: d.primary && i === 0, enabled: b.enabled, hint: b.key === "enter" ? "↵" : b.key }, (cx) => this.key(b.key, cx), t),
+              ),
+            ),
+        ),
       );
   }
 }

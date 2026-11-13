@@ -269,6 +269,38 @@ func Notify(title, body string) error { return current().Notify(title, body) }
 // how it ties an agent of the main checkout to its chantier.
 func RenameAgent(paneID, name string) error { return current().RenameAgent(paneID, name) }
 
+// Native reports whether the multiplexer can draw cairn itself (the Herdr app).
+func Native() bool {
+	_, ok := current().(interface{ ShowPanel() error })
+	return ok
+}
+
+// ShowPanel shows cairn's native panel, where the multiplexer has one.
+func ShowPanel() error {
+	if p, ok := current().(interface{ ShowPanel() error }); ok {
+		return p.ShowPanel()
+	}
+	return nil
+}
+
+// CloseWorkspace closes a workspace, where the multiplexer can.
+func CloseWorkspace(id string) error {
+	if p, ok := current().(interface{ CloseWorkspace(string) error }); ok {
+		return p.CloseWorkspace(id)
+	}
+	return nil
+}
+
+// StartEngine runs the engine of cairn's native panels out of sight.
+func StartEngine(name string, cmd ...string) error {
+	if p, ok := current().(interface {
+		StartEngine(string, ...string) error
+	}); ok {
+		return p.StartEngine(name, cmd...)
+	}
+	return nil
+}
+
 // RemoveWorktree removes a linked worktree together with its workspace.
 // Without force, it refuses a worktree with uncommitted changes.
 func RemoveWorktree(workspaceID string, force bool) error {

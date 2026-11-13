@@ -22,6 +22,7 @@ import (
 	"cairn/internal/journal"
 	"cairn/internal/localtest"
 	"cairn/internal/mux"
+	"cairn/internal/native"
 	"cairn/internal/progress"
 	"cairn/internal/prthread"
 	"cairn/internal/state"
@@ -96,6 +97,7 @@ type Model struct {
 
 	exported  []byte // board.json as last written
 	wantKey   string // the chantier cairn open TICKET asked for, until the list has it
+	engine    bool   // cairn serve: no screen, a native window draws and asks
 	detailOut []byte // detail.json as last written
 	detailOf  string // chantier the detail pane shows, to reset its scroll
 	scroll    int    // detail pane scroll offset
@@ -174,7 +176,7 @@ type tickLocal struct{}
 // tickFocus checks whether cairn open TICKET asked for a chantier.
 type tickFocus struct{}
 
-const focusEvery = 300 * time.Millisecond
+const focusEvery = 100 * time.Millisecond
 
 type tickIssues struct{}
 type doneMsg struct {
@@ -331,7 +333,7 @@ const progressEvery = 30 * time.Second
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.updateAll(msg)
 	nm := next.(Model)
-	if mux.Name() == "Herdr" {
+	if nm.engine {
 		nm.exportDetail()
 	}
 	return nm, cmd
@@ -575,10 +577,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.wantKey = key
 			cmds = append(cmds, m.rebuild())
 		}
-		for _, r := range takeRequests() {
-			var cmd tea.Cmd
-			m, cmd = m.runRequest(r)
-			cmds = append(cmds, cmd)
+		if m.engine {
+			for _, r := range native.Take() {
+				var cmd tea.Cmd
+				m, cmd = m.runRequest(r)
+				cmds = append(cmds, cmd)
+			}
 		}
 		return m, tea.Batch(cmds...)
 	case tickIssues:
@@ -1034,6 +1038,20 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 
 func keyFor(k string) tea.KeyMsg {
 	switch k {
+	case "up":
+		return tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		return tea.KeyMsg{Type: tea.KeyDown}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
+	case "pgup":
+		return tea.KeyMsg{Type: tea.KeyPgUp}
+	case "pgdown":
+		return tea.KeyMsg{Type: tea.KeyPgDown}
+	case " ", "space":
+		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 	case "enter":
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
@@ -1409,4 +1427,12 @@ func (m *Model) focusWanted() {
 		m.wantKey = ""
 		return
 	}
+}
+
+// Headless makes the model the engine of a native window (cairn serve): it
+// draws nothing, writes what the window shows, and runs what it asks.
+func (m Model) Headless() Model {
+	m.engine = true
+	m.width, m.height = 120, 60
+	return m
 }

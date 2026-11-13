@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"cairn/internal/native"
 	"cairn/internal/state"
 )
 
@@ -40,17 +41,17 @@ func TestNativeRequests(t *testing.T) {
 	if err := os.WriteFile(c.State.Path, []byte("---\nphase: plan\n---\n- [ ] Une\n\n## Effets de bord\n- [ ] Autres appelants\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Request("yak-861", "side", "", 0, nil, ""); err != nil {
+	if err := native.Send(native.Request{Key: "yak-861", Action: "side"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := Request("YAK-788", "key", "x", 0, nil, ""); err != nil {
+	if err := native.Send(native.Request{Key: "YAK-788", Action: "key", Arg: "x"}); err != nil {
 		t.Fatal(err)
 	}
-	reqs := takeRequests()
+	reqs := native.Take()
 	if len(reqs) != 2 || reqs[0].Action != "side" {
 		t.Fatalf("requests come back oldest first: %+v", reqs)
 	}
-	if left, _ := os.ReadDir(RequestsDir()); len(left) != 0 {
+	if left, _ := os.ReadDir(native.RequestsDir()); len(left) != 0 {
 		t.Error("taken requests are removed")
 	}
 	m, _ = m.runRequest(reqs[0])
@@ -68,11 +69,11 @@ func TestNativeRequests(t *testing.T) {
 		js, _ := json.Marshal(d.Overlay)
 		t.Log(string(js))
 	}
-	m, _ = m.runRequest(nativeRequest{Action: "cancel"})
+	m, _ = m.runRequest(native.Request{Action: "cancel"})
 	if m.overlay != "" {
 		t.Error("cancel closes the confirmation")
 	}
-	m, _ = m.runRequest(nativeRequest{Key: "YAK-1", Action: "key", Arg: "v"})
+	m, _ = m.runRequest(native.Request{Key: "YAK-1", Action: "key", Arg: "v"})
 	if !strings.Contains(m.flash, "YAK-1") {
 		t.Errorf("an unknown chantier is said, not acted on: %q", m.flash)
 	}

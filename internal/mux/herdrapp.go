@@ -538,3 +538,23 @@ func (r *appBackend) ReportToken(workspaceID, value string) error {
 // Notify uses the system's notifications: the Herdr app shows its own toasts
 // only to its mods.
 func (r *appBackend) Notify(title, body string) error { return systemNotify(title, body) }
+
+// CloseWorkspace closes a space and the terminals in it.
+func (r *appBackend) CloseWorkspace(id string) error {
+	r.forget()
+	return appDo(nil, "space.close", map[string]any{"id": id, "confirmed": true})
+}
+
+// ShowPanel shows cairn's native panel, right of the terminals.
+func (r *appBackend) ShowPanel() error {
+	if err := appDo(nil, "layout.show", map[string]any{"id": "panel"}); err != nil {
+		return err
+	}
+	return appDo(nil, "layout.select", map[string]any{"stack": "panel-body", "child": "cairn-detail"})
+}
+
+// StartEngine runs cmd in a terminal of its own that no space shows.
+func (r *appBackend) StartEngine(name string, cmd ...string) error {
+	_, err := hcRun(append([]string{"run", "--bg", "--no-parent", "--no-notify", "--name", name, "--"}, cmd...)...)
+	return err
+}

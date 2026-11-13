@@ -106,6 +106,9 @@ func (m *Model) setListHidden(hidden bool) {
 // ── main view ───────────────────────────────────────────────────────────────
 
 func (m Model) View() string {
+	if m.engine {
+		return ""
+	}
 	if m.width == 0 {
 		return ""
 	}

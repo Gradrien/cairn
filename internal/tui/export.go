@@ -8,17 +8,17 @@ import (
 	"strings"
 
 	"cairn/internal/chantier"
-	"cairn/internal/config"
 	"cairn/internal/home"
 	"cairn/internal/i18n"
 	"cairn/internal/mux"
+	"cairn/internal/native"
 )
 
 // The list, as the TUI shows it, is also written to ~/.cairn/cache/board.json
 // for windows that draw it natively (the Herdr app's cairn panel). Written
 // only when it changes; the reader watches the file.
 
-func BoardFile() string { return filepath.Join(config.Dir(), "cache", "board.json") }
+func BoardFile() string { return native.BoardFile() }
 
 type exportBoard struct {
 	Lang      string            `json:"lang"`

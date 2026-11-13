@@ -216,14 +216,16 @@ herdr-core (`./install.sh --herdr-app`). Inside one of its terminals cairn picks
   changes. Herdr's own layout is read-only, so the install writes a copy of it with the cairn section,
   `layouts/cairn.json`, and switches to it (`cmd+shift+l` switches layouts); running the install again makes it
   anew from Herdr's current layout;
-- **Native detail (option).** With `"ui": "native"` in `~/.cairn/config.json`, a click on a chantier opens it in the
-  app's right panel, next to Files and Changes (`~/.config/herdr-app/mods/cairn-detail`): the card with what it waits
-  for and its buttons, the phase, push and PR, then the sections in the order its phase calls for. Questions are
-  answered there (pick an option, or write), side effects and manual test steps ticked, confirmations (push, PR,
-  close) shown in place. Comments, how it works and settings still open in the TUI. The running cairn stays the one
-  engine: it writes the selected chantier to `~/.cairn/cache/detail.json` and runs what the panel asks with
-  `cairn do TICKET ACTION`, the same code as its keys and clicks, so both interfaces behave alike;
-- `cmd+shift+a` toggles between cairn's space (the TUI) and where you were. The key opens a small mod written to
+- **Fully native (option).** With `"ui": "native"` in `~/.cairn/config.json`, no TUI shows in the app: cairn's
+  engine, `cairn serve`, runs out of sight (a terminal no space shows, started by `cairn ensure`, which the sidebar
+  runs when the app starts), and a click on a chantier opens it in the app's right panel, next to Files and Changes
+  (`~/.config/herdr-app/mods/cairn-detail`). The panel draws the card and its buttons, the phase, push and PR, the
+  sections in the order the phase calls for, the PR conversation (images open in the browser, `→ agent` sends a
+  comment), how it works (with a question for an agent aside), and confirmations in place. Click the panel and every
+  key of the TUI works there; its footer shows the screen's buttons with their key. The engine writes what the panel
+  shows to `~/.cairn/cache/detail.json` and runs what it asks with `cairn do TICKET ACTION`, the same code as the
+  TUI's keys and clicks, so both behave alike. `cmd+shift+a` then opens the panel;
+- otherwise `cmd+shift+a` toggles between cairn's space (the TUI) and where you were. The key opens a small mod written to
   `~/.config/herdr-app/mods/cairn-toggle`, which runs `cairn open`;
 - notifications are the system's (macOS).
 

@@ -18,6 +18,7 @@ import (
 	"cairn/internal/i18n"
 	"cairn/internal/images"
 	"cairn/internal/mux"
+	"cairn/internal/native"
 	"cairn/internal/state"
 	"cairn/internal/tui"
 	"cairn/internal/update"
@@ -53,6 +54,8 @@ func usage() string {
   cairn guard prompt
                    hook Claude Code (UserPromptSubmit) : quand tu demandes un push dans
                    le chat, l'autorise comme le bouton de cairn
+  cairn serve      moteur des panneaux natifs de l'app Herdr ("ui": "native") : sans
+                   écran, il écrit ce qu'ils montrent et exécute ce qu'ils demandent
   cairn do TICKET ACTION [ARG]
                    demande à cairn d'agir sur un chantier comme sa touche ou son clic
                    (key a, confirm, answer --index 0 --option 1, side --index 2…)
@@ -83,6 +86,8 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
   cairn guard prompt
                    Claude Code hook (UserPromptSubmit): when you ask for a push in the
                    chat, allows it like cairn's button
+  cairn serve      engine of the Herdr app's native panels ("ui": "native"): no
+                   screen, it writes what they show and runs what they ask
   cairn do TICKET ACTION [ARG]
                    asks cairn to act on a ticket as its key or click would
                    (key a, confirm, answer --index 0 --option 1, side --index 2…)
@@ -179,6 +184,16 @@ func main() {
 		return
 	case "ensure":
 		if err := home.Ensure(); err != nil {
+			fail(err)
+		}
+	case "serve":
+		lock, err := native.Lock()
+		if err != nil {
+			return // an engine already runs
+		}
+		defer lock.Close()
+		m := tui.New(cfg).WithUpdates(updates()).Headless()
+		if _, err := tea.NewProgram(m, tea.WithInput(nil), tea.WithoutRenderer()).Run(); err != nil {
 			fail(err)
 		}
 	case "do":
@@ -281,7 +296,7 @@ func do(args []string) error {
 	if *option >= 0 {
 		opt = option
 	}
-	return tui.Request(pos[0], pos[1], arg, *index, opt, *text)
+	return native.Send(native.Request{Key: pos[0], Action: pos[1], Arg: arg, Index: *index, Option: opt, Text: *text})
 }
 
 // add follows a new repository: cairn add [dir] [--tracker …] [--key …] [--name …].
