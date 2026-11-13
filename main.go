@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -18,6 +20,7 @@ import (
 	"cairn/internal/i18n"
 	"cairn/internal/images"
 	"cairn/internal/mux"
+	"cairn/internal/native"
 	"cairn/internal/state"
 	"cairn/internal/tui"
 	"cairn/internal/update"
@@ -39,8 +42,10 @@ func usage() string {
                    ajoute le dépôt (par défaut celui où tu es) aux projets suivis ;
                    sans tracker, les tickets naissent dans cairn (EIDO-1, EIDO-2…)
   cairn projects   liste les projets suivis
-  cairn open       affiche cairn dans son propre espace (session Rex), ou revient à
-                   celui d'avant s'il est déjà devant (touche herdr prefix+a, Rex ctrl+b a)
+  cairn open [TICKET]
+                   affiche cairn dans son propre espace (session Rex), ou revient à
+                   celui d'avant s'il est déjà devant (touche herdr prefix+a, app Herdr cmd+shift+a,
+                   Rex ctrl+b a) ; avec TICKET, affiche cairn sur ce chantier
   cairn sync [TICKET]
                    pousse la phase de chaque chantier dans la barre latérale, et
                    vérifie le plan du chantier courant (ou de TICKET)
@@ -51,10 +56,16 @@ func usage() string {
   cairn guard prompt
                    hook Claude Code (UserPromptSubmit) : quand tu demandes un push dans
                    le chat, l'autorise comme le bouton de cairn
+  cairn serve      moteur des panneaux natifs de l'app Herdr ("ui": "native") : sans
+                   écran, il écrit ce qu'ils montrent et exécute ce qu'ils demandent
+  cairn do TICKET ACTION [ARG]
+                   demande à cairn d'agir sur un chantier comme sa touche ou son clic
+                   (key a, confirm, answer --index 0 --option 1, side --index 2…)
   cairn ensure     crée l'espace cairn s'il manque et y lance cairn, sans changer le focus
                    (hook de démarrage du plugin herdr : le bouton reste dans la barre latérale)
 
-herdr ou Rex : celui où cairn tourne, ou "mux" dans la config, ou CAIRN_MUX=herdr|rex.
+herdr, l'app Herdr ou Rex : celui où cairn tourne, ou "mux" dans la config, ou
+CAIRN_MUX=herdr|herdr-app|rex.
 
 Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
 `, `cairn — where each piece of work stands, next to herdr or Rex.
@@ -64,8 +75,10 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
                    adds the repository (default: the one you are in) to the projects;
                    without a tracker, tickets are born in cairn (EIDO-1, EIDO-2…)
   cairn projects   lists the projects
-  cairn open       shows cairn in its own workspace (Rex session), or goes back to the
-                   previous one if cairn is already in front (herdr prefix+a, Rex ctrl+b a)
+  cairn open [TICKET]
+                   shows cairn in its own workspace (Rex session), or goes back to the
+                   previous one if cairn is already in front (herdr prefix+a, Herdr app
+                   cmd+shift+a, Rex ctrl+b a); with TICKET, shows cairn on that ticket
   cairn sync [TICKET]
                    pushes each ticket's phase to the sidebar, and checks the plan
                    of the current ticket (or of TICKET)
@@ -75,10 +88,16 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
   cairn guard prompt
                    Claude Code hook (UserPromptSubmit): when you ask for a push in the
                    chat, allows it like cairn's button
+  cairn serve      engine of the Herdr app's native panels ("ui": "native"): no
+                   screen, it writes what they show and runs what they ask
+  cairn do TICKET ACTION [ARG]
+                   asks cairn to act on a ticket as its key or click would
+                   (key a, confirm, answer --index 0 --option 1, side --index 2…)
   cairn ensure     creates the cairn workspace if missing and runs cairn in it, without
                    moving focus (herdr plugin startup hook: the button stays in the sidebar)
 
-herdr or Rex: the one cairn runs in, or "mux" in the config, or CAIRN_MUX=herdr|rex.
+herdr, the Herdr app or Rex: the one cairn runs in, or "mux" in the config, or
+CAIRN_MUX=herdr|herdr-app|rex.
 
 Config: ~/.cairn/config.json · Tickets: ~/.cairn/chantiers/<TICKET>.md
 `)
@@ -142,7 +161,11 @@ func main() {
 			selfUpdate()
 		}
 	case "open":
-		if err := home.Toggle(); err != nil {
+		open := home.Toggle
+		if key := flag.Arg(1); key != "" {
+			open = func() error { return home.Open(key) }
+		}
+		if err := open(); err != nil {
 			fail(err)
 		}
 	case "img":
@@ -163,6 +186,28 @@ func main() {
 		return
 	case "ensure":
 		if err := home.Ensure(); err != nil {
+			fail(err)
+		}
+	case "serve":
+		lock, err := native.Lock()
+		if err != nil {
+			return // an engine already runs
+		}
+		defer lock.Close()
+		// The engine stays up while the app runs: should its model ever stop,
+		// it starts again fresh. A signal (install.sh, hc kill) stops it.
+		stop := make(chan os.Signal, 1)
+		signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+		go func() { <-stop; lock.Close(); os.Exit(0) }()
+		for {
+			m := tui.New(cfg).WithUpdates(updates()).Headless()
+			if _, err := tea.NewProgram(m, tea.WithInput(nil), tea.WithoutRenderer(), tea.WithoutSignalHandler()).Run(); err != nil {
+				fmt.Fprintln(os.Stderr, "cairn serve:", err)
+			}
+			time.Sleep(time.Second)
+		}
+	case "do":
+		if err := do(flag.Args()[1:]); err != nil {
 			fail(err)
 		}
 	case "sync":
@@ -233,6 +278,35 @@ func sync(cfg config.Config) error {
 		}
 	}
 	return nil
+}
+
+// do asks the running cairn to act on a chantier, as its key or click would:
+// cairn do TICKET ACTION [ARG] [--index N] [--option N] [--text T].
+func do(args []string) error {
+	fs := flag.NewFlagSet("do", flag.ExitOnError)
+	index := fs.Int("index", 0, i18n.T("question, effet de bord ou étape visé", "question, side effect or step"))
+	option := fs.Int("option", -1, i18n.T("option choisie pour une question", "option chosen for a question"))
+	text := fs.String("text", "", i18n.T("réponse ou constat, dans tes mots", "answer or report, in your words"))
+	var pos []string
+	for len(args) > 0 {
+		_ = fs.Parse(args)
+		if fs.NArg() == 0 {
+			break
+		}
+		pos, args = append(pos, fs.Arg(0)), fs.Args()[1:]
+	}
+	if len(pos) < 2 {
+		return fmt.Errorf("%s", i18n.T("usage : cairn do TICKET ACTION [ARG] [--index N] [--option N] [--text T]", "usage: cairn do TICKET ACTION [ARG] [--index N] [--option N] [--text T]"))
+	}
+	arg := ""
+	if len(pos) > 2 {
+		arg = pos[2]
+	}
+	var opt *int
+	if *option >= 0 {
+		opt = option
+	}
+	return native.Send(native.Request{Key: pos[0], Action: pos[1], Arg: arg, Index: *index, Option: opt, Text: *text})
 }
 
 // add follows a new repository: cairn add [dir] [--tracker …] [--key …] [--name …].

@@ -265,43 +265,9 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 	switch m.overlay {
 	case "help":
 		w = min(m.width-4, 112)
-		cols := [][]string{
-			helpCol(i18n.T("Naviguer", "Move"), [][2]string{
-				{"j k ↑↓", i18n.T("ticket précédent, suivant", "previous, next ticket")},
-				{"tab", i18n.T("liste ⇄ détail", "list ⇄ detail")},
-				{"\\", i18n.T("replier la liste, le détail prend la largeur", "fold the list, the detail takes the width")},
-				{"espace", i18n.T("détail : page suivante", "detail: next page")},
-				{"pgup", i18n.T("détail : page précédente", "detail: previous page")},
-				{"[ ]", i18n.T("section précédente, suivante", "previous, next section")},
-				{"z", i18n.T("tout déplier / replier", "unfold / fold all")},
-				{"/", i18n.T("filtrer la liste", "filter the list")},
-				{"ctrl+k", i18n.T("chercher ticket ou action", "search ticket or action")},
-			}),
-			helpCol(i18n.T("Agir", "Act"), [][2]string{
-				{"↵", i18n.T("aller à l'agent", "go to the agent")},
-				{"v", i18n.T("valider ce qui attend", "approve what waits")},
-				{"e", i18n.T("répondre aux questions", "answer the questions")},
-				{"a", i18n.T("autoriser le push", "allow the push")},
-				{"P", i18n.T("ouvrir la PR", "open the PR")},
-				{"x", i18n.T("fermer un chantier livré, ou l'abandonner", "close a shipped ticket, or abandon one")},
-				{"h", i18n.T("tester dans le dépôt principal", "test in the main checkout")},
-				{"f", i18n.T("corriger la CI", "fix the CI")},
-				{"p", i18n.T("planifier", "plan")},
-				{"n", i18n.T("nouveau ticket", "new ticket")},
-			}),
-			helpCol(i18n.T("Voir", "See"), [][2]string{
-				{"d", i18n.T("diff de la branche", "branch diff")},
-				{"c", i18n.T("commentaires de la PR", "PR comments")},
-				{"i", i18n.T("comment ça marche, poser une question", "how it works, ask a question")},
-				{"ctrl+k", i18n.T("« livré » : comment marchent les tickets livrés", "\"shipped\": how shipped tickets work")},
-				{"o", i18n.T("ticket dans son tracker", "ticket in its tracker")},
-				{"t", i18n.T("vue tableau", "board view")},
-				{"s", i18n.T("réglages et projets", "settings and projects")},
-				{"l", i18n.T("English / Français", "Français / English")},
-				{"r", i18n.T("rafraîchir", "refresh")},
-				{"U", i18n.T("mettre à jour cairn", "update cairn")},
-				{"q", mux.Words(i18n.T("retour à herdr", "back to herdr"))},
-			}),
+		var cols [][]string
+		for _, sec := range helpSections() {
+			cols = append(cols, helpCol(sec.title, sec.keys))
 		}
 		content = append(content, spread(sTitle.Render(i18n.T("Raccourcis", "Keys")), sKey.Render("esc")+sMuted.Render(i18n.T(" fermer", " close")), inner()), "")
 		var blocks []string
@@ -365,9 +331,9 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 			content = append(content, wrap(sMuted.Render(i18n.T("L'agent pousse ce commit si besoin, ouvre la PR et la lie au ticket : elle part en relecture et la CI tourne. Ensuite, les correctifs poussent librement. Le merge reste à toi.",
 				"The agent pushes this commit if needed, opens the PR and links it to the ticket: it goes to review and CI runs. Then fixes push freely. Merging stays yours.")), inner(), "")...)
 		} else {
-			content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("Autoriser le push de %s ?", "Allow pushing %s?"), c.Key)))
-			content = append(content, wrap(sMuted.Render(i18n.T("Tu autorises ce commit à partir sur sa branche : le push et ses nouvelles tentatives passent. La PR ne s'ouvre pas : elle a son propre bouton.",
-				"You let this commit leave on its branch: the push and its retries go through. The PR does not open: it has its own button.")), inner(), "")...)
+			content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("Pousser %s ?", "Push %s?"), c.Key)))
+			content = append(content, wrap(sMuted.Render(i18n.T("cairn pousse ce commit sur sa branche maintenant, hook pre-push compris ; l'agent pourra le repousser s'il le faut. La PR ne s'ouvre pas : elle a son propre bouton.",
+				"cairn pushes this commit to its branch now, pre-push hook included; the agent may push it again if needed. The PR does not open: it has its own button.")), inner(), "")...)
 		}
 		content = append(content, "")
 		if c.Branch != "" {
@@ -546,6 +512,53 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 		hitRows = append(hitRows, y0+1+r.row)
 	}
 	return box, x0, y0, hits, hitRows
+}
+
+type helpSection struct {
+	title string
+	keys  [][2]string // the key as written, what it does
+}
+
+// helpSections are the keys the help (?) lists, by what they are for.
+func helpSections() []helpSection {
+	return []helpSection{
+		{i18n.T("Naviguer", "Move"), [][2]string{
+			{"j k ↑↓", i18n.T("ticket précédent, suivant", "previous, next ticket")},
+			{"tab", i18n.T("liste ⇄ détail", "list ⇄ detail")},
+			{"\\", i18n.T("replier la liste, le détail prend la largeur", "fold the list, the detail takes the width")},
+			{"espace", i18n.T("détail : page suivante", "detail: next page")},
+			{"pgup", i18n.T("détail : page précédente", "detail: previous page")},
+			{"[ ]", i18n.T("section précédente, suivante", "previous, next section")},
+			{"z", i18n.T("tout déplier / replier", "unfold / fold all")},
+			{"/", i18n.T("filtrer la liste", "filter the list")},
+			{"ctrl+k", i18n.T("chercher ticket ou action", "search ticket or action")},
+		}},
+		{i18n.T("Agir", "Act"), [][2]string{
+			{"↵", i18n.T("aller à l'agent", "go to the agent")},
+			{"v", i18n.T("valider ce qui attend", "approve what waits")},
+			{"e", i18n.T("répondre aux questions", "answer the questions")},
+			{"a", i18n.T("pousser le commit relu", "push the reviewed commit")},
+			{"P", i18n.T("ouvrir la PR", "open the PR")},
+			{"x", i18n.T("fermer un chantier livré, ou l'abandonner", "close a shipped ticket, or abandon one")},
+			{"h", i18n.T("tester dans le dépôt principal", "test in the main checkout")},
+			{"f", i18n.T("corriger la CI", "fix the CI")},
+			{"p", i18n.T("planifier", "plan")},
+			{"n", i18n.T("nouveau ticket", "new ticket")},
+		}},
+		{i18n.T("Voir", "See"), [][2]string{
+			{"d", i18n.T("diff de la branche", "branch diff")},
+			{"c", i18n.T("commentaires de la PR", "PR comments")},
+			{"i", i18n.T("comment ça marche, poser une question", "how it works, ask a question")},
+			{"ctrl+k", i18n.T("« livré » : comment marchent les tickets livrés", "\"shipped\": how shipped tickets work")},
+			{"o", i18n.T("ticket dans son tracker", "ticket in its tracker")},
+			{"t", i18n.T("vue tableau", "board view")},
+			{"s", i18n.T("réglages et projets", "settings and projects")},
+			{"l", i18n.T("English / Français", "Français / English")},
+			{"r", i18n.T("rafraîchir", "refresh")},
+			{"U", i18n.T("mettre à jour cairn", "update cairn")},
+			{"q", mux.Words(i18n.T("retour à herdr", "back to herdr"))},
+		}},
+	}
 }
 
 func helpCol(title string, keys [][2]string) []string {

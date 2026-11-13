@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -141,10 +140,8 @@ func (m Model) showImages(msg imagesMsg) tea.Cmd {
 	if err != nil {
 		self = "cairn"
 	}
-	args := append([]string{"img", "-start", strconv.Itoa(msg.start), "--"}, msg.files...)
-	cmd := exec.Command(self, args...)
-	cmd.Env = append(os.Environ(), "CAIRN_CAPTIONS="+strings.Join(msg.captions, "\n"))
-	return tea.ExecProcess(cmd, func(err error) tea.Msg { return doneMsg{err: err} })
+	args := append([]string{self, "img", "-start", strconv.Itoa(msg.start), "--"}, msg.files...)
+	return m.runShown("images", "", []string{"CAIRN_CAPTIONS=" + strings.Join(msg.captions, "\n")}, args...)
 }
 
 func (m Model) threadImages(start int) (tea.Model, tea.Cmd) {

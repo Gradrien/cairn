@@ -127,7 +127,7 @@ func TestWaitingFirstWithWhatToDo(t *testing.T) {
 func TestCardAndPrimaryButton(t *testing.T) {
 	cases := map[string]struct{ title, first string }{
 		"YAK-861": {"À toi : valider le plan", "v"},
-		"YAK-800": {"À toi : autoriser le push", "a"},
+		"YAK-800": {"À toi : pousser", "a"},
 		"YAK-788": {"La CI casse : 2 checks en échec", "f"},
 		"YAK-712": {"L'agent travaille", "enter"},
 		"YAK-874": {"Pas encore commencé", "p"},
@@ -225,9 +225,9 @@ func TestFilterAndPalette(t *testing.T) {
 		t.Error("esc clears the filter")
 	}
 
-	m = press(t, m, "ctrl+k", "8", "0", "0", "space", "p", "u", "s", "h")
+	m = press(t, m, "ctrl+k", "8", "0", "0", "space", "p", "o", "u", "s", "s")
 	found := m.paletteFound()
-	if len(found) == 0 || !strings.Contains(found[0].label, "YAK-800 · Autoriser le push") {
+	if len(found) == 0 || !strings.Contains(found[0].label, "YAK-800 · Pousser") {
 		t.Fatalf("palette found %v", found)
 	}
 	next, _ := found[0].run(m)
@@ -235,7 +235,7 @@ func TestFilterAndPalette(t *testing.T) {
 	if c := m.selected(); c.Key != "YAK-800" || m.overlay != "push" {
 		t.Errorf("palette runs the action on its ticket: %s %q", c.Key, m.overlay)
 	}
-	if text := strings.Join(screen(m), "\n"); !strings.Contains(text, "Autoriser le push de YAK-800") || !strings.Contains(text, "1 reste ouvert") {
+	if text := strings.Join(screen(m), "\n"); !strings.Contains(text, "Pousser YAK-800 ?") || !strings.Contains(text, "1 reste ouvert") {
 		t.Errorf("push confirmation:\n%s", text)
 	}
 }
