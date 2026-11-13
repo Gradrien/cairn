@@ -95,6 +95,7 @@ type Model struct {
 	reading  map[string]bool
 
 	exported []byte // board.json as last written
+	wantKey  string // the chantier cairn open TICKET asked for, until the list has it
 	detailOf string // chantier the detail pane shows, to reset its scroll
 	scroll   int    // detail pane scroll offset
 
@@ -168,6 +169,12 @@ func New(cfg config.Config) Model {
 // ── messages ────────────────────────────────────────────────────────────────
 
 type tickLocal struct{}
+
+// tickFocus checks whether cairn open TICKET asked for a chantier.
+type tickFocus struct{}
+
+const focusEvery = 300 * time.Millisecond
+
 type tickIssues struct{}
 type doneMsg struct {
 	text    string
@@ -177,7 +184,7 @@ type doneMsg struct {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadLocal(), m.loadIssues(), tea.SetWindowTitle("cairn"), m.checkUpdate(update.Fresh), every(update.Fresh, tickUpdate{}))
+	return tea.Batch(m.loadLocal(), m.loadIssues(), tea.SetWindowTitle("cairn"), every(focusEvery, tickFocus{}), m.checkUpdate(update.Fresh), every(update.Fresh, tickUpdate{}))
 }
 
 func every(d time.Duration, msg tea.Msg) tea.Cmd {
@@ -230,6 +237,9 @@ func (m *Model) rebuild() tea.Cmd {
 		m.seen.adopt(m.chantiers)
 	}
 	m.exportBoard()
+	if m.wantKey != "" {
+		m.focusWanted()
+	}
 	return tea.Batch(m.pushTokens(), m.observe())
 }
 
@@ -549,6 +559,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickLocal:
 		return m, tea.Batch(m.loadLocal(), tea.EnableMouseAllMotion)
+	case tickFocus:
+		var cmd tea.Cmd
+		if key := home.TakeFocus(); key != "" {
+			m.wantKey = key
+			cmd = m.rebuild()
+		}
+		return m, tea.Batch(cmd, every(focusEvery, tickFocus{}))
 	case tickIssues:
 		return m, m.loadIssues()
 
@@ -1352,4 +1369,29 @@ func (m *Model) refreshArchive() {
 		return
 	}
 	m.archive, m.archMod = state.LoadArchive(dir), fi.ModTime()
+}
+
+// focusWanted selects the chantier cairn open TICKET asked for, showing the
+// shipped ones if it is one of them, and clears what would hide it.
+func (m *Model) focusWanted() {
+	for _, c := range m.all {
+		if c.Key != m.wantKey {
+			continue
+		}
+		if m.isShipped(c) && !m.showShipped {
+			m.showShipped = true
+			m.rebuild()
+			return
+		}
+		m.filter, m.filtering, m.overlay, m.view = "", false, "", ""
+		for i, d := range m.chantiers {
+			if d.Key == m.wantKey {
+				m.cursor, m.scroll = i, 0
+				m.detailFocus = m.narrow()
+				m.listHidden = false
+			}
+		}
+		m.wantKey = ""
+		return
+	}
 }

@@ -39,9 +39,10 @@ func usage() string {
                    ajoute le dépôt (par défaut celui où tu es) aux projets suivis ;
                    sans tracker, les tickets naissent dans cairn (EIDO-1, EIDO-2…)
   cairn projects   liste les projets suivis
-  cairn open       affiche cairn dans son propre espace (session Rex), ou revient à
+  cairn open [TICKET]
+                   affiche cairn dans son propre espace (session Rex), ou revient à
                    celui d'avant s'il est déjà devant (touche herdr prefix+a, app Herdr cmd+shift+a,
-                   Rex ctrl+b a)
+                   Rex ctrl+b a) ; avec TICKET, affiche cairn sur ce chantier
   cairn sync [TICKET]
                    pousse la phase de chaque chantier dans la barre latérale, et
                    vérifie le plan du chantier courant (ou de TICKET)
@@ -66,9 +67,10 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
                    adds the repository (default: the one you are in) to the projects;
                    without a tracker, tickets are born in cairn (EIDO-1, EIDO-2…)
   cairn projects   lists the projects
-  cairn open       shows cairn in its own workspace (Rex session), or goes back to the
+  cairn open [TICKET]
+                   shows cairn in its own workspace (Rex session), or goes back to the
                    previous one if cairn is already in front (herdr prefix+a, Herdr app
-                   cmd+shift+a, Rex ctrl+b a)
+                   cmd+shift+a, Rex ctrl+b a); with TICKET, shows cairn on that ticket
   cairn sync [TICKET]
                    pushes each ticket's phase to the sidebar, and checks the plan
                    of the current ticket (or of TICKET)
@@ -146,7 +148,11 @@ func main() {
 			selfUpdate()
 		}
 	case "open":
-		if err := home.Toggle(); err != nil {
+		open := home.Toggle
+		if key := flag.Arg(1); key != "" {
+			open = func() error { return home.Open(key) }
+		}
+		if err := open(); err != nil {
 			fail(err)
 		}
 	case "img":

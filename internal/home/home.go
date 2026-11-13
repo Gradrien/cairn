@@ -22,14 +22,42 @@ func lastFile() string { return filepath.Join(config.Dir(), "last-workspace") }
 
 // Toggle shows cairn, or — when cairn is already in front — returns to the
 // workspace you came from. It starts cairn's workspace and process if needed.
-func Toggle() error {
+func Toggle() error { return show(true) }
+
+// Open shows cairn on a chantier: the running TUI selects it (see TakeFocus).
+func Open(key string) error {
+	if err := os.MkdirAll(filepath.Dir(focusFile()), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(focusFile(), []byte(strings.ToUpper(strings.TrimSpace(key))), 0o644); err != nil {
+		return err
+	}
+	return show(false)
+}
+
+func focusFile() string { return filepath.Join(config.Dir(), "cache", "focus") }
+
+// TakeFocus returns the chantier cairn was asked to show, once; "" when none.
+func TakeFocus() string {
+	data, err := os.ReadFile(focusFile())
+	if err != nil {
+		return ""
+	}
+	_ = os.Remove(focusFile())
+	return strings.TrimSpace(string(data))
+}
+
+func show(toggle bool) error {
 	snap, err := mux.GetSnapshot()
 	if err != nil {
 		return err
 	}
 	ws := snap.WorkspaceByLabel(Label)
 	if ws != nil && snap.FocusedWorkspaceID == ws.ID {
-		return Back()
+		if toggle {
+			return Back()
+		}
+		return nil
 	}
 	if snap.FocusedWorkspaceID != "" {
 		_ = os.WriteFile(lastFile(), []byte(snap.FocusedWorkspaceID), 0o644)
