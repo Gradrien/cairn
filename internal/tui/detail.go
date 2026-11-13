@@ -274,6 +274,7 @@ func (b *detailBuilder) card(cd *card, primary bool) {
 
 // detailLayout renders the detail pane of the selection.
 func (m Model) detailLayout(w int) detail {
+	w = min(w, measure)
 	b := &detailBuilder{w: w, detail: detail{cardRow: -1}}
 	if a := m.selectedOther(); a != nil {
 		b.add(sBold.Render(a.Label())+" "+agentIcon(a.Status)+" "+a.Status, "")
@@ -485,9 +486,10 @@ func (m Model) secQuestions(b *detailBuilder, c *chantier.Chantier) {
 			continue
 		}
 		active := m.answerQ == q.Text
-		text := plainMD(q.Text)
+		text := md(q.Text, sBold)
 		if !active {
-			text += "  " + sKey.Render(i18n.T("› répondre", "› answer"))
+			// Non-breaking: the link never wraps away from its arrow.
+			text += "  " + sKey.Render(strings.ReplaceAll(i18n.T("› répondre", "› answer"), " ", "\u00a0"))
 		}
 		b.addT(fmt.Sprintf("answer:%d", i), hang("  "+sWarn.Render("?")+" ", text, b.w)...)
 		for _, it := range q.Body {
@@ -496,9 +498,9 @@ func (m Model) secQuestions(b *detailBuilder, c *chantier.Chantier) {
 		n := len(q.Options)
 		for j, o := range q.Options {
 			cur := active && !m.answerFree && m.answerOpt == j
-			mark, txt := "  ", plainMD(o.Text)
+			mark, txt := "  ", md(o.Text, lipgloss.NewStyle())
 			if cur {
-				mark, txt = sKey.Render("›")+" ", sBold.Render(txt)
+				mark, txt = sKey.Render("›")+" ", md(o.Text, sBold)
 			}
 			if j == q.Recommended {
 				txt += "  " + sGood.Render(i18n.T("★ recommandé", "★ recommended"))
@@ -506,7 +508,7 @@ func (m Model) secQuestions(b *detailBuilder, c *chantier.Chantier) {
 			b.addT(fmt.Sprintf("answeropt:%d:%d", i, j), hang("    "+mark+sKey.Render("("+o.Key+")")+" ", txt, b.w)...)
 		}
 		if q.Recommendation != "" {
-			b.add(hang("      "+sMuted.Render("★")+" ", sMuted.Render(plainMD(q.Recommendation)), b.w)...)
+			b.add(hang("      "+sMuted.Render("★")+" ", md(q.Recommendation, sMuted), b.w)...)
 		}
 		if !active {
 			continue
@@ -535,9 +537,9 @@ func bodyLines(it state.Item, base string, w int) []string {
 	case it.Code:
 		return hang(indent+"  ", sMuted.Render(strings.TrimRight(it.Text, " ")), w)
 	case it.Plain:
-		return hang(indent, sSoft.Render(plainMD(it.Text)), w)
+		return hang(indent, md(it.Text, sSoft), w)
 	}
-	return hang(indent+sMuted.Render(approachBullets[min(it.Depth, 2)])+" ", sSoft.Render(plainMD(it.Text)), w)
+	return hang(indent+sMuted.Render(approachBullets[min(it.Depth, 2)])+" ", md(it.Text, sSoft), w)
 }
 
 func (m Model) secTasks(b *detailBuilder, c *chantier.Chantier) {
@@ -559,7 +561,7 @@ func (m Model) secTasks(b *detailBuilder, c *chantier.Chantier) {
 	fold := c.Phase >= chantier.Build && done > 0 && !m.unfolded(c.Key, "tasks")
 	for _, t := range s.Tasks {
 		if !(fold && t.Done) {
-			b.add(hang("  "+taskIcon(t)+" ", plainMD(t.Text), b.w)...)
+			b.add(hang("  "+taskIcon(t)+" ", md(t.Text, lipgloss.NewStyle()), b.w)...)
 			for _, it := range t.Body {
 				b.add(bodyLines(it, "    ", b.w)...)
 			}
@@ -601,7 +603,7 @@ func (m Model) secSide(b *detailBuilder, c *chantier.Chantier) {
 	for _, pass := range []bool{false, true} {
 		for i, t := range s.SideEffects {
 			if t.Done == pass {
-				b.addT(fmt.Sprintf("side:%d", i), hang("  "+taskIcon(t)+" ", plainMD(t.Text), b.w)...)
+				b.addT(fmt.Sprintf("side:%d", i), hang("  "+taskIcon(t)+" ", md(t.Text, lipgloss.NewStyle()), b.w)...)
 				for _, it := range t.Body {
 					b.addT(fmt.Sprintf("side:%d", i), bodyLines(it, "    ", b.w)...)
 				}
@@ -640,16 +642,16 @@ func (m Model) secManual(b *detailBuilder, c *chantier.Chantier) {
 	}
 	b.section(i18n.T("Tester à la main", "Manual test"), count, right)
 	for _, l := range s.ManualSetup {
-		b.add(hang("  "+sMuted.Render("·")+" ", sSoft.Render(plainMD(l)), b.w)...)
+		b.add(hang("  "+sMuted.Render("·")+" ", md(l, sSoft), b.w)...)
 	}
 	for i, t := range s.ManualSteps {
 		id := manualKey(c.Key, t.Text)
 		icon := sDim.Render(fmt.Sprintf("%d.", i+1))
-		text := plainMD(t.Text)
+		text := md(t.Text, lipgloss.NewStyle())
 		report, reported := m.answered[id]
 		switch {
 		case t.Done:
-			icon, text = sGood.Render("✓ "), sMuted.Render(text)
+			icon, text = sGood.Render("✓ "), md(t.Text, sMuted)
 		case reported:
 			icon = sErr.Render("✗ ")
 		}
@@ -678,7 +680,7 @@ func (m Model) secGoal(b *detailBuilder, c *chantier.Chantier) {
 		return
 	}
 	b.section(i18n.T("Objectif", "Goal"), "", "")
-	lines := wrap(plainMD(strings.Join(s.Summary, " ")), b.w, "  ")
+	lines := wrap(md(strings.Join(s.Summary, " "), lipgloss.NewStyle()), b.w, "  ")
 	if len(lines) > 3 && !m.unfolded(c.Key, "goal") {
 		b.add(lines[:2]...)
 		b.addT("fold:goal", "  "+sMuted.Render("…")+" "+sKey.Render(fmt.Sprintf(i18n.T("› tout lire (%d lignes)", "› read it all (%d lines)"), len(lines))))
@@ -689,6 +691,10 @@ func (m Model) secGoal(b *detailBuilder, c *chantier.Chantier) {
 		b.addT("fold:goal", "  "+sKey.Render(i18n.T("‹ replier", "‹ fold")))
 	}
 }
+
+// measure is the widest the detail pane's text runs: past it, lines get too
+// long to follow from one end to the next.
+const measure = 104
 
 // secApproach shows "## Approche": in full while the plan waits for approval,
 // folded once the work is under way (it is then a reference). Each top-level
@@ -744,13 +750,11 @@ func approachLines(it state.Item, w int) []string {
 	if it.Plain || it.Code {
 		prefix = strings.Repeat("  ", it.Depth+2)
 	}
-	lines := hang(prefix, plainMD(label+rest), w)
+	text := md(rest, lipgloss.NewStyle())
 	if label != "" {
-		if first, ok := strings.CutPrefix(lines[0], prefix+label); ok {
-			lines[0] = prefix + sBold.Render(label) + first
-		}
+		text = md(label, sBold) + text
 	}
-	return lines
+	return hang(prefix, text, w)
 }
 
 func (m Model) secProofs(b *detailBuilder, c *chantier.Chantier) {

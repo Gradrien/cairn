@@ -950,6 +950,32 @@ func plainMD(s string) string {
 	return strings.NewReplacer("**", "", "`", "", "__", "").Replace(s)
 }
 
+// sCode sets `code` (paths, identifiers) apart from the prose around it, so a
+// plan dense with file references still reads as sentences.
+var sCode = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#0e7490", Dark: "#8be9fd"})
+
+// md renders inline markdown in base: `code` in sCode, **bold** in bold.
+// An unclosed mark is dropped, as plainMD does.
+func md(s string, base lipgloss.Style) string {
+	var out strings.Builder
+	bold := false
+	for i, part := range strings.Split(s, "`") {
+		if i%2 == 1 && i < strings.Count(s, "`") {
+			out.WriteString(sCode.Render(part))
+			continue
+		}
+		for j, seg := range strings.Split(strings.ReplaceAll(part, "__", "**"), "**") {
+			if j > 0 {
+				bold = !bold
+			}
+			if seg != "" {
+				out.WriteString(base.Bold(bold || base.GetBold()).Render(seg))
+			}
+		}
+	}
+	return out.String()
+}
+
 func prLine(p progress.PR) string {
 	var parts []string
 	switch {
