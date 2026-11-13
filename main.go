@@ -53,6 +53,9 @@ func usage() string {
   cairn guard prompt
                    hook Claude Code (UserPromptSubmit) : quand tu demandes un push dans
                    le chat, l'autorise comme le bouton de cairn
+  cairn do TICKET ACTION [ARG]
+                   demande à cairn d'agir sur un chantier comme sa touche ou son clic
+                   (key a, confirm, answer --index 0 --option 1, side --index 2…)
   cairn ensure     crée l'espace cairn s'il manque et y lance cairn, sans changer le focus
                    (hook de démarrage du plugin herdr : le bouton reste dans la barre latérale)
 
@@ -80,6 +83,9 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
   cairn guard prompt
                    Claude Code hook (UserPromptSubmit): when you ask for a push in the
                    chat, allows it like cairn's button
+  cairn do TICKET ACTION [ARG]
+                   asks cairn to act on a ticket as its key or click would
+                   (key a, confirm, answer --index 0 --option 1, side --index 2…)
   cairn ensure     creates the cairn workspace if missing and runs cairn in it, without
                    moving focus (herdr plugin startup hook: the button stays in the sidebar)
 
@@ -175,6 +181,10 @@ func main() {
 		if err := home.Ensure(); err != nil {
 			fail(err)
 		}
+	case "do":
+		if err := do(flag.Args()[1:]); err != nil {
+			fail(err)
+		}
 	case "sync":
 		// The plan is checked first: an agent that cannot reach herdr or Rex must
 		// still hear that its plan does not show as it meant.
@@ -243,6 +253,35 @@ func sync(cfg config.Config) error {
 		}
 	}
 	return nil
+}
+
+// do asks the running cairn to act on a chantier, as its key or click would:
+// cairn do TICKET ACTION [ARG] [--index N] [--option N] [--text T].
+func do(args []string) error {
+	fs := flag.NewFlagSet("do", flag.ExitOnError)
+	index := fs.Int("index", 0, i18n.T("question, effet de bord ou étape visé", "question, side effect or step"))
+	option := fs.Int("option", -1, i18n.T("option choisie pour une question", "option chosen for a question"))
+	text := fs.String("text", "", i18n.T("réponse ou constat, dans tes mots", "answer or report, in your words"))
+	var pos []string
+	for len(args) > 0 {
+		_ = fs.Parse(args)
+		if fs.NArg() == 0 {
+			break
+		}
+		pos, args = append(pos, fs.Arg(0)), fs.Args()[1:]
+	}
+	if len(pos) < 2 {
+		return fmt.Errorf("%s", i18n.T("usage : cairn do TICKET ACTION [ARG] [--index N] [--option N] [--text T]", "usage: cairn do TICKET ACTION [ARG] [--index N] [--option N] [--text T]"))
+	}
+	arg := ""
+	if len(pos) > 2 {
+		arg = pos[2]
+	}
+	var opt *int
+	if *option >= 0 {
+		opt = option
+	}
+	return tui.Request(pos[0], pos[1], arg, *index, opt, *text)
 }
 
 // add follows a new repository: cairn add [dir] [--tracker …] [--key …] [--name …].

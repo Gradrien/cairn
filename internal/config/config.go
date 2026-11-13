@@ -62,6 +62,9 @@ type Config struct {
 	// Mux is the multiplexer cairn drives: "herdr", "herdr-app", "rex", or empty
 	// to use the one it runs in.
 	Mux string `json:"mux,omitempty"`
+	// UI is where a chantier opens in the Herdr app: "native" in the app's own
+	// panel, else in the TUI.
+	UI string `json:"ui,omitempty"`
 	// AgentKind, Diff and the models are the defaults of every project.
 	AgentKind  string `json:"agent_kind,omitempty"`
 	Diff       string `json:"diff,omitempty"`

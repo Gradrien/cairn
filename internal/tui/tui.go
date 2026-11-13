@@ -94,10 +94,11 @@ type Model struct {
 	usageOn  bool // a read of the transcripts is running
 	reading  map[string]bool
 
-	exported []byte // board.json as last written
-	wantKey  string // the chantier cairn open TICKET asked for, until the list has it
-	detailOf string // chantier the detail pane shows, to reset its scroll
-	scroll   int    // detail pane scroll offset
+	exported  []byte // board.json as last written
+	wantKey   string // the chantier cairn open TICKET asked for, until the list has it
+	detailOut []byte // detail.json as last written
+	detailOf  string // chantier the detail pane shows, to reset its scroll
+	scroll    int    // detail pane scroll offset
 
 	detailFocus bool                 // keys scroll the detail; when narrow, the detail shows
 	listHidden  bool                 // the list is folded away (\), the detail takes the width
@@ -328,6 +329,15 @@ type progressMsg struct {
 const progressEvery = 30 * time.Second
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.updateAll(msg)
+	nm := next.(Model)
+	if mux.Name() == "Herdr" {
+		nm.exportDetail()
+	}
+	return nm, cmd
+}
+
+func (m Model) updateAll(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if pm, ok := msg.(progressMsg); ok {
 		delete(m.reading, pm.key)
 		m.readAt[pm.key] = time.Now()
@@ -560,12 +570,17 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickLocal:
 		return m, tea.Batch(m.loadLocal(), tea.EnableMouseAllMotion)
 	case tickFocus:
-		var cmd tea.Cmd
+		cmds := []tea.Cmd{every(focusEvery, tickFocus{})}
 		if key := home.TakeFocus(); key != "" {
 			m.wantKey = key
-			cmd = m.rebuild()
+			cmds = append(cmds, m.rebuild())
 		}
-		return m, tea.Batch(cmd, every(focusEvery, tickFocus{}))
+		for _, r := range takeRequests() {
+			var cmd tea.Cmd
+			m, cmd = m.runRequest(r)
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
 	case tickIssues:
 		return m, m.loadIssues()
 

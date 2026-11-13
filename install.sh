@@ -137,36 +137,43 @@ if [[ "${1:-}" == "--herdr-app" ]]; then
     name="$(basename "$mod")"
     mkdir -p "$apphome/mods/$name"
     for f in "$mod"*; do
-      CAIRN="$cairn_bin" APP_PATH="$app_path" BOARD="${CAIRN_HOME:-$HOME/.cairn}/cache/board.json" python3 - "$f" "$apphome/mods/$name/$(basename "$f")" <<'PY'
+      CAIRN="$cairn_bin" APP_PATH="$app_path" BOARD="${CAIRN_HOME:-$HOME/.cairn}/cache/board.json" DETAIL="${CAIRN_HOME:-$HOME/.cairn}/cache/detail.json" python3 - "$f" "$apphome/mods/$name/$(basename "$f")" <<'PY'
 import json, os, sys
 s = open(sys.argv[1]).read()
-s = s.replace('"@CAIRN@"', json.dumps(os.environ["CAIRN"])).replace('"@PATH@"', json.dumps(os.environ["APP_PATH"])).replace('"@BOARD@"', json.dumps(os.environ["BOARD"]))
+s = s.replace('"@CAIRN@"', json.dumps(os.environ["CAIRN"])).replace('"@PATH@"', json.dumps(os.environ["APP_PATH"])).replace('"@BOARD@"', json.dumps(os.environ["BOARD"])).replace('"@DETAIL@"', json.dumps(os.environ["DETAIL"]))
 open(sys.argv[2], "w").write(s)
 PY
     done
     herdr-app check "$apphome/mods/$name" >/dev/null || { echo "✗ le mod $name ne se charge pas : herdr-app check $apphome/mods/$name" >&2; exit 1; }
   done
-  # The sidebar: Herdr's own layout is read-only, so cairn's is a copy of it with
-  # the cairn section between Spaces and Agents, made again from the current one
-  # on every install to keep Herdr's changes.
+  # Herdr's own layout is read-only, so cairn's is a copy of it with the cairn
+  # section between Spaces and Agents, and a chantier's detail in the right
+  # panel next to Files and Changes; made again from the current one on every
+  # install to keep Herdr's changes.
   python3 - "$apphome/layouts/main.json" "$apphome/layouts/cairn.json" <<'PY'
 import json, sys
 src, dst = sys.argv[1], sys.argv[2]
 tree = json.load(open(src))
-block = {"id": "cairn", "type": "block", "size": {"weight": 1}, "min": 90, "content": {"mod": "cairn"}}
+side = {"id": "cairn", "type": "block", "size": {"weight": 1}, "min": 90, "content": {"mod": "cairn"}}
+detail = {"id": "cairn-detail", "type": "block", "content": {"mod": "cairn-detail"}}
 
-def insert(node):
+def insert(node, after, block, inside=False):
     kids = node.get("children") or []
+    if inside and node.get("id") == after:
+        kids.append(block)
+        return True
     for i, kid in enumerate(kids):
-        if kid.get("id") == "spaces":
+        if not inside and kid.get("id") == after:
             kids.insert(i + 1, block)
             return True
-        if insert(kid):
+        if insert(kid, after, block, inside):
             return True
     return False
 
-if not insert(tree):
+if not insert(tree, "spaces", side):
     sys.exit("pas de bloc « spaces » dans " + src)
+if not insert(tree, "panel-body", detail, inside=True):
+    sys.exit("pas de pile « panel-body » dans " + src)
 text = json.dumps(tree, indent=2, ensure_ascii=False) + "\n"
 try:
     same = open(dst).read() == text

@@ -24,6 +24,7 @@ type exportBoard struct {
 	Lang      string            `json:"lang"`
 	Groups    map[string]string `json:"groups"` // each section's title, in the interface language
 	Mux       string            `json:"mux"`
+	UI        string            `json:"ui,omitempty"`
 	Home      string            `json:"home_workspace,omitempty"`
 	Shipped   int               `json:"shipped"`
 	Chantiers []exportChantier  `json:"chantiers"`
@@ -68,7 +69,7 @@ func phaseID(p chantier.Phase) string {
 }
 
 func (m Model) board() exportBoard {
-	b := exportBoard{Lang: i18n.Lang(), Mux: mux.Name(), Chantiers: []exportChantier{}, Groups: map[string]string{
+	b := exportBoard{Lang: i18n.Lang(), Mux: mux.Name(), UI: m.cfg.UI, Chantiers: []exportChantier{}, Groups: map[string]string{
 		"wait":   i18n.T("Attend ta décision", "Waiting for you"),
 		"work":   i18n.T("En cours", "In progress"),
 		"toplan": i18n.T("À planifier", "To plan"),

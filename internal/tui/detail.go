@@ -363,94 +363,16 @@ func (m Model) detailLayout(w int) detail {
 	if len(activity) > 0 {
 		b.add(lbl(i18n.T("Activité", "Activity")) + strings.Join(activity, sMuted.Render(" · ")))
 	}
-	if s != nil {
-		switch {
-		case m.prs[c.Key].State == "OPEN":
-			b.add(lbl("Push") + sGood.Render(i18n.T("libre", "free")) + sMuted.Render(i18n.T(" : PR ouverte, la relecture se fait dessus", ": the PR is open, review happens there")))
-		case m.pushValid(c) && s.PushCommit() == "":
-			b.add(lbl("Push") + sGood.Render(i18n.T("autorisé à ta demande", "allowed on your request")) + sMuted.Render(i18n.T(" : le prochain push fixe le commit", ": the next push pins the commit")))
-		case m.pushValid(c):
-			b.add(lbl("Push") + sGood.Render(fmt.Sprintf(i18n.T("autorisé pour %s", "allowed for %s"), shortSHA(s.PushCommit()))) + sMuted.Render(i18n.T(" : ce commit et ses nouvelles tentatives passent", ": this commit and its retries pass")))
-		case s.PushAllowed():
-			b.add(lbl("Push") + sWarn.Render(fmt.Sprintf(i18n.T("nouveaux commits depuis l'autorisation (%s) : à réautoriser", "new commits since the allowance (%s): allow again"), shortSHA(s.PushCommit()))))
-		case isPushWait(s.Waiting):
-			b.add(lbl("Push") + sWarn.Render(i18n.T("bloqué : l'agent attend ton feu vert", "blocked: the agent waits for your go-ahead")))
-		default:
-			b.add(lbl("Push") + sMuted.Render(i18n.T("bloqué jusqu'à ton feu vert, ici ou demandé dans le chat", "blocked until you allow it, here or by asking in the chat")))
-		}
-		switch {
-		case m.prs[c.Key].State == "OPEN" || c.OpenPR() != nil || c.Phase == chantier.Shipped:
-		case s.PRAllowed():
-			b.add(lbl("PR") + sGood.Render(i18n.T("ouverture autorisée", "opening allowed")) + sMuted.Render(i18n.T(" : l'agent l'ouvre", ": the agent opens it")))
-		case isPRWait(s.Waiting):
-			b.add(lbl("PR") + sWarn.Render(i18n.T("l'agent attend ton feu vert pour l'ouvrir", "the agent waits for your go-ahead to open it")))
-		case c.Phase >= chantier.Build:
-			b.add(lbl("PR") + sMuted.Render(i18n.T("pas encore : Ouvrir la PR (P) quand tu veux", "not yet: Open the PR (P) when you want")))
-		}
+	for _, r := range m.statusRows(c) {
+		b.add(lbl(r.label) + toneStyle(r.tone).Render(r.text) + sMuted.Render(r.note))
 	}
 	if s == nil && c.Phase != chantier.ToPlan {
 		b.add("", sMuted.Render(i18n.T("Pas de plan cairn pour ce chantier : seuls le code et la PR sont suivis.", "No cairn plan for this ticket: only the code and the PR are tracked.")))
 	}
 
 	// The sections, in the order the phase calls for.
-	_, prOpen := m.prs[c.Key]
-	prOpen = prOpen && c.OpenPR() != nil
-	switch {
-	case s != nil && (isPushWait(s.Waiting) || isPRWait(s.Waiting)):
-		m.secSide(b, c)
-		m.secManual(b, c)
-		m.secHow(b, c)
-		m.secCode(b, c)
-		m.secProofs(b, c)
-		m.secQuestions(b, c)
-		m.secTasks(b, c)
-		m.secGoal(b, c)
-		m.secApproach(b, c)
-		m.secPR(b, c, false)
-	case c.Phase <= chantier.Plan && s != nil && s.Waiting != "":
-		// A plan to approve leads with its questions, then what it settled:
-		// the goal and the approach, before the tasks that carry it out.
-		m.secQuestions(b, c)
-		m.secGoal(b, c)
-		m.secApproach(b, c)
-		m.secTasks(b, c)
-		m.secSide(b, c)
-		m.secPR(b, c, false)
-		m.secProofs(b, c)
-		m.secCode(b, c)
-	case prOpen || c.Phase == chantier.Review:
-		m.secPR(b, c, true)
-		m.secQuestions(b, c)
-		m.secManual(b, c)
-		m.secHow(b, c)
-		m.secSide(b, c)
-		m.secCode(b, c)
-		m.secProofs(b, c)
-		m.secTasks(b, c)
-		m.secGoal(b, c)
-		m.secApproach(b, c)
-	case c.Phase == chantier.Build:
-		m.secQuestions(b, c)
-		m.secTasks(b, c)
-		m.secManual(b, c)
-		m.secHow(b, c)
-		m.secProofs(b, c)
-		m.secSide(b, c)
-		m.secGoal(b, c)
-		m.secApproach(b, c)
-		m.secCode(b, c)
-		m.secPR(b, c, false)
-	default:
-		m.secQuestions(b, c)
-		m.secTasks(b, c)
-		m.secSide(b, c)
-		m.secGoal(b, c)
-		m.secApproach(b, c)
-		m.secManual(b, c)
-		m.secHow(b, c)
-		m.secProofs(b, c)
-		m.secCode(b, c)
-		m.secPR(b, c, false)
+	for _, id := range m.sectionOrder(c) {
+		m.section(b, c, id)
 	}
 	m.secHistory(b, c)
 	m.secAgents(b, c)
@@ -463,6 +385,108 @@ func (m Model) detailLayout(w int) detail {
 		}
 	}
 	return b.detail
+}
+
+// statusRow is a labelled line under the phase: where the push and the PR stand.
+type statusRow struct{ label, tone, text, note string }
+
+func toneStyle(tone string) lipgloss.Style {
+	switch tone {
+	case "good":
+		return sGood
+	case "warn":
+		return sWarn
+	}
+	return sMuted
+}
+
+func (m Model) statusRows(c *chantier.Chantier) []statusRow {
+	s := c.State
+	if s == nil {
+		return nil
+	}
+	var out []statusRow
+	switch {
+	case m.prs[c.Key].State == "OPEN":
+		out = append(out, statusRow{"Push", "good", i18n.T("libre", "free"), i18n.T(" : PR ouverte, la relecture se fait dessus", ": the PR is open, review happens there")})
+	case m.pushValid(c) && s.PushCommit() == "":
+		out = append(out, statusRow{"Push", "good", i18n.T("autorisé à ta demande", "allowed on your request"), i18n.T(" : le prochain push fixe le commit", ": the next push pins the commit")})
+	case m.pushValid(c):
+		out = append(out, statusRow{"Push", "good", fmt.Sprintf(i18n.T("autorisé pour %s", "allowed for %s"), shortSHA(s.PushCommit())), i18n.T(" : ce commit et ses nouvelles tentatives passent", ": this commit and its retries pass")})
+	case s.PushAllowed():
+		out = append(out, statusRow{"Push", "warn", fmt.Sprintf(i18n.T("nouveaux commits depuis l'autorisation (%s) : à réautoriser", "new commits since the allowance (%s): allow again"), shortSHA(s.PushCommit())), ""})
+	case isPushWait(s.Waiting):
+		out = append(out, statusRow{"Push", "warn", i18n.T("bloqué : l'agent attend ton feu vert", "blocked: the agent waits for your go-ahead"), ""})
+	default:
+		out = append(out, statusRow{"Push", "muted", i18n.T("bloqué jusqu'à ton feu vert, ici ou demandé dans le chat", "blocked until you allow it, here or by asking in the chat"), ""})
+	}
+	switch {
+	case m.prs[c.Key].State == "OPEN" || c.OpenPR() != nil || c.Phase == chantier.Shipped:
+	case s.PRAllowed():
+		out = append(out, statusRow{"PR", "good", i18n.T("ouverture autorisée", "opening allowed"), i18n.T(" : l'agent l'ouvre", ": the agent opens it")})
+	case isPRWait(s.Waiting):
+		out = append(out, statusRow{"PR", "warn", i18n.T("l'agent attend ton feu vert pour l'ouvrir", "the agent waits for your go-ahead to open it"), ""})
+	case c.Phase >= chantier.Build:
+		out = append(out, statusRow{"PR", "muted", i18n.T("pas encore : Ouvrir la PR (P) quand tu veux", "not yet: Open the PR (P) when you want"), ""})
+	}
+	return out
+}
+
+// sectionOrder is the order the phase calls for: questions while planning,
+// the work while building, the side effects before a push, the merge
+// checklist in review. "pr+" is the PR with its merge checklist first.
+func (m Model) sectionOrder(c *chantier.Chantier) []string {
+	s := c.State
+	_, prOpen := m.prs[c.Key]
+	prOpen = prOpen && c.OpenPR() != nil
+	switch {
+	case s != nil && (isPushWait(s.Waiting) || isPRWait(s.Waiting)):
+		return []string{"side", "manual", "how", "code", "proofs", "questions", "tasks", "goal", "approach", "pr"}
+	case c.Phase <= chantier.Plan && s != nil && s.Waiting != "":
+		// A plan to approve leads with its questions, then what it settled:
+		// the goal and the approach, before the tasks that carry it out.
+		return []string{"questions", "goal", "approach", "tasks", "side", "pr", "proofs", "code"}
+	case prOpen || c.Phase == chantier.Review:
+		return []string{"pr+", "questions", "manual", "how", "side", "code", "proofs", "tasks", "goal", "approach"}
+	case c.Phase == chantier.Build:
+		return []string{"questions", "tasks", "manual", "how", "proofs", "side", "goal", "approach", "code", "pr"}
+	}
+	return []string{"questions", "tasks", "side", "goal", "approach", "manual", "how", "proofs", "code", "pr"}
+}
+
+func (m Model) section(b *detailBuilder, c *chantier.Chantier, id string) {
+	switch id {
+	case "questions":
+		m.secQuestions(b, c)
+	case "tasks":
+		m.secTasks(b, c)
+	case "side":
+		m.secSide(b, c)
+	case "manual":
+		m.secManual(b, c)
+	case "how":
+		m.secHow(b, c)
+	case "code":
+		m.secCode(b, c)
+	case "proofs":
+		m.secProofs(b, c)
+	case "goal":
+		m.secGoal(b, c)
+	case "approach":
+		m.secApproach(b, c)
+	case "pr":
+		m.secPR(b, c, false)
+	case "pr+":
+		m.secPR(b, c, true)
+	case "history":
+		m.secHistory(b, c)
+	case "agents":
+		m.secAgents(b, c)
+	case "cost":
+		m.secCost(b, c)
+	case "news":
+		m.secNews(b, c)
+	}
 }
 
 // answerKey identifies an answered question across reloads of the plan.
