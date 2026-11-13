@@ -12,9 +12,9 @@ import (
 	"cairn/internal/chantier"
 	"cairn/internal/ci"
 	"cairn/internal/config"
-	"cairn/internal/herdr"
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
+	"cairn/internal/mux"
 	"cairn/internal/state"
 )
 
@@ -64,7 +64,7 @@ func (m Model) fixCI() (tea.Model, tea.Cmd) {
 				"find the cause, fix it locally, check with cairn-runner, add the task and the proof in %s, "+
 				"then ask for the push with `attente: Prêt à pousser`."), num, strings.Join(names, ", "), path, plan)
 		_ = journal.Append(config.ChantiersDir(), key, "CI envoyée à l'agent")
-		return doneMsg{text: fmt.Sprintf(i18n.T("Logs de CI envoyés à l'agent de %s.", "CI logs sent to %s's agent."), key), err: herdr.Prompt(pane, prompt)}
+		return doneMsg{text: fmt.Sprintf(i18n.T("Logs de CI envoyés à l'agent de %s.", "CI logs sent to %s's agent."), key), err: mux.Prompt(pane, prompt)}
 	}
 }
 
@@ -101,7 +101,7 @@ func (m Model) sendComment(i int) (tea.Model, tea.Cmd) {
 	m.say(i18n.T("Envoi à l'agent…", "Sending to the agent…"), nil)
 	return m, func() tea.Msg {
 		_ = journal.Append(config.ChantiersDir(), key, "retour de "+e.Author+" envoyé à l'agent")
-		return doneMsg{text: fmt.Sprintf(i18n.T("Retour de %s envoyé à l'agent de %s.", "Feedback from %s sent to %s's agent."), e.Author, key), err: herdr.Prompt(pane, prompt)}
+		return doneMsg{text: fmt.Sprintf(i18n.T("Retour de %s envoyé à l'agent de %s.", "Feedback from %s sent to %s's agent."), e.Author, key), err: mux.Prompt(pane, prompt)}
 	}
 }
 
@@ -112,10 +112,10 @@ func (m Model) attach(key string) (tea.Model, tea.Cmd) {
 	if a == nil {
 		return m, nil
 	}
-	name := herdr.FreeName(strings.ToLower(key), m.snap.Agents)
+	name := mux.FreeName(strings.ToLower(key), m.snap.Agents)
 	pane := a.PaneID
 	return m, func() tea.Msg {
-		err := herdr.RenameAgent(pane, name)
+		err := mux.RenameAgent(pane, name)
 		return doneMsg{text: fmt.Sprintf(i18n.T("Agent rattaché à %s (renommé %s).", "Agent attached to %s (renamed %s)."), key, name), err: err, refresh: true}
 	}
 }
@@ -161,7 +161,7 @@ func (m Model) cleanup(c *chantier.Chantier, force bool) tea.Cmd {
 			}
 			var err error
 			if ws != "" {
-				err = herdr.RemoveWorktree(ws, force)
+				err = mux.RemoveWorktree(ws, force)
 			} else {
 				args := []string{"-C", wt, "worktree", "remove", wt}
 				if force {
@@ -183,11 +183,11 @@ func (m Model) cleanup(c *chantier.Chantier, force bool) tea.Cmd {
 		text := ""
 		switch {
 		case abandon && linked:
-			text = key + i18n.T(" abandonné : worktree et espace herdr supprimés, plan archivé.", " abandoned: worktree and herdr workspace removed, plan archived.")
+			text = key + mux.Words(i18n.T(" abandonné : worktree et espace herdr supprimés, plan archivé.", " abandoned: worktree and herdr workspace removed, plan archived."))
 		case abandon:
 			text = key + i18n.T(" abandonné : plan archivé.", " abandoned: plan archived.")
 		case linked:
-			text = key + i18n.T(" livré : worktree et espace herdr supprimés, plan archivé.", " shipped: worktree and herdr workspace removed, plan archived.")
+			text = key + mux.Words(i18n.T(" livré : worktree et espace herdr supprimés, plan archivé.", " shipped: worktree and herdr workspace removed, plan archived."))
 		}
 		return cleanedMsg{key: key, text: text}
 	}

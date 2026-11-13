@@ -1,5 +1,6 @@
-// Package home gives cairn its own full-screen herdr workspace, toggled by one
-// herdr key: you keep herdr's sidebar and panes, and cairn is one keystroke away.
+// Package home gives cairn its own full-screen workspace (a herdr workspace or
+// a Rex session), toggled by one key: you keep the multiplexer's sidebar and
+// panes, and cairn is one keystroke away.
 package home
 
 import (
@@ -8,10 +9,10 @@ import (
 	"strings"
 
 	"cairn/internal/config"
-	"cairn/internal/herdr"
+	"cairn/internal/mux"
 )
 
-// Label names cairn's workspace in herdr's sidebar.
+// Label names cairn's workspace in the sidebar.
 const Label = "cairn"
 
 // Env is set in the pane cairn runs in, so the TUI knows "q" means "go back".
@@ -22,7 +23,7 @@ func lastFile() string { return filepath.Join(config.Dir(), "last-workspace") }
 // Toggle shows cairn, or — when cairn is already in front — returns to the
 // workspace you came from. It starts cairn's workspace and process if needed.
 func Toggle() error {
-	snap, err := herdr.GetSnapshot()
+	snap, err := mux.GetSnapshot()
 	if err != nil {
 		return err
 	}
@@ -40,33 +41,34 @@ func Toggle() error {
 	command := Env + " " + shellQuote(self)
 	if ws == nil {
 		home, _ := os.UserHomeDir()
-		id, pane, err := herdr.CreateWorkspace(Label, home)
+		id, pane, err := mux.CreateWorkspace(Label, home)
 		if err != nil {
 			return err
 		}
-		if err := herdr.RunInPane(pane, command); err != nil {
+		if err := mux.RunInPane(pane, command); err != nil {
 			return err
 		}
 		// --focus at creation does not move the client; focusing does.
-		return herdr.FocusWorkspace(id)
+		return mux.FocusWorkspace(id)
 	}
-	if err := herdr.FocusWorkspace(ws.ID); err != nil {
+	if err := mux.FocusWorkspace(ws.ID); err != nil {
 		return err
 	}
-	pane, err := herdr.FirstPane(ws.ID)
+	pane, err := mux.FirstPane(ws.ID)
 	if err != nil {
 		return err
 	}
-	if !herdr.Runs(pane, "cairn") {
-		return herdr.RunInPane(pane, command)
+	if !mux.Runs(pane, "cairn") {
+		return mux.RunInPane(pane, command)
 	}
 	return nil
 }
 
 // Ensure makes sure cairn's workspace exists and runs cairn, without moving
-// focus: it is the sidebar button herdr's startup hook keeps in place.
+// focus: it is the sidebar button herdr's startup hook (or install.sh --rex)
+// keeps in place.
 func Ensure() error {
-	snap, err := herdr.GetSnapshot()
+	snap, err := mux.GetSnapshot()
 	if err != nil {
 		return err
 	}
@@ -76,21 +78,21 @@ func Ensure() error {
 	}
 	command := Env + " " + shellQuote(self)
 	if ws := snap.WorkspaceByLabel(Label); ws != nil {
-		pane, err := herdr.FirstPane(ws.ID)
+		pane, err := mux.FirstPane(ws.ID)
 		if err != nil {
 			return err
 		}
-		if !herdr.Runs(pane, "cairn") {
-			return herdr.RunInPane(pane, command)
+		if !mux.Runs(pane, "cairn") {
+			return mux.RunInPane(pane, command)
 		}
 		return nil
 	}
 	home, _ := os.UserHomeDir()
-	_, pane, err := herdr.CreateWorkspaceNoFocus(Label, home)
+	_, pane, err := mux.CreateWorkspaceNoFocus(Label, home)
 	if err != nil {
 		return err
 	}
-	return herdr.RunInPane(pane, command)
+	return mux.RunInPane(pane, command)
 }
 
 // Back focuses the workspace that was in front before cairn.
@@ -100,11 +102,11 @@ func Back() error {
 		return nil
 	}
 	id := strings.TrimSpace(string(data))
-	snap, err := herdr.GetSnapshot()
+	snap, err := mux.GetSnapshot()
 	if err != nil || !snap.HasWorkspace(id) {
 		return err
 	}
-	return herdr.FocusWorkspace(id)
+	return mux.FocusWorkspace(id)
 }
 
 // Inside reports whether this process is the one running in cairn's workspace.

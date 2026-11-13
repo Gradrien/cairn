@@ -10,9 +10,9 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/config"
-	"cairn/internal/herdr"
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
+	"cairn/internal/mux"
 	"cairn/internal/progress"
 	"cairn/internal/state"
 )
@@ -53,7 +53,7 @@ func newWatch() *watchState {
 }
 
 func notify(title, body string) tea.Cmd {
-	return func() tea.Msg { _ = herdr.Notify(title, body); return nil }
+	return func() tea.Msg { _ = mux.Notify(title, body); return nil }
 }
 
 // observe records phase changes in each chantier's journal, keeps the tracker

@@ -11,6 +11,7 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 
 	"cairn/internal/i18n"
+	"cairn/internal/mux"
 	"cairn/internal/tracker"
 )
 
@@ -369,12 +370,12 @@ func (m Model) pickView() string {
 	switch {
 	case creates:
 		lines = append(lines,
-			sMuted.Render(fmt.Sprintf(i18n.T("  Entrée crée %s-… et lance le plan : worktree, espace herdr, agent. Le titre suffit : l'agent pose ses questions dans le plan.",
-				"  Enter creates %s-… and starts the plan: worktree, herdr workspace, agent. The title is enough: the agent asks its questions in the plan."), proj.cfg.Key)))
+			sMuted.Render(fmt.Sprintf(mux.Words(i18n.T("  Entrée crée %s-… et lance le plan : worktree, espace herdr, agent. Le titre suffit : l'agent pose ses questions dans le plan.",
+				"  Enter creates %s-… and starts the plan: worktree, herdr workspace, agent. The title is enough: the agent asks its questions in the plan.")), proj.cfg.Key)))
 	default:
 		lines = append(lines,
-			sMuted.Render(i18n.T("  Entrée lance le plan : worktree, espace herdr, agent. Le ticket t'est assigné s'il n'a personne.",
-				"  Enter starts the plan: worktree, herdr workspace, agent. The ticket is assigned to you if nobody has it.")),
+			sMuted.Render(mux.Words(i18n.T("  Entrée lance le plan : worktree, espace herdr, agent. Le ticket t'est assigné s'il n'a personne.",
+				"  Enter starts the plan: worktree, herdr workspace, agent. The ticket is assigned to you if nobody has it."))),
 			"",
 			sHeader.Render(i18n.T("Sans personne", "Unassigned")))
 		switch {

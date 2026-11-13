@@ -189,6 +189,18 @@ their `file:line`. Markdown is rendered and bot noise is folded away.
 - An agent started outside a chantier can be **attached** with one click. cairn names it after the ticket.
 - A herdr plugin brings cairn back every time herdr starts.
 
+**Or inside Rex.** cairn also runs in [Rex](https://www.superlogical.com/rex), Superlogical's multiplexer
+(`./install.sh --rex`). It uses whichever of the two it is running in. To pick one yourself, set `"mux": "rex"` in
+`~/.cairn/config.json` or `CAIRN_MUX=rex`. Under Rex:
+
+- every chantier gets **its own Rex session**, named after the ticket. Its label carries the phase (`YAK-12 · build 2/5`),
+  which is the closest thing Rex has to herdr's sidebar rows. Sessions you named yourself keep their name;
+- agents are the blocks running Claude Code, Codex and others. Their state (working, waiting, done) is the one they
+  report to Rex themselves (OSC 7501), so nothing has to be scraped from the screen;
+- `ctrl+b a` (an action written to `~/.config/rex/cairn.lua`) toggles between cairn's session and where you were;
+- jumping to an agent from cairn's list switches the app's session only when **Remote Control** is on in Rex's
+  settings (Rex Server). Without it, cairn still focuses the agent's block inside its session.
+
 Everything works with the mouse: click to select, click again to jump to the agent, scroll anywhere, hover the
 buttons, hover a chantier to read its agents' state, drag over text to copy it (it keeps to the pane it started in; `esc`
 clears the highlight). Each button also has a key, shown on it.
@@ -205,7 +217,7 @@ shows the chantiers as a board by phase, `\` folds the list away so the detail g
 
 ### Your first chantier in three steps.
 
-**1. Install.** You need Go, `gh` logged in (`gh auth login`) and herdr.
+**1. Install.** You need Go, `gh` logged in (`gh auth login`) and herdr (or Rex: `./install.sh --rex`).
 
 ```sh
 git clone https://github.com/Gradrien/cairn.git && cd cairn

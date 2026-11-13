@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Build and install cairn, link its agent skill, add the Claude Code push guard,
-# and (with --herdr) the herdr plugin, sidebar button and prefix+a key.
+# and (with --herdr) the herdr plugin, sidebar button and prefix+a key, or (with
+# --rex) the Rex action and ctrl+b a key.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 for t in go gh git python3; do
   command -v "$t" >/dev/null || { echo "✗ $t est introuvable : installe-le d'abord" >&2; exit 1; }
 done
-command -v herdr >/dev/null || echo "! herdr est introuvable : cairn en a besoin pour tourner"
+command -v herdr >/dev/null || command -v rex >/dev/null || echo "! ni herdr ni Rex ne sont installés : cairn a besoin de l'un des deux pour tourner"
 gh auth status >/dev/null 2>&1 || echo "! gh n'est pas connecté : lance « gh auth login » (PR, CI, images)"
 
 go vet ./...
@@ -87,14 +88,14 @@ if changed:
     json.dump(d, open(path, "w"), indent=2, ensure_ascii=False)
 PY
 
-# A cairn already open in herdr keeps running the old binary: restart it. The
-# cairn updating itself (U) is left alone: it starts the new build on its own.
-if command -v herdr >/dev/null; then
+# A cairn already open in herdr or Rex keeps running the old binary: restart it.
+# The cairn updating itself (U) is left alone: it starts the new build on its own.
+if command -v herdr >/dev/null || command -v rex >/dev/null; then
   others=$(pgrep -fx '(.*/)?cairn' | grep -vx "${CAIRN_UPDATING_PID:-0}" || true)
   if [[ -n "$others" ]]; then
     kill $others 2>/dev/null || true
     sleep 0.5
-    "$cairn_bin" ensure && echo "✓ cairn relancé dans herdr avec la nouvelle version"
+    "$cairn_bin" ensure && echo "✓ cairn relancé avec la nouvelle version"
   fi
 fi
 
@@ -122,4 +123,53 @@ PY
   herdr server reload-config >/dev/null
   "$cairn_bin" ensure || true
   echo "✓ herdr : l'espace « cairn » est dans la barre latérale (un clic l'ouvre), prefix+a bascule (sauvegarde : $cfg.bak-cairn)"
+fi
+
+if [[ "${1:-}" == "--rex" ]]; then
+  command -v rex >/dev/null || { echo "✗ rex est introuvable : installe Rex d'abord" >&2; exit 1; }
+  rexdir="$(dirname "${REX_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rex/init.lua}")"
+  init="${REX_CONFIG:-$rexdir/init.lua}"
+  mkdir -p "$rexdir"
+  touch "$init"
+  # Rex runs actions with its own environment: give cairn the PATH it needs
+  # (git, gh, rex, claude).
+  rexbin="$(dirname "$(command -v rex)")"
+  lua_path="$(printf '%s' "$rexbin:$PATH" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  cat > "$rexdir/cairn.lua" <<LUA
+-- cairn : écrit par install.sh --rex de cairn ; relance-le pour le mettre à jour.
+-- Ctrl+B puis A bascule entre cairn et la session d'où tu viens.
+local cairn = "$cairn_bin"
+local path = "$lua_path"
+
+local function run(ctx, what)
+  local r, err = rex.exec({ cairn, what }, {
+    env = { PATH = path, CAIRN_MUX = "rex", CAIRN_REX_ACTION = "1",
+            CAIRN_FROM_SESSION = ctx.session_id or false, REX_SESSION = false, REX_BLOCK = false },
+    timeout = 30,
+  })
+  if r == nil then error(err, 0) end
+  if not r.ok then error(r.stderr ~= "" and r.stderr or ("cairn " .. what .. " a échoué"), 0) end
+  -- cairn says which session to show; an action may switch the app itself.
+  for id in r.stdout:gmatch("select (%S+)") do
+    rex.invoke("session.select", { session_id = id })
+  end
+end
+
+rex.action{
+  name = "cairn",
+  title = "cairn : afficher / masquer",
+  description = "Bascule entre cairn et la session d'où tu viens",
+  category = "cairn",
+  run = function(ctx) run(ctx, "open") end,
+}
+rex.bind("ctrl+b>a", "cairn")
+LUA
+  if ! grep -q 'rex/cairn.lua\|"cairn.lua"' "$init"; then
+    printf '\n-- cairn (install.sh --rex)\ndofile("%s")\n' "$rexdir/cairn.lua" >> "$init"
+  fi
+  rex config check "$init" || { echo "✗ $init ne se charge pas : corrige-le, puis relance install.sh --rex" >&2; exit 1; }
+  rex config reload >/dev/null
+  CAIRN_MUX=rex "$cairn_bin" ensure || true
+  echo "✓ Rex : la session « cairn » est dans la barre latérale, ctrl+b a bascule ($rexdir/cairn.lua)"
+  echo "  Pour qu'un clic dans cairn change la session affichée, active Remote Control dans les réglages de Rex (Rex Server)."
 fi

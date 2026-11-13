@@ -42,7 +42,7 @@ type Project struct {
 	Base string `json:"base,omitempty"`
 	// WorktreeParent is where new worktrees go (default: next to Repo).
 	WorktreeParent string `json:"worktree_parent,omitempty"`
-	// AgentKind is the herdr agent kind started for a new chantier.
+	// AgentKind is the agent kind (claude, codex…) started for a new chantier.
 	AgentKind string `json:"agent_kind,omitempty"`
 	// ModelPlan and ModelBuild are the models the planning Claude agent and
 	// the new one that builds after approval start on (claude --model): a
@@ -59,6 +59,9 @@ type Config struct {
 	Projects []Project `json:"projects"`
 	// Lang is the interface language: "fr" (default) or "en".
 	Lang string `json:"lang"`
+	// Mux is the multiplexer cairn drives: "herdr", "rex", or empty to use the
+	// one it runs in.
+	Mux string `json:"mux,omitempty"`
 	// AgentKind, Diff and the models are the defaults of every project.
 	AgentKind  string `json:"agent_kind,omitempty"`
 	Diff       string `json:"diff,omitempty"`

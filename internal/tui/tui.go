@@ -16,12 +16,12 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/config"
-	"cairn/internal/herdr"
 	"cairn/internal/home"
 	"cairn/internal/i18n"
 	"cairn/internal/images"
 	"cairn/internal/journal"
 	"cairn/internal/localtest"
+	"cairn/internal/mux"
 	"cairn/internal/progress"
 	"cairn/internal/prthread"
 	"cairn/internal/state"
@@ -73,12 +73,12 @@ type Model struct {
 
 	projects []*project
 	loaded   bool // the trackers answered once
-	snap     herdr.Snapshot
+	snap     mux.Snapshot
 	localErr error
 
 	chantiers []*chantier.Chantier
 	all       []*chantier.Chantier // chantiers, shipped ones the list hides included
-	others    []herdr.Agent
+	others    []mux.Agent
 	cursor    int
 	hoverItem int       // list item under the mouse, -1 for none
 	hoverBtn  int       // button under the mouse, -1 for none
@@ -244,7 +244,7 @@ func (m *Model) pushTokens() tea.Cmd {
 		if m.tokens[ws] != v {
 			m.tokens[ws] = v
 			ws, v := ws, v
-			cmds = append(cmds, func() tea.Msg { _ = herdr.ReportToken(ws, v); return nil })
+			cmds = append(cmds, func() tea.Msg { _ = mux.ReportToken(ws, v); return nil })
 		}
 	}
 	return tea.Batch(cmds...)
@@ -252,7 +252,7 @@ func (m *Model) pushTokens() tea.Cmd {
 
 // TokensFor maps each herdr workspace to its chantier's sidebar token, and
 // cairn's own workspace to a summary: the sidebar button says if you are needed.
-func TokensFor(list []*chantier.Chantier, snap herdr.Snapshot) map[string]string {
+func TokensFor(list []*chantier.Chantier, snap mux.Snapshot) map[string]string {
 	out := map[string]string{}
 	if ws := snap.WorkspaceByLabel(home.Label); ws != nil {
 		waiting := 0
@@ -291,7 +291,7 @@ func (m Model) selected() *chantier.Chantier {
 	return nil
 }
 
-func (m Model) selectedOther() *herdr.Agent {
+func (m Model) selectedOther() *mux.Agent {
 	i := m.cursor - len(m.chantiers)
 	if i >= 0 && i < len(m.others) {
 		return &m.others[i]
@@ -756,7 +756,7 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 	if m.inside {
 		// cairn stays alive in its workspace; q just hands herdr back.
 		return m, func() tea.Msg {
-			return doneMsg{text: i18n.T("← retour à herdr", "← back to herdr"), err: home.Back()}
+			return doneMsg{text: mux.Words(i18n.T("← retour à herdr", "← back to herdr")), err: home.Back()}
 		}
 	}
 	m.leave(m.detailOf)
@@ -949,7 +949,7 @@ func (m Model) detailClick(target string) (tea.Model, tea.Cmd) {
 	kind, arg, _ := strings.Cut(target, ":")
 	switch kind {
 	case "pane":
-		return m, func() tea.Msg { return doneMsg{text: "→ " + arg, err: herdr.FocusAgent(arg)} }
+		return m, func() tea.Msg { return doneMsg{text: "→ " + arg, err: mux.FocusAgent(arg)} }
 	case "comments":
 		return m.openComments()
 	case "how":
@@ -1018,14 +1018,14 @@ func keyForRunes(k string) tea.KeyMsg {
 func (m Model) goTo() tea.Cmd {
 	if a := m.selectedOther(); a != nil {
 		pane := a.PaneID
-		return func() tea.Msg { return doneMsg{text: "→ " + a.Label(), err: herdr.FocusAgent(pane)} }
+		return func() tea.Msg { return doneMsg{text: "→ " + a.Label(), err: mux.FocusAgent(pane)} }
 	}
 	c := m.selected()
 	if c == nil {
 		return nil
 	}
 	// Prefer the agent that needs you, then one that works, then any.
-	var target *herdr.Agent
+	var target *mux.Agent
 	for _, want := range []string{"blocked", "done", "idle", "working", ""} {
 		for i, a := range c.Agents {
 			if target == nil && (want == "" || a.Status == want) {
@@ -1035,14 +1035,14 @@ func (m Model) goTo() tea.Cmd {
 	}
 	if target != nil {
 		pane, label := target.PaneID, target.Label()
-		return func() tea.Msg { return doneMsg{text: "→ " + label, err: herdr.FocusAgent(pane)} }
+		return func() tea.Msg { return doneMsg{text: "→ " + label, err: mux.FocusAgent(pane)} }
 	}
 	if len(c.Workspaces) > 0 {
 		ws := c.Workspaces[0]
-		return func() tea.Msg { return doneMsg{text: "→ " + c.Key, err: herdr.FocusWorkspace(ws)} }
+		return func() tea.Msg { return doneMsg{text: "→ " + c.Key, err: mux.FocusWorkspace(ws)} }
 	}
 	return func() tea.Msg {
-		return doneMsg{text: c.Key + i18n.T(" n'a pas encore d'espace herdr : p pour le lancer.", " has no herdr workspace yet: p to start it.")}
+		return doneMsg{text: c.Key + mux.Words(i18n.T(" n'a pas encore d'espace herdr : p pour le lancer.", " has no herdr workspace yet: p to start it."))}
 	}
 }
 
@@ -1108,7 +1108,7 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 			return doneMsg{err: fmt.Errorf(i18n.T("%s existe déjà", "%s already exists"), path)}
 		}
 		_ = exec.Command("git", "-C", cfg.Repo, "fetch", "--quiet", "origin").Run()
-		_, pane, err := herdr.CreateWorktree(cfg.Repo, branch, cfg.Base, path, key)
+		_, pane, err := mux.CreateWorktree(cfg.Repo, branch, cfg.Base, path, key)
 		if err != nil {
 			return doneMsg{err: err}
 		}
@@ -1124,14 +1124,14 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 				return doneMsg{err: err}
 			}
 		}
-		name := herdr.FreeName(lower, agents)
-		if err := herdr.StartAgent(name, cfg.AgentKind, pane, modelArgs(cfg.AgentKind, cfg.ModelPlan)...); err != nil {
+		name := mux.FreeName(lower, agents)
+		if err := mux.StartAgent(name, cfg.AgentKind, pane, modelArgs(cfg.AgentKind, cfg.ModelPlan)...); err != nil {
 			return doneMsg{err: fmt.Errorf(i18n.T("worktree prêt, mais l'agent n'a pas démarré : %w", "worktree ready, but the agent did not start: %w"), err), refresh: true}
 		}
 		if cfg.ModelPlan != "" && len(modelArgs(cfg.AgentKind, cfg.ModelPlan)) > 0 {
 			_ = journal.Append(config.ChantiersDir(), key, "modèle : "+cfg.ModelPlan)
 		}
-		err = herdr.Prompt(name, chantier.PlanPrompt(key, issue.Title, statePath, tr.Guide(key)))
+		err = mux.Prompt(name, chantier.PlanPrompt(key, issue.Title, statePath, tr.Guide(key)))
 		text := fmt.Sprintf(i18n.T("%s : l'agent %s écrit le plan.", "%s: agent %s is writing the plan."), key, name)
 		if moved, err := tr.Start(issue); moved && err == nil {
 			text += i18n.T(" Ticket passé en cours.", " Ticket moved to in progress.")
@@ -1169,7 +1169,7 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 			"Push allowed in cairn for %s, on commit %s: push now (retries pass). "+
 				"Do not open a PR: opening it is allowed separately in cairn; if it is already open, nothing more to do."), c.Key, shortSHA(head))
 		cmd = tea.Batch(cmd, func() tea.Msg {
-			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(pane, prompt)}
+			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: mux.Prompt(pane, prompt)}
 		})
 	}
 	m.say(text, nil)
@@ -1207,7 +1207,7 @@ func (m Model) allowPR() (tea.Model, tea.Cmd) {
 				"open the PR, link it to the ticket and set the plan to `phase: review`. Do not merge it. "+
 				"Once the PR is open, your next pushes (CI or review fixes) pass without asking again."), c.Key, shortSHA(head))
 		cmd = tea.Batch(cmd, func() tea.Msg {
-			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(pane, prompt)}
+			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: mux.Prompt(pane, prompt)}
 		})
 	}
 	m.say(text, nil)
@@ -1275,7 +1275,7 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 		m.say("", err)
 		return m, nil
 	}
-	var agent herdr.Agent
+	var agent mux.Agent
 	for _, a := range c.Agents {
 		agent = a
 		break
@@ -1293,7 +1293,7 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 			cmd = tea.Batch(cmd, m.freshAgent(agent, model, chantier.FreshBuildPrompt(key, path), key, "nouvel agent pour le build", text))
 		} else {
 			cmd = tea.Batch(cmd, func() tea.Msg {
-				return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: herdr.Prompt(agent.PaneID, prompt)}
+				return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: mux.Prompt(agent.PaneID, prompt)}
 			})
 		}
 	}
@@ -1312,20 +1312,20 @@ func modelArgs(kind, model string) []string {
 
 // freshAgent replaces agent with a new one in the same pane: the old one
 // ends (its transcript stays), the new one starts on model with prompt.
-func (m Model) freshAgent(agent herdr.Agent, model, prompt, key, event, text string) tea.Cmd {
+func (m Model) freshAgent(agent mux.Agent, model, prompt, key, event, text string) tea.Cmd {
 	kind := agent.Kind
 	if kind == "" {
 		kind = "claude"
 	}
 	return func() tea.Msg {
-		if err := herdr.StopAgent(agent.PaneID); err != nil {
+		if err := mux.StopAgent(agent.PaneID); err != nil {
 			return doneMsg{err: err, refresh: true}
 		}
 		name := agent.Name
 		if name == "" {
 			name = strings.ToLower(key)
 		}
-		if err := herdr.StartAgent(name, kind, agent.PaneID, modelArgs(kind, model)...); err != nil {
+		if err := mux.StartAgent(name, kind, agent.PaneID, modelArgs(kind, model)...); err != nil {
 			return doneMsg{err: fmt.Errorf(i18n.T("l'ancien agent est arrêté, mais le nouveau n'a pas démarré : %w", "the old agent stopped, but the new one did not start: %w"), err), refresh: true}
 		}
 		ev := event
@@ -1337,7 +1337,7 @@ func (m Model) freshAgent(agent herdr.Agent, model, prompt, key, event, text str
 		if model != "" {
 			done = text + fmt.Sprintf(i18n.T(" Un agent neuf prend la suite, sur %s.", " A new agent takes over, on %s."), model)
 		}
-		return doneMsg{text: done, err: herdr.Prompt(name, prompt), refresh: true}
+		return doneMsg{text: done, err: mux.Prompt(name, prompt), refresh: true}
 	}
 }
 
