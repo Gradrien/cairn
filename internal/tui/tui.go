@@ -792,6 +792,9 @@ func (m Model) mainKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) quit() (tea.Model, tea.Cmd) {
+	if m.engine {
+		return m, nil // the engine only stops with the app
+	}
 	if m.inside {
 		// cairn stays alive in its workspace; q just hands herdr back.
 		return m, func() tea.Msg {
@@ -1130,8 +1133,21 @@ func (m Model) diff() tea.Cmd {
 	if p := m.projectOf(c); p != nil {
 		custom = p.cfg.Diff
 	}
-	cmd := exec.Command("sh", "-c", diffCommand(custom, m.base(c)))
-	cmd.Dir = c.Worktree
+	return m.runShown("diff "+c.Key, c.Worktree, nil, "sh", "-c", diffCommand(custom, m.base(c)))
+}
+
+// runShown runs a program the person looks at (a diff, the images): in the
+// TUI's own terminal, or for the engine, which has no screen, in a new tab.
+func (m Model) runShown(name, dir string, env []string, argv ...string) tea.Cmd {
+	if m.engine {
+		if len(env) > 0 {
+			argv = append(append([]string{"env"}, env...), argv...)
+		}
+		return func() tea.Msg { return doneMsg{err: mux.OpenTab(name, dir, argv)} }
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
 	return tea.ExecProcess(cmd, func(err error) tea.Msg { return doneMsg{err: err} })
 }
 

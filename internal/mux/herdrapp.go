@@ -558,3 +558,12 @@ func (r *appBackend) StartEngine(name string, cmd ...string) error {
 	_, err := hcRun(append([]string{"run", "--bg", "--no-parent", "--no-notify", "--name", name, "--"}, cmd...)...)
 	return err
 }
+
+// OpenTab shows a program in a new tab of the space in front.
+func (r *appBackend) OpenTab(name, dir string, argv []string) error {
+	args := map[string]any{"name": name, "argv": argv}
+	if dir != "" {
+		args["folder"] = dir
+	}
+	return appDo(nil, "tab.new", args)
+}

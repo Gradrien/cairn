@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -192,9 +193,14 @@ func main() {
 			return // an engine already runs
 		}
 		defer lock.Close()
-		m := tui.New(cfg).WithUpdates(updates()).Headless()
-		if _, err := tea.NewProgram(m, tea.WithInput(nil), tea.WithoutRenderer()).Run(); err != nil {
-			fail(err)
+		// The engine stays up while the app runs: should it ever stop, it
+		// starts again with a fresh model.
+		for {
+			m := tui.New(cfg).WithUpdates(updates()).Headless()
+			if _, err := tea.NewProgram(m, tea.WithInput(nil), tea.WithoutRenderer()).Run(); err != nil {
+				fmt.Fprintln(os.Stderr, "cairn serve:", err)
+			}
+			time.Sleep(time.Second)
 		}
 	case "do":
 		if err := do(flag.Args()[1:]); err != nil {

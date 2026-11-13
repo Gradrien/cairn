@@ -613,6 +613,9 @@ func (m Model) runRequest(r native.Request) (Model, tea.Cmd) {
 	case "", "select":
 		return m, nil
 	case "key":
+		if r.Arg == "ctrl+c" || r.Arg == "U" {
+			return m, nil // they stop the program: the engine stays
+		}
 		if m.overlay != "" || m.answerQ != "" {
 			m.overlay, m.answerQ = "", ""
 		}

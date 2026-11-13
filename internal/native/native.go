@@ -42,13 +42,19 @@ type Request struct {
 	Index  int    `json:"index,omitempty"`
 	Option *int   `json:"option,omitempty"`
 	Text   string `json:"text,omitempty"`
+	At     int64  `json:"at"` // when it was sent, in ms
 }
+
+// Stale is how old a request may be and still run: a click the engine could
+// not answer in time is not replayed later.
+const Stale = 10 * time.Second
 
 // Send drops a request; the engine runs it within 100 ms.
 func Send(r Request) error {
 	if r.Key == "-" {
 		r.Key = ""
 	}
+	r.At = time.Now().UnixMilli()
 	data, err := json.Marshal(r)
 	if err != nil {
 		return err
@@ -64,7 +70,8 @@ func Send(r Request) error {
 	return os.Rename(tmp, filepath.Join(RequestsDir(), name))
 }
 
-// Take returns the waiting requests, oldest first, and removes them.
+// Take returns the waiting requests, oldest first, and removes them. Stale
+// ones are dropped, and of selections in a row only the last is kept.
 func Take() []Request {
 	entries, err := os.ReadDir(RequestsDir())
 	if err != nil {
@@ -80,9 +87,14 @@ func Take() []Request {
 		data, err := os.ReadFile(path)
 		_ = os.Remove(path)
 		var r Request
-		if err == nil && json.Unmarshal(data, &r) == nil {
-			out = append(out, r)
+		if err != nil || json.Unmarshal(data, &r) != nil || time.Since(time.UnixMilli(r.At)) > Stale {
+			continue
 		}
+		if n := len(out); n > 0 && r.Action == "select" && out[n-1].Action == "select" {
+			out[n-1] = r
+			continue
+		}
+		out = append(out, r)
 	}
 	return out
 }

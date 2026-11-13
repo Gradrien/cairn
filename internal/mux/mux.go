@@ -7,6 +7,7 @@
 package mux
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -299,6 +300,16 @@ func StartEngine(name string, cmd ...string) error {
 		return p.StartEngine(name, cmd...)
 	}
 	return nil
+}
+
+// OpenTab shows a program in a new tab, where the multiplexer can.
+func OpenTab(name, dir string, argv []string) error {
+	if p, ok := current().(interface {
+		OpenTab(string, string, []string) error
+	}); ok {
+		return p.OpenTab(name, dir, argv)
+	}
+	return fmt.Errorf("%s", i18n.T("ce multiplexeur ne sait pas ouvrir d'onglet", "this multiplexer cannot open a tab"))
 }
 
 // RemoveWorktree removes a linked worktree together with its workspace.

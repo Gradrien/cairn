@@ -83,6 +83,7 @@ export default class CairnDetail extends View {
         }
         if (d.view !== "how") this.asking = false;
         this.d = d;
+        this.pending = false;
       } catch {
         return;
       }
@@ -101,6 +102,7 @@ export default class CairnDetail extends View {
   // ask sends a request to the engine: cairn do KEY ACTION ARGS.
   ask(cx, action, ...args) {
     this.error = null;
+    this.pending = true;
     const key = this.d?.key || "-";
     cx.spawn(async (cx) => {
       try {
@@ -109,8 +111,10 @@ export default class CairnDetail extends View {
       } catch (e) {
         this.error = String(e);
       }
+      if (this.error) this.pending = false;
       cx.notify();
     });
+    cx.notify();
   }
 
   // key does what the TUI's key does on the screen the engine is on; the few
@@ -685,7 +689,7 @@ export default class CairnDetail extends View {
       body = this.comments(d, t);
     } else if (view !== "") body = [div().pt(16).text_color(t.muted).child(fr ? "Cet écran arrive bientôt en natif. esc pour revenir." : "This screen comes natively soon. esc to go back.")];
     else body = this.home(d, t);
-    const status = this.error || d?.busy || d?.flash?.text;
+    const status = this.error || d?.busy || (this.pending ? "…" : d?.flash?.text);
     const buttons = d?.buttons ?? [];
     return v_flex()
       .id("cairn-detail")
