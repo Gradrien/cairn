@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,13 @@ const keep = 24 * time.Hour
 
 func path(dir string) string { return filepath.Join(dir, "cache", "prompted") }
 
+// pasteTag is the wrapper Claude Code may put around a long prompt typed in
+// one go (<pasted_content id="…">…</pasted_content id="…">): what cairn sent
+// is inside it.
+var pasteTag = regexp.MustCompile(`</?pasted_content[^>]*>`)
+
 func sum(text string) string {
+	text = pasteTag.ReplaceAllString(text, " ")
 	h := sha256.Sum256([]byte(strings.Join(strings.Fields(text), " ")))
 	return hex.EncodeToString(h[:])
 }
