@@ -22,8 +22,14 @@ export default class CairnDetail extends View {
   init(_props, cx) {
     this.d = null;
     this.picked = {}; // question index → option index, before sending
-    this.inputs = {}; // free text boxes, by id
+    this.freeQ = null; // question answered in your own words
     this.openStep = null; // manual step whose ✓ / ✗ are open
+    // Input state can only be made here or in a handler: one box of each kind,
+    // shown under the question or step it is open for, per language.
+    this.boxes = {
+      fr: { answer: InputState.new({ placeholder: "Ta réponse, ou une question pour l'agent…" }), report: InputState.new({ placeholder: "Ce que tu vois…" }) },
+      en: { answer: InputState.new({ placeholder: "Your answer, or a question for the agent…" }), report: InputState.new({ placeholder: "What you see…" }) },
+    };
     this.load(cx);
     cx.spawn(async (cx) => {
       for (;;) {
@@ -46,7 +52,7 @@ export default class CairnDetail extends View {
         const d = JSON.parse(text);
         if (d.key !== this.d?.key) {
           this.picked = {};
-          this.openStep = null;
+          this.openStep = this.freeQ = null;
         }
         this.d = d;
       } catch {
@@ -86,14 +92,10 @@ export default class CairnDetail extends View {
     this.ask(cx, "key", k);
   }
 
-  input(id, placeholder) {
-    if (!this.inputs[id]) {
-      const state = InputState.new({ placeholder });
-      state.on("change", () => {});
-      this.inputs[id] = state;
-    }
-    return this.inputs[id];
+  input(kind) {
+    return this.boxes[this.fr() ? "fr" : "en"][kind];
   }
+
 
   toneColor(tone, t) {
     return { warn: t.blocked, danger: t.ansi1, good: t.ansi2, accent: t.accent, dim: t.dim, muted: t.muted, line: t.muted }[tone] ?? t.muted;
@@ -187,7 +189,8 @@ export default class CairnDetail extends View {
         .child(h_flex().gap(6).child(div().w(14).text_color(t.ansi2).child("✓")).child(div().flex_1().min_w(0).text_color(t.muted).child(this.md(`${id}-t`, q.text, t, t.muted))))
         .child(div().pl(20).text_size(12).text_color(t.ansi2).child((fr ? "↳ envoyé à l'agent : " : "↳ sent to the agent: ") + q.answered));
     const picked = this.picked[q.index] ?? (q.options ?? []).findIndex((o) => o.recommended);
-    const free = this.input(`${id}-free`, fr ? "Autre réponse, ou une question pour l'agent…" : "Another answer, or a question for the agent…");
+    const writing = this.freeQ === q.index;
+    const free = this.input("answer");
     return v_flex()
       .gap(6)
       .child(h_flex().gap(6).items_start().child(div().w(14).flex_none().text_color(t.blocked).font_bold().child("?")).child(div().flex_1().min_w(0).child(this.md(`${id}-t`, q.text, t))))
@@ -226,15 +229,45 @@ export default class CairnDetail extends View {
               this.button(`${id}-send`, fr ? "Envoyer le choix" : "Send the choice", { primary: true, enabled: picked >= 0 }, (cx) => this.ask(cx, "answer", "--index", String(q.index), "--option", String(picked)), t),
             ),
           )
-          .child(div().flex_1().min_w(0).h(28).px(8).flex().items_center().rounded(7).border_1().border_color(t.border).child(Input.new(free).h_full().text_size(12)))
-          .child(
-            this.button(`${id}-sendfree`, "↵", {}, (cx) => {
-              const text = free.value().trim();
-              if (!text) return;
-              free.set_value("");
-              this.ask(cx, "answer", "--index", String(q.index), "--text", text);
-            }, t),
+          .when(!writing, (e) =>
+            e.child(
+              div()
+                .id(`${id}-write`)
+                .text_size(12)
+                .text_color(t.dim)
+                .cursor_pointer()
+                .hover((s) => s.text_color(t.foreground))
+                .on_click((_e, cx) => {
+                  this.freeQ = q.index;
+                  free.set_value("");
+                  cx.notify();
+                })
+                .child(fr ? "✎ Répondre dans tes mots" : "✎ Answer in your words"),
+            ),
           ),
+      )
+      .when(writing, (e) =>
+        e.child(
+          h_flex()
+            .ml(20)
+            .gap(6)
+            .child(div().flex_1().min_w(0).h(28).px(8).flex().items_center().rounded(7).border_1().border_color(t.accent).child(Input.new(free).h_full().text_size(12)))
+            .child(
+              this.button(`${id}-sendfree`, fr ? "Envoyer" : "Send", { primary: true }, (cx) => {
+                const text = free.value().trim();
+                if (!text) return;
+                free.set_value("");
+                this.freeQ = null;
+                this.ask(cx, "answer", "--index", String(q.index), "--text", text);
+              }, t),
+            )
+            .child(
+              this.button(`${id}-cancelfree`, fr ? "Annuler" : "Cancel", {}, (cx) => {
+                this.freeQ = null;
+                cx.notify();
+              }, t),
+            ),
+        ),
       );
   }
 
@@ -247,7 +280,7 @@ export default class CairnDetail extends View {
       kids.push(...(sec.setup ?? []).map((l, i) => h_flex().gap(6).child(div().w(14).text_color(t.dim).child("·")).child(div().flex_1().min_w(0).child(this.md(`setup-${i}`, l, t, t.muted)))));
       for (const k of sec.tasks ?? []) {
         const open = this.openStep === k.index && k.state !== "done";
-        const report = this.input(`ko-${k.index}`, fr ? "Ce que tu vois…" : "What you see…");
+        const report = this.input("report");
         const extra = open
           ? h_flex()
               .pl(20)
@@ -267,6 +300,7 @@ export default class CairnDetail extends View {
           this.task(`manual-${k.index}`, k, t, (cx) => {
             if (k.state === "done") return this.ask(cx, "manual-ok", "--index", String(k.index));
             this.openStep = this.openStep === k.index ? null : k.index;
+            this.input("report").set_value("");
             cx.notify();
           }, extra),
         );
