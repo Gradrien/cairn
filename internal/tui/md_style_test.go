@@ -17,3 +17,15 @@ func TestMarkdownLooksRendered(t *testing.T) {
 		}
 	}
 }
+
+func TestInlineMarkdownDropsMarks(t *testing.T) {
+	for in, want := range map[string]string{
+		"**Existant** : `a.ts:12` (`b`)": "Existant : a.ts:12 (b)",
+		"un ` seul":                      "un  seul",
+		"__gras__ puis `x`":              "gras puis x",
+	} {
+		if got := xansi.Strip(md(in, sSoft)); got != want {
+			t.Errorf("md(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
