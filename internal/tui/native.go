@@ -200,33 +200,34 @@ type nativeOther struct {
 }
 
 type nativeDetail struct {
-	Lang     string          `json:"lang"`
-	View     string          `json:"view"` // "", how, comments, pick, settings, board
-	Buttons  []nativeButton  `json:"buttons"`
-	Primary  bool            `json:"primary"` // the first button is what to do now
-	How      *nativeHow      `json:"how,omitempty"`
-	Pick     *nativePick     `json:"pick,omitempty"`
-	Settings []nativeSetting `json:"settings,omitempty"`
-	Board    []nativeColumn  `json:"board,omitempty"`
-	Palette  *nativePalette  `json:"palette,omitempty"`
-	Comments *nativeComments `json:"comments,omitempty"`
-	Other    *nativeOther    `json:"other,omitempty"`
-	Key      string          `json:"key,omitempty"`
-	Title    string          `json:"title,omitempty"`
-	Meta     string          `json:"meta,omitempty"`
-	URL      string          `json:"url,omitempty"`
-	Card     *nativeCard     `json:"card,omitempty"`
-	Flow     []nativeStep    `json:"flow,omitempty"`
-	Since    string          `json:"since,omitempty"`
-	Status   []nativeRow     `json:"status,omitempty"`
-	NoPlan   bool            `json:"no_plan,omitempty"`
-	Sections []nativeSection `json:"sections,omitempty"`
-	Agents   []exportAgent   `json:"agents,omitempty"`
-	Plan     string          `json:"plan,omitempty"`
-	Lint     int             `json:"lint,omitempty"`
-	Overlay  *nativeOverlay  `json:"overlay,omitempty"`
-	Flash    *nativeFlash    `json:"flash,omitempty"`
-	Busy     string          `json:"busy,omitempty"`
+	Lang     string              `json:"lang"`
+	View     string              `json:"view"` // "", how, comments, pick, settings, board
+	Buttons  []nativeButton      `json:"buttons"`
+	Primary  bool                `json:"primary"` // the first button is what to do now
+	How      *nativeHow          `json:"how,omitempty"`
+	Pick     *nativePick         `json:"pick,omitempty"`
+	Settings []nativeSetting     `json:"settings,omitempty"`
+	Board    []nativeColumn      `json:"board,omitempty"`
+	Palette  *nativePalette      `json:"palette,omitempty"`
+	Help     []nativeHelpSection `json:"help"`
+	Comments *nativeComments     `json:"comments,omitempty"`
+	Other    *nativeOther        `json:"other,omitempty"`
+	Key      string              `json:"key,omitempty"`
+	Title    string              `json:"title,omitempty"`
+	Meta     string              `json:"meta,omitempty"`
+	URL      string              `json:"url,omitempty"`
+	Card     *nativeCard         `json:"card,omitempty"`
+	Flow     []nativeStep        `json:"flow,omitempty"`
+	Since    string              `json:"since,omitempty"`
+	Status   []nativeRow         `json:"status,omitempty"`
+	NoPlan   bool                `json:"no_plan,omitempty"`
+	Sections []nativeSection     `json:"sections,omitempty"`
+	Agents   []exportAgent       `json:"agents,omitempty"`
+	Plan     string              `json:"plan,omitempty"`
+	Lint     int                 `json:"lint,omitempty"`
+	Overlay  *nativeOverlay      `json:"overlay,omitempty"`
+	Flash    *nativeFlash        `json:"flash,omitempty"`
+	Busy     string              `json:"busy,omitempty"`
 }
 
 func toneOf(c lipgloss.TerminalColor) string {
@@ -492,7 +493,7 @@ func (m Model) nativeSection(c *chantier.Chantier, id string) *nativeSection {
 }
 
 func (m Model) nativeDetail() nativeDetail {
-	d := nativeDetail{Lang: i18n.Lang(), Busy: m.busy, View: m.view, Primary: m.primaryFirst(), Buttons: []nativeButton{}}
+	d := nativeDetail{Lang: i18n.Lang(), Busy: m.busy, View: m.view, Primary: m.primaryFirst(), Buttons: []nativeButton{}, Help: nativeHelp()}
 	for _, b := range m.buttons() {
 		d.Buttons = append(d.Buttons, nativeButton{Key: b.key, Label: b.label, Enabled: b.enabled})
 	}

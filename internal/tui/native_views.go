@@ -236,3 +236,41 @@ func (m Model) runViewRequest(r native.Request) (Model, tea.Cmd, bool) {
 	}
 	return next.(Model), cmd, true
 }
+
+type nativeHelpKey struct {
+	Keys  string `json:"keys"`
+	Label string `json:"label"`
+	Run   string `json:"run,omitempty"` // the key a click runs; "" for one to press (j k)
+}
+
+type nativeHelpSection struct {
+	Title string          `json:"title"`
+	Keys  []nativeHelpKey `json:"keys"`
+}
+
+// nativeHelp is the help (?) for a native window: the TUI's own list, less
+// the keys about its screen (fold the list, page, quit, update).
+func nativeHelp() []nativeHelpSection {
+	skip := map[string]bool{"/": true, "tab": true, "\\": true, "espace": true, "pgup": true, "[ ]": true, "z": true, "q": true, "U": true}
+	var out []nativeHelpSection
+	for _, sec := range helpSections() {
+		ns := nativeHelpSection{Title: sec.title}
+		for _, k := range sec.keys {
+			if skip[k[0]] {
+				continue
+			}
+			run := k[0]
+			switch k[0] {
+			case "↵":
+				run = "enter"
+			case "/":
+				run = "ctrl+k"
+			case "j k ↑↓":
+				run = ""
+			}
+			ns.Keys = append(ns.Keys, nativeHelpKey{Keys: k[0], Label: k[1], Run: run})
+		}
+		out = append(out, ns)
+	}
+	return out
+}

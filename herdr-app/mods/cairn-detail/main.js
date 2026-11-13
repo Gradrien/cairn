@@ -6,9 +6,9 @@
 // its confirmations) and runs what this panel asks with `cairn do`, the same
 // code as the TUI's keys and clicks. Every key the TUI knows works here once
 // the panel has the keyboard (a click on it).
-import { View, div, image } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
-import { agents, run, exec, readTextFile, watchFolder, nextCommand, theme, settings } from "herdr";
+import { agents, run, exec, readTextFile, watchFolder, nextCommand, theme, settings, props, openOverlay, closeOverlay } from "herdr";
 
 const CAIRN = "@CAIRN@";
 const PATH = "@PATH@";
@@ -18,6 +18,16 @@ const KEYS = { escape: "esc", enter: "enter", up: "up", down: "down", left: "lef
 const folder = (path) => path.slice(0, path.lastIndexOf("/"));
 const cairn = (...args) => exec("/usr/bin/env", ["PATH=" + PATH, "CAIRN_MUX=herdr-app", CAIRN, ...args]);
 const open = (target) => exec("open", [target]);
+
+// openHelp shows the keys in a window; each one is a click away.
+export function openHelp() {
+  openOverlay({ mod: "cairn-detail", kind: "dialog", props: { help: true }, width: 560, height: 620 });
+}
+
+function showPanel() {
+  run("layout.show", { id: "panel" });
+  run("layout.select", { stack: "panel-body", child: "cairn-detail" });
+}
 
 export default class CairnDetail extends View {
   init(_props, cx) {
@@ -85,10 +95,12 @@ export default class CairnDetail extends View {
         this.load(cx);
       }
     });
+    if (props()?.help) return; // the keys window: no keyboard of its own
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
         if (c === "focus") this.handle.focus();
+        else if (c.startsWith("key:")) this.key(c.slice(4), cx);
         cx.notify();
       }
     });
@@ -211,6 +223,7 @@ export default class CairnDetail extends View {
       return;
     }
     if (k === "/" || k === "ctrl+k") return this.askFor("-", cx, "palette", "--text", "");
+    if (k === "?") return openHelp();
     if (d.overlay?.kind === "help") return this.askFor("-", cx, "cancel");
     if (view === "pick" && k !== "esc" && k !== "tab") {
       this.box("pick").focus();
@@ -1091,8 +1104,119 @@ export default class CairnDetail extends View {
       .child(div().px(8).text_size(11).text_color(t.dim).child(fr ? "↑↓ choisir · ↵ lancer · esc fermer" : "↑↓ choose · ↵ run · esc close"));
   }
 
+  // fromHelp runs a key clicked in the keys window, on the chantier shown.
+  fromHelp(k, cx) {
+    closeOverlay(props().overlay);
+    showPanel();
+    if (k === "o" && this.d?.url) return open(this.d.url);
+    if (k === "e") return run("cairn-detail.key:e");
+    if (k === "ctrl+k") return this.askFor("-", cx, "palette", "--text", "");
+    this.askFor("-", cx, "key", k);
+  }
+
+  helpWindow(t) {
+    const fr = this.fr();
+    const sections = this.d?.help ?? [];
+    return v_flex()
+      .id("cairn-help")
+      .size_full()
+      .min_h(0)
+      .rounded(10)
+      .overflow_hidden()
+      .bg(t.popover)
+      .text_color(t.foreground)
+      .text_size(13)
+      .child(
+        h_flex()
+          .h(44)
+          .flex_none()
+          .px(16)
+          .items_center()
+          .border_b(1)
+          .border_color(t.border)
+          .child(div().flex_1().font_semibold().child(fr ? "Raccourcis" : "Keys"))
+          .child(div().id("help-close").text_size(14).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground)).on_click(() => closeOverlay(props().overlay)).child("×")),
+      )
+      .child(
+        div()
+          .flex_1()
+          .min_h(0)
+          .relative()
+          .child(
+            v_flex()
+              .id("cairn-help-body")
+              .absolute()
+              .inset_0()
+              .overflow_y_scroll()
+              .px(12)
+              .pb(12)
+              .children(
+                sections.flatMap((sec) => [
+                  div().px(4).pt(14).pb(4).text_size(11.5).font_semibold().text_color(t.dim).child(sec.title),
+                  ...sec.keys.map((k, i) =>
+                    h_flex()
+                      .id(`help-${sec.title}-${i}`)
+                      .px(4)
+                      .h(30)
+                      .gap(10)
+                      .items_center()
+                      .rounded(7)
+                      .when(Boolean(k.run), (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.fromHelp(k.run, cx)))
+                      .child(
+                        div()
+                          .min_w(52)
+                          .flex_none()
+                          .px(6)
+                          .py(2)
+                          .rounded(5)
+                          .bg(t.raised)
+                          .border_1()
+                          .border_color(t.border)
+                          .font_family(this.mono)
+                          .text_size(11.5)
+                          .text_color(t.accent)
+                          .child(k.keys),
+                      )
+                      .child(div().flex_1().min_w(0).truncate().text_color(k.run ? t.foreground : t.muted).child(k.label)),
+                  ),
+                ]),
+              ),
+          )
+          .child(Scrollbar.vertical("cairn-help-body").absolute().inset_0()),
+      )
+      .child(
+        div()
+          .flex_none()
+          .px(16)
+          .py(10)
+          .border_t(1)
+          .border_color(t.border)
+          .text_size(11.5)
+          .text_color(t.dim)
+          .child(fr ? "Un clic lance l'action sur le chantier affiché. Les touches marchent aussi dans le panneau cairn, une fois cliqué." : "A click runs the action on the chantier shown. The keys work too in the cairn panel, once clicked."),
+      );
+  }
+
+  iconButton(id, path, tip, onClick, t) {
+    return div()
+      .id(id)
+      .flex_none()
+      .p(3)
+      .rounded(5)
+      .text_color(t.dim)
+      .cursor_pointer()
+      .hover((s) => s.text_color(t.foreground).bg(t.hover))
+      .tooltip(tip)
+      .on_click((_e, cx) => onClick(cx))
+      .child(svg(path).size(15));
+  }
+
   render() {
     const t = theme();
+    if (props()?.help) {
+      this.mono = settings().font_family ?? "JetBrains Mono";
+      return this.helpWindow(t);
+    }
     this.mono = settings().font_family ?? "JetBrains Mono";
     const d = this.d;
     const fr = this.fr();
@@ -1148,6 +1272,8 @@ export default class CairnDetail extends View {
           .when(view !== "", (e) => e.child(this.link("back", fr ? "← Retour" : "← Back", (cx) => this.key("esc", cx), t, t.dim)))
           .when(view === "" && Boolean(d?.key), (e) => e.child(div().flex_none().font_family(this.mono).text_size(12).text_color(t.accent).child(d.key)))
           .child(div().flex_1().min_w(0).truncate().font_semibold().child(title))
+          .child(this.iconButton("help-icon", "mods/cairn/help.svg", fr ? "Raccourcis (?)" : "Keys (?)", () => openHelp(), t))
+          .child(this.iconButton("settings-icon", "mods/cairn/settings.svg", fr ? "Réglages (s)" : "Settings (s)", (cx) => this.askFor("-", cx, "key", "s"), t))
           .child(
             div()
               .id("close-panel")
