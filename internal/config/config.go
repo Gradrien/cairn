@@ -59,8 +59,8 @@ type Config struct {
 	Projects []Project `json:"projects"`
 	// Lang is the interface language: "fr" (default) or "en".
 	Lang string `json:"lang"`
-	// Mux is the multiplexer cairn drives: "herdr", "rex", or empty to use the
-	// one it runs in.
+	// Mux is the multiplexer cairn drives: "herdr", "herdr-app", "rex", or empty
+	// to use the one it runs in.
 	Mux string `json:"mux,omitempty"`
 	// AgentKind, Diff and the models are the defaults of every project.
 	AgentKind  string `json:"agent_kind,omitempty"`

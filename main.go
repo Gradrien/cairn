@@ -40,7 +40,8 @@ func usage() string {
                    sans tracker, les tickets naissent dans cairn (EIDO-1, EIDO-2…)
   cairn projects   liste les projets suivis
   cairn open       affiche cairn dans son propre espace (session Rex), ou revient à
-                   celui d'avant s'il est déjà devant (touche herdr prefix+a, Rex ctrl+b a)
+                   celui d'avant s'il est déjà devant (touche herdr prefix+a, app Herdr cmd+shift+a,
+                   Rex ctrl+b a)
   cairn sync [TICKET]
                    pousse la phase de chaque chantier dans la barre latérale, et
                    vérifie le plan du chantier courant (ou de TICKET)
@@ -54,7 +55,8 @@ func usage() string {
   cairn ensure     crée l'espace cairn s'il manque et y lance cairn, sans changer le focus
                    (hook de démarrage du plugin herdr : le bouton reste dans la barre latérale)
 
-herdr ou Rex : celui où cairn tourne, ou "mux" dans la config, ou CAIRN_MUX=herdr|rex.
+herdr, l'app Herdr ou Rex : celui où cairn tourne, ou "mux" dans la config, ou
+CAIRN_MUX=herdr|herdr-app|rex.
 
 Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
 `, `cairn — where each piece of work stands, next to herdr or Rex.
@@ -65,7 +67,8 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
                    without a tracker, tickets are born in cairn (EIDO-1, EIDO-2…)
   cairn projects   lists the projects
   cairn open       shows cairn in its own workspace (Rex session), or goes back to the
-                   previous one if cairn is already in front (herdr prefix+a, Rex ctrl+b a)
+                   previous one if cairn is already in front (herdr prefix+a, Herdr app
+                   cmd+shift+a, Rex ctrl+b a)
   cairn sync [TICKET]
                    pushes each ticket's phase to the sidebar, and checks the plan
                    of the current ticket (or of TICKET)
@@ -78,7 +81,8 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
   cairn ensure     creates the cairn workspace if missing and runs cairn in it, without
                    moving focus (herdr plugin startup hook: the button stays in the sidebar)
 
-herdr or Rex: the one cairn runs in, or "mux" in the config, or CAIRN_MUX=herdr|rex.
+herdr, the Herdr app or Rex: the one cairn runs in, or "mux" in the config, or
+CAIRN_MUX=herdr|herdr-app|rex.
 
 Config: ~/.cairn/config.json · Tickets: ~/.cairn/chantiers/<TICKET>.md
 `)

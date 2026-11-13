@@ -1,8 +1,9 @@
-// Package mux drives the terminal multiplexer cairn sits in — herdr or Rex —
-// and reads its live state: which agents run where, and in which workspace.
+// Package mux drives the terminal multiplexer cairn sits in — herdr, the
+// Herdr app or Rex — and reads its live state: which agents run where, and in
+// which workspace.
 //
-// Both speak the same words here. A workspace is a herdr workspace or a Rex
-// session; a pane is a herdr pane or a Rex block.
+// All speak the same words here. A workspace is a herdr workspace, a Herdr
+// space or a Rex session; a pane is a herdr pane, an hc terminal or a Rex block.
 package mux
 
 import (
@@ -111,8 +112,8 @@ var (
 	wanted string
 )
 
-// Use picks the multiplexer: "herdr", "rex", or "" to find the one cairn runs
-// in. CAIRN_MUX wins over it.
+// Use picks the multiplexer: "herdr", "herdr-app", "rex", or "" to find the
+// one cairn runs in. CAIRN_MUX wins over it.
 func Use(name string) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -135,6 +136,8 @@ func pick(name string) Backend {
 	switch strings.ToLower(name) {
 	case "herdr":
 		return herdrBackend{}
+	case "herdr-app":
+		return &appBackend{}
 	case "rex":
 		return &rexBackend{}
 	}
@@ -143,11 +146,17 @@ func pick(name string) Backend {
 	if os.Getenv("HERDR_PANE_ID") != "" || os.Getenv("HERDR_ENV") != "" || os.Getenv("HERDR_BIN_PATH") != "" {
 		return herdrBackend{}
 	}
+	if os.Getenv("HC_TERMINAL_ID") != "" {
+		return &appBackend{}
+	}
 	if os.Getenv("REX_BLOCK") != "" || os.Getenv("REX_SESSION") != "" {
 		return &rexBackend{}
 	}
 	if (herdrBackend{}).Available() {
 		return herdrBackend{}
+	}
+	if (&appBackend{}).Available() {
+		return &appBackend{}
 	}
 	if (&rexBackend{}).Available() {
 		return &rexBackend{}
@@ -155,14 +164,21 @@ func pick(name string) Backend {
 	return herdrBackend{}
 }
 
-// Name is the multiplexer's name as the user knows it: herdr or Rex.
+// Name is the multiplexer's name as the user knows it: herdr, Herdr or Rex.
 func Name() string { return current().Name() }
 
 // Words fits a sentence written for herdr to the multiplexer in use: under Rex,
-// a herdr workspace is a Rex session.
+// a herdr workspace is a Rex session; in the Herdr app, a Herdr space.
 func Words(s string) string {
-	if current().Name() == "herdr" {
+	switch current().Name() {
+	case "herdr":
 		return s
+	case "Herdr":
+		return strings.NewReplacer(
+			"espaces herdr", "espaces Herdr", "espace herdr", "espace Herdr",
+			"herdr workspaces", "Herdr spaces", "herdr workspace", "Herdr space",
+			"herdr", "Herdr",
+		).Replace(s)
 	}
 	return strings.NewReplacer(
 		"espaces herdr", "sessions Rex", "espace herdr", "session Rex",

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Build and install cairn, link its agent skill, add the Claude Code push guard,
-# and (with --herdr) the herdr plugin, sidebar button and prefix+a key, or (with
-# --rex) the Rex action and ctrl+b a key.
+# and (with --herdr) the herdr plugin, sidebar button and prefix+a key, (with
+# --herdr-app) the Herdr app's cairn mod and cmd+shift+a key, or (with --rex) the
+# Rex action and ctrl+b a key.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 for t in go gh git python3; do
   command -v "$t" >/dev/null || { echo "✗ $t est introuvable : installe-le d'abord" >&2; exit 1; }
 done
-command -v herdr >/dev/null || command -v rex >/dev/null || echo "! ni herdr ni Rex ne sont installés : cairn a besoin de l'un des deux pour tourner"
+command -v herdr >/dev/null || command -v herdr-app >/dev/null || command -v rex >/dev/null || echo "! ni herdr, ni l'app Herdr, ni Rex ne sont installés : cairn a besoin de l'un d'eux pour tourner"
 gh auth status >/dev/null 2>&1 || echo "! gh n'est pas connecté : lance « gh auth login » (PR, CI, images)"
 
 go vet ./...
@@ -88,9 +89,10 @@ if changed:
     json.dump(d, open(path, "w"), indent=2, ensure_ascii=False)
 PY
 
-# A cairn already open in herdr or Rex keeps running the old binary: restart it.
-# The cairn updating itself (U) is left alone: it starts the new build on its own.
-if command -v herdr >/dev/null || command -v rex >/dev/null; then
+# A cairn already open in herdr, the Herdr app or Rex keeps running the old
+# binary: restart it. The cairn updating itself (U) is left alone: it starts the
+# new build on its own.
+if command -v herdr >/dev/null || command -v herdr-app >/dev/null || command -v rex >/dev/null; then
   others=$(pgrep -fx '(.*/)?cairn' | grep -vx "${CAIRN_UPDATING_PID:-0}" || true)
   if [[ -n "$others" ]]; then
     kill $others 2>/dev/null || true
@@ -123,6 +125,47 @@ PY
   herdr server reload-config >/dev/null
   "$cairn_bin" ensure || true
   echo "✓ herdr : l'espace « cairn » est dans la barre latérale (un clic l'ouvre), prefix+a bascule (sauvegarde : $cfg.bak-cairn)"
+fi
+
+if [[ "${1:-}" == "--herdr-app" ]]; then
+  command -v herdr-app >/dev/null || { echo "✗ herdr-app est introuvable : installe l'app Herdr d'abord" >&2; exit 1; }
+  apphome="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
+  # The app runs mods with the login shell's PATH: give cairn the one it needs
+  # here too (git, gh, herdr-app, hc, claude).
+  app_path="$(dirname "$(command -v herdr-app)"):$PATH"
+  for mod in herdr-app/mods/*/; do
+    name="$(basename "$mod")"
+    mkdir -p "$apphome/mods/$name"
+    for f in "$mod"*; do
+      CAIRN="$cairn_bin" APP_PATH="$app_path" python3 - "$f" "$apphome/mods/$name/$(basename "$f")" <<'PY'
+import json, os, sys
+s = open(sys.argv[1]).read()
+s = s.replace('"@CAIRN@"', json.dumps(os.environ["CAIRN"])).replace('"@PATH@"', json.dumps(os.environ["APP_PATH"]))
+open(sys.argv[2], "w").write(s)
+PY
+    done
+    herdr-app check "$apphome/mods/$name" >/dev/null || { echo "✗ le mod $name ne se charge pas : herdr-app check $apphome/mods/$name" >&2; exit 1; }
+  done
+  # cmd+shift+a toggles cairn, unless that key is already yours.
+  keys="$apphome/keys.json"
+  [[ -f "$keys" ]] || echo '{}' > "$keys"
+  bound="$(python3 - "$keys" <<'PY'
+import json, sys
+path = sys.argv[1]
+keys = json.load(open(path))
+glob = keys.setdefault("global", {})
+action = "mod.open:cairn-toggle"
+if glob.get("cmd-shift-a") not in (None, action):
+    print(glob["cmd-shift-a"])
+elif glob.get("cmd-shift-a") != action:
+    glob["cmd-shift-a"] = action
+    json.dump(keys, open(path, "w"), indent=2, ensure_ascii=False)
+    open(path, "a").write("\n")
+PY
+)"
+  [[ -z "$bound" ]] || echo "! cmd+shift+a fait déjà « $bound » : lie une autre touche à \"mod.open:cairn-toggle\" dans $keys"
+  CAIRN_MUX=herdr-app "$cairn_bin" ensure || true
+  echo "✓ Herdr : l'espace « cairn » est dans la barre latérale, cmd+shift+a bascule ($apphome/mods/cairn-toggle)"
 fi
 
 if [[ "${1:-}" == "--rex" ]]; then

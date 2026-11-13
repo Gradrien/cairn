@@ -201,6 +201,18 @@ their `file:line`. Markdown is rendered and bot noise is folded away.
 - jumping to an agent from cairn's list switches the app's session only when **Remote Control** is on in Rex's
   settings (Rex Server). Without it, cairn still focuses the agent's block inside its session.
 
+**Or inside the Herdr app.** cairn also runs in the [Herdr app](https://herdr.dev), herdr's desktop window over
+herdr-core (`./install.sh --herdr-app`). Inside one of its terminals cairn picks it by itself; elsewhere, set
+`"mux": "herdr-app"` in `~/.cairn/config.json` or `CAIRN_MUX=herdr-app`. In the Herdr app:
+
+- every chantier gets **its own Herdr space**, named after the ticket, with the phase in its name (`YAK-12 · build 2/5`),
+  as under Rex. Spaces you named yourself keep their name;
+- agents are the terminals running Claude Code, Codex and others, with the state they report to herdr-core (OSC 7501).
+  cairn names an agent with an `hc` label (`cairn.agent`) and gives its tab the same name;
+- `cmd+shift+a` toggles between cairn's space and where you were. The key opens a small mod written to
+  `~/.config/herdr-app/mods/cairn-toggle`, which runs `cairn open`;
+- notifications are the system's (macOS).
+
 Everything works with the mouse: click to select, click again to jump to the agent, scroll anywhere, hover the
 buttons, hover a chantier to read its agents' state, drag over text to copy it (it keeps to the pane it started in; `esc`
 clears the highlight). Each button also has a key, shown on it.
@@ -217,7 +229,7 @@ shows the chantiers as a board by phase, `\` folds the list away so the detail g
 
 ### Your first chantier in three steps.
 
-**1. Install.** You need Go, `gh` logged in (`gh auth login`) and herdr (or Rex: `./install.sh --rex`).
+**1. Install.** You need Go, `gh` logged in (`gh auth login`) and herdr (or the Herdr app: `./install.sh --herdr-app`, or Rex: `./install.sh --rex`).
 
 ```sh
 git clone https://github.com/Gradrien/cairn.git && cd cairn

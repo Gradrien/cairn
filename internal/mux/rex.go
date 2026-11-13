@@ -1,7 +1,6 @@
 package mux
 
 import (
-	"bufio"
 	"bytes"
 	_ "embed"
 	"encoding/json"
@@ -11,12 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"cairn/internal/config"
 	"cairn/internal/i18n"
 )
 
@@ -257,25 +254,7 @@ func (r *rexBackend) Snapshot() (Snapshot, error) {
 
 // ── worktrees ───────────────────────────────────────────────────────────────
 
-// links remembers which worktree each session cairn made is for: Rex knows
-// nothing of git.
-func linksFile() string { return filepath.Join(config.Dir(), "cache", "rex-worktrees.json") }
-
-func readLinks() map[string]string {
-	out := map[string]string{}
-	if data, err := os.ReadFile(linksFile()); err == nil {
-		_ = json.Unmarshal(data, &out)
-	}
-	return out
-}
-
-func writeLinks(l map[string]string) error {
-	if err := os.MkdirAll(filepath.Dir(linksFile()), 0o755); err != nil {
-		return err
-	}
-	data, _ := json.MarshalIndent(l, "", "  ")
-	return os.WriteFile(linksFile(), data, 0o644)
-}
+const rexLinks = "rex-worktrees.json"
 
 // loadLinks returns the links of the live sessions.
 func loadLinks(raw *rexSnap) map[string]string {
@@ -283,41 +262,13 @@ func loadLinks(raw *rexSnap) map[string]string {
 	for _, s := range raw.Sessions {
 		live[s.ID] = true
 	}
-	out := map[string]string{}
-	for id, p := range readLinks() {
-		if live[id] {
-			out[id] = p
-		}
-	}
-	return out
-}
-
-func within(dir, root string) bool {
-	if dir == "" {
-		return false
-	}
-	dir, root = filepath.Clean(dir), filepath.Clean(root)
-	return dir == root || strings.HasPrefix(dir, root+string(filepath.Separator))
+	return liveLinks(rexLinks, live)
 }
 
 func (r *rexBackend) ListWorktrees(repo string) ([]Worktree, error) {
-	cmd := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	wts, err := gitWorktrees(repo)
 	if err != nil {
-		return nil, fmt.Errorf("git worktree list (%s): %s", repo, strings.TrimSpace(stderr.String()+" "+err.Error()))
-	}
-	var wts []Worktree
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	for sc.Scan() {
-		line := sc.Text()
-		switch {
-		case strings.HasPrefix(line, "worktree "):
-			wts = append(wts, Worktree{Path: strings.TrimPrefix(line, "worktree "), IsLinked: len(wts) > 0})
-		case strings.HasPrefix(line, "branch ") && len(wts) > 0:
-			wts[len(wts)-1].Branch = strings.TrimPrefix(strings.TrimPrefix(line, "branch "), "refs/heads/")
-		}
+		return nil, err
 	}
 	raw, err := r.rawSnapshot(false)
 	if err != nil {
@@ -356,13 +307,13 @@ func (r *rexBackend) CreateWorktree(repo, branch, base, path, label string) (wor
 	if err != nil {
 		return "", "", err
 	}
-	links := readLinks()
+	links := readLinks(rexLinks)
 	links[ws] = path
-	return ws, pane, writeLinks(links)
+	return ws, pane, writeLinks(rexLinks, links)
 }
 
 func (r *rexBackend) RemoveWorktree(workspaceID string, force bool) error {
-	links := readLinks()
+	links := readLinks(rexLinks)
 	path := links[workspaceID]
 	if path == "" {
 		raw, err := r.rawSnapshot(true)
@@ -381,33 +332,15 @@ func (r *rexBackend) RemoveWorktree(workspaceID string, force bool) error {
 	if path == "" {
 		return fmt.Errorf(i18n.T("rex : pas de worktree connu pour la session %s", "rex: no known worktree for session %s"), workspaceID)
 	}
-	dirs, err := exec.Command("git", "-C", path, "rev-parse", "--absolute-git-dir", "--git-common-dir").Output()
-	if err != nil {
-		return fmt.Errorf("git rev-parse (%s): %w", path, err)
-	}
-	if d := strings.Fields(string(dirs)); len(d) == 2 && filepath.Clean(d[0]) == filepath.Clean(absTo(path, d[1])) {
-		return fmt.Errorf(i18n.T("%s est le dépôt principal, pas un worktree : il reste", "%s is the main checkout, not a worktree: it stays"), path)
-	}
-	args := []string{"-C", path, "worktree", "remove", path}
-	if force {
-		args = append(args, "--force")
-	}
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("git worktree remove: %s", strings.TrimSpace(string(out)))
+	if err := removeGitWorktree(path, force); err != nil {
+		return err
 	}
 	if _, err := rexCLI("kill", workspaceID); err != nil {
 		return err
 	}
 	delete(links, workspaceID)
 	r.forget()
-	return writeLinks(links)
-}
-
-func absTo(base, p string) string {
-	if filepath.IsAbs(p) {
-		return p
-	}
-	return filepath.Join(base, p)
+	return writeLinks(rexLinks, links)
 }
 
 // ── sessions and blocks ─────────────────────────────────────────────────────
@@ -640,11 +573,7 @@ func (r *rexBackend) Notify(title, body string) error {
 			return err
 		}
 	}
-	if runtime.GOOS == "darwin" {
-		q := func(s string) string { return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"` }
-		return exec.Command("osascript", "-e", "display notification "+q(body)+" with title "+q(title)).Run()
-	}
-	return nil
+	return systemNotify(title, body)
 }
 
 func shellQuote(s string) string {
