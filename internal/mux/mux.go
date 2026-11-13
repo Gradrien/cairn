@@ -269,15 +269,6 @@ func Notify(title, body string) error { return current().Notify(title, body) }
 // how it ties an agent of the main checkout to its chantier.
 func RenameAgent(paneID, name string) error { return current().RenameAgent(paneID, name) }
 
-// EnsureHomePanel gives cairn's workspace a native board next to the TUI,
-// where the multiplexer can draw one (the Herdr app); elsewhere it does nothing.
-func EnsureHomePanel(workspaceID string) error {
-	if h, ok := current().(interface{ EnsureHomePanel(string) error }); ok {
-		return h.EnsureHomePanel(workspaceID)
-	}
-	return nil
-}
-
 // RemoveWorktree removes a linked worktree together with its workspace.
 // Without force, it refuses a worktree with uncommitted changes.
 func RemoveWorktree(workspaceID string, force bool) error {

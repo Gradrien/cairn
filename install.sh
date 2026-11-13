@@ -146,6 +146,38 @@ PY
     done
     herdr-app check "$apphome/mods/$name" >/dev/null || { echo "✗ le mod $name ne se charge pas : herdr-app check $apphome/mods/$name" >&2; exit 1; }
   done
+  # The sidebar: Herdr's own layout is read-only, so cairn's is a copy of it with
+  # the cairn section between Spaces and Agents, made again from the current one
+  # on every install to keep Herdr's changes.
+  python3 - "$apphome/layouts/main.json" "$apphome/layouts/cairn.json" <<'PY'
+import json, sys
+src, dst = sys.argv[1], sys.argv[2]
+tree = json.load(open(src))
+block = {"id": "cairn", "type": "block", "size": {"weight": 1}, "min": 90, "content": {"mod": "cairn"}}
+
+def insert(node):
+    kids = node.get("children") or []
+    for i, kid in enumerate(kids):
+        if kid.get("id") == "spaces":
+            kids.insert(i + 1, block)
+            return True
+        if insert(kid):
+            return True
+    return False
+
+if not insert(tree):
+    sys.exit("pas de bloc « spaces » dans " + src)
+text = json.dumps(tree, indent=2, ensure_ascii=False) + "\n"
+try:
+    same = open(dst).read() == text
+except FileNotFoundError:
+    same = False
+if not same:
+    open(dst, "w").write(text)
+PY
+  if [[ "$(herdr-app status 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("layout",""))' 2>/dev/null)" == "main" ]]; then
+    herdr-app do layout.switch --name cairn >/dev/null || true
+  fi
   # cmd+shift+a toggles cairn, unless that key is already yours.
   keys="$apphome/keys.json"
   [[ -f "$keys" ]] || echo '{}' > "$keys"
@@ -165,7 +197,7 @@ PY
 )"
   [[ -z "$bound" ]] || echo "! cmd+shift+a fait déjà « $bound » : lie une autre touche à \"mod.open:cairn-toggle\" dans $keys"
   CAIRN_MUX=herdr-app "$cairn_bin" ensure || true
-  echo "✓ Herdr : l'espace « cairn » est dans la barre latérale avec son tableau natif, cmd+shift+a bascule ($apphome/mods)"
+  echo "✓ Herdr : cairn est dans la barre latérale, entre Spaces et Agents (layout « cairn », cmd+shift+l pour changer de layout), cmd+shift+a ouvre la TUI"
 fi
 
 if [[ "${1:-}" == "--rex" ]]; then
