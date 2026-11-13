@@ -48,9 +48,11 @@ func Toggle() error {
 		if err := mux.RunInPane(pane, command); err != nil {
 			return err
 		}
+		_ = mux.EnsureHomePanel(id)
 		// --focus at creation does not move the client; focusing does.
 		return mux.FocusWorkspace(id)
 	}
+	_ = mux.EnsureHomePanel(ws.ID)
 	if err := mux.FocusWorkspace(ws.ID); err != nil {
 		return err
 	}
@@ -78,6 +80,7 @@ func Ensure() error {
 	}
 	command := Env + " " + shellQuote(self)
 	if ws := snap.WorkspaceByLabel(Label); ws != nil {
+		_ = mux.EnsureHomePanel(ws.ID)
 		pane, err := mux.FirstPane(ws.ID)
 		if err != nil {
 			return err
@@ -88,11 +91,14 @@ func Ensure() error {
 		return nil
 	}
 	home, _ := os.UserHomeDir()
-	_, pane, err := mux.CreateWorkspaceNoFocus(Label, home)
+	id, pane, err := mux.CreateWorkspaceNoFocus(Label, home)
 	if err != nil {
 		return err
 	}
-	return mux.RunInPane(pane, command)
+	if err := mux.RunInPane(pane, command); err != nil {
+		return err
+	}
+	return mux.EnsureHomePanel(id)
 }
 
 // Back focuses the workspace that was in front before cairn.

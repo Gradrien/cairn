@@ -209,6 +209,11 @@ herdr-core (`./install.sh --herdr-app`). Inside one of its terminals cairn picks
   as under Rex. Spaces you named yourself keep their name;
 - agents are the terminals running Claude Code, Codex and others, with the state they report to herdr-core (OSC 7501).
   cairn names an agent with an `hc` label (`cairn.agent`) and gives its tab the same name;
+- cairn's space opens on a **native board**, drawn by the app in its own look (`~/.config/herdr-app/mods/cairn`):
+  the chantiers by section (waiting for you, in progress, to plan), each with its phase, tasks, PR and agents, whose
+  status stays live. A click goes to the chantier's agent (or its space), the PR number opens the PR, and `TUI` shows
+  the full cairn, which keeps running in the next tab. The TUI writes the board to `~/.cairn/cache/board.json` when it
+  changes;
 - `cmd+shift+a` toggles between cairn's space and where you were. The key opens a small mod written to
   `~/.config/herdr-app/mods/cairn-toggle`, which runs `cairn open`;
 - notifications are the system's (macOS).

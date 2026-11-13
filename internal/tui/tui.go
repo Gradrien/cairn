@@ -93,6 +93,8 @@ type Model struct {
 	usageAt  time.Time
 	usageOn  bool // a read of the transcripts is running
 	reading  map[string]bool
+
+	exported []byte // board.json as last written
 	detailOf string // chantier the detail pane shows, to reset its scroll
 	scroll   int    // detail pane scroll offset
 
@@ -227,6 +229,7 @@ func (m *Model) rebuild() tea.Cmd {
 	if m.seen != nil && m.watch.ready {
 		m.seen.adopt(m.chantiers)
 	}
+	m.exportBoard()
 	return tea.Batch(m.pushTokens(), m.observe())
 }
 

@@ -137,10 +137,10 @@ if [[ "${1:-}" == "--herdr-app" ]]; then
     name="$(basename "$mod")"
     mkdir -p "$apphome/mods/$name"
     for f in "$mod"*; do
-      CAIRN="$cairn_bin" APP_PATH="$app_path" python3 - "$f" "$apphome/mods/$name/$(basename "$f")" <<'PY'
+      CAIRN="$cairn_bin" APP_PATH="$app_path" BOARD="${CAIRN_HOME:-$HOME/.cairn}/cache/board.json" python3 - "$f" "$apphome/mods/$name/$(basename "$f")" <<'PY'
 import json, os, sys
 s = open(sys.argv[1]).read()
-s = s.replace('"@CAIRN@"', json.dumps(os.environ["CAIRN"])).replace('"@PATH@"', json.dumps(os.environ["APP_PATH"]))
+s = s.replace('"@CAIRN@"', json.dumps(os.environ["CAIRN"])).replace('"@PATH@"', json.dumps(os.environ["APP_PATH"])).replace('"@BOARD@"', json.dumps(os.environ["BOARD"]))
 open(sys.argv[2], "w").write(s)
 PY
     done
@@ -165,7 +165,7 @@ PY
 )"
   [[ -z "$bound" ]] || echo "! cmd+shift+a fait déjà « $bound » : lie une autre touche à \"mod.open:cairn-toggle\" dans $keys"
   CAIRN_MUX=herdr-app "$cairn_bin" ensure || true
-  echo "✓ Herdr : l'espace « cairn » est dans la barre latérale, cmd+shift+a bascule ($apphome/mods/cairn-toggle)"
+  echo "✓ Herdr : l'espace « cairn » est dans la barre latérale avec son tableau natif, cmd+shift+a bascule ($apphome/mods)"
 fi
 
 if [[ "${1:-}" == "--rex" ]]; then
