@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"cairn/internal/chantier"
-	"cairn/internal/herdr"
+	"cairn/internal/mux"
 	"cairn/internal/state"
 	"cairn/internal/usage"
 )
@@ -18,7 +18,7 @@ func TestHandoff(t *testing.T) {
 	m := selectKey(t, fixture(t, 160, 45), "YAK-712")
 	c := m.selected()
 	c.Phase = chantier.Build
-	c.Agents = []herdr.Agent{{Name: "yak-712", Kind: "claude", Status: "working", PaneID: "p1"}}
+	c.Agents = []mux.Agent{{Name: "yak-712", Kind: "claude", Status: "working", PaneID: "p1"}}
 	c.State = state.Parse("/c/YAK-712.md", "---\nphase: build\n---\n# YAK-712 · T\n\n- [x] a\n- [~] b\n")
 	c.State.UpdatedAt = time.Now()
 	m.usage = map[string]usage.Report{c.Key: {Context: 167_000, ContextAt: time.Now()}}
@@ -71,7 +71,7 @@ func TestValidateStartsANewAgent(t *testing.T) {
 	c := m.selected()
 	path := t.TempDir() + "/YAK-861.md"
 	c.State = state.Parse(path, "---\nphase: plan\nattente: Valider le plan\n---\n# YAK-861 · T\n\n- [ ] a\n")
-	c.Agents = []herdr.Agent{{Name: "yak-861", Kind: "claude", Status: "idle", PaneID: "p1"}}
+	c.Agents = []mux.Agent{{Name: "yak-861", Kind: "claude", Status: "idle", PaneID: "p1"}}
 	next, cmd := m.validate()
 	m = next.(Model)
 	if cmd == nil || !strings.Contains(m.busy, "Nouvel agent pour le build") {

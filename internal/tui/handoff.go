@@ -8,9 +8,9 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/config"
-	"cairn/internal/herdr"
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
+	"cairn/internal/mux"
 )
 
 // An agent's context grows with everything it reads, and all of it is sent
@@ -23,13 +23,13 @@ import (
 const contextHeavy = 120_000
 
 // claudeAgent is the chantier's Claude agent, if it has one.
-func claudeAgent(c *chantier.Chantier) (herdr.Agent, bool) {
+func claudeAgent(c *chantier.Chantier) (mux.Agent, bool) {
 	for _, a := range c.Agents {
 		if a.Kind == "claude" {
 			return a, true
 		}
 	}
-	return herdr.Agent{}, false
+	return mux.Agent{}, false
 }
 
 // canHandoff: a Claude agent works on a plan that is being built or reviewed.
@@ -91,7 +91,7 @@ func (m Model) handoff() (tea.Model, tea.Cmd) {
 		"%s: the agent writes its handoff in the plan. R again to start the new agent."), key), nil)
 	return m, func() tea.Msg {
 		_ = journal.Append(config.ChantiersDir(), key, "reprise demandée")
-		if err := herdr.Prompt(agent.PaneID, chantier.HandoffPrompt(path)); err != nil {
+		if err := mux.Prompt(agent.PaneID, chantier.HandoffPrompt(path)); err != nil {
 			return doneMsg{err: err}
 		}
 		return nil

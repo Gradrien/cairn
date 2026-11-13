@@ -1,4 +1,4 @@
-// cairn: where each piece of work stands, next to herdr.
+// cairn: where each piece of work stands, next to herdr or Rex.
 package main
 
 import (
@@ -14,10 +14,10 @@ import (
 	"cairn/internal/chantier"
 	"cairn/internal/config"
 	"cairn/internal/guard"
-	"cairn/internal/herdr"
 	"cairn/internal/home"
 	"cairn/internal/i18n"
 	"cairn/internal/images"
+	"cairn/internal/mux"
 	"cairn/internal/state"
 	"cairn/internal/tui"
 	"cairn/internal/update"
@@ -32,17 +32,17 @@ var sourceDir string
 var buildRev string
 
 func usage() string {
-	return i18n.T(`cairn — où en est chaque chantier, à côté de herdr.
+	return i18n.T(`cairn — où en est chaque chantier, à côté de herdr ou de Rex.
 
   cairn            ouvre la TUI (tout se fait au clavier, touches affichées en bas)
   cairn add [dossier] [--tracker local|linear|sprintosaur] [--key EIDO] [--name eido]
                    ajoute le dépôt (par défaut celui où tu es) aux projets suivis ;
                    sans tracker, les tickets naissent dans cairn (EIDO-1, EIDO-2…)
   cairn projects   liste les projets suivis
-  cairn open       affiche cairn dans son propre espace herdr, ou revient à l'espace
-                   d'avant s'il est déjà devant (c'est la touche herdr prefix+a)
+  cairn open       affiche cairn dans son propre espace (session Rex), ou revient à
+                   celui d'avant s'il est déjà devant (touche herdr prefix+a, Rex ctrl+b a)
   cairn sync [TICKET]
-                   pousse la phase de chaque chantier dans la barre latérale herdr, et
+                   pousse la phase de chaque chantier dans la barre latérale, et
                    vérifie le plan du chantier courant (ou de TICKET)
                    (appelé par les agents après avoir modifié leur fichier de chantier)
   cairn guard      hook Claude Code (PreToolUse) : sur un chantier, bloque git push tant que
@@ -54,18 +54,20 @@ func usage() string {
   cairn ensure     crée l'espace cairn s'il manque et y lance cairn, sans changer le focus
                    (hook de démarrage du plugin herdr : le bouton reste dans la barre latérale)
 
+herdr ou Rex : celui où cairn tourne, ou "mux" dans la config, ou CAIRN_MUX=herdr|rex.
+
 Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
-`, `cairn — where each piece of work stands, next to herdr.
+`, `cairn — where each piece of work stands, next to herdr or Rex.
 
   cairn            opens the TUI (all keyboard driven, keys shown at the bottom)
   cairn add [folder] [--tracker local|linear|sprintosaur] [--key EIDO] [--name eido]
                    adds the repository (default: the one you are in) to the projects;
                    without a tracker, tickets are born in cairn (EIDO-1, EIDO-2…)
   cairn projects   lists the projects
-  cairn open       shows cairn in its own herdr workspace, or goes back to the previous
-                   workspace if cairn is already in front (herdr key prefix+a)
+  cairn open       shows cairn in its own workspace (Rex session), or goes back to the
+                   previous one if cairn is already in front (herdr prefix+a, Rex ctrl+b a)
   cairn sync [TICKET]
-                   pushes each ticket's phase to herdr's sidebar, and checks the plan
+                   pushes each ticket's phase to the sidebar, and checks the plan
                    of the current ticket (or of TICKET)
                    (called by agents after they edit their ticket file)
   cairn guard      Claude Code hook (PreToolUse): on a ticket, blocks git push until the
@@ -75,6 +77,8 @@ Config : ~/.cairn/config.json · Chantiers : ~/.cairn/chantiers/<TICKET>.md
                    chat, allows it like cairn's button
   cairn ensure     creates the cairn workspace if missing and runs cairn in it, without
                    moving focus (herdr plugin startup hook: the button stays in the sidebar)
+
+herdr or Rex: the one cairn runs in, or "mux" in the config, or CAIRN_MUX=herdr|rex.
 
 Config: ~/.cairn/config.json · Tickets: ~/.cairn/chantiers/<TICKET>.md
 `)
@@ -89,6 +93,7 @@ func main() {
 		fail(err)
 	}
 	i18n.Set(cfg.Lang)
+	mux.Use(cfg.Mux)
 	if flag.Arg(0) == "guard" && flag.Arg(1) == "prompt" {
 		// Claude Code UserPromptSubmit hook: what it prints joins the agent's context.
 		if note := guard.CheckPrompt(os.Stdin, cfg.Keys(), config.ChantiersDir(), config.Dir()); note != "" {
@@ -119,8 +124,8 @@ func main() {
 	if checkErr != nil && flag.Arg(0) != "" {
 		fail(checkErr)
 	}
-	if !herdr.Available() {
-		fail(fmt.Errorf("%s", i18n.T("herdr est introuvable dans le PATH", "herdr is not in the PATH")))
+	if !mux.Available() {
+		fail(fmt.Errorf("%s", mux.NotFound()))
 	}
 
 	switch flag.Arg(0) {
@@ -161,7 +166,7 @@ func main() {
 			fail(err)
 		}
 	case "sync":
-		// The plan is checked first: an agent that cannot reach herdr must
+		// The plan is checked first: an agent that cannot reach herdr or Rex must
 		// still hear that its plan does not show as it meant.
 		report := lintPlan(cfg, flag.Arg(1))
 		err := sync(cfg)
@@ -209,13 +214,13 @@ func lintPlan(cfg config.Config, key string) string {
 
 // sync pushes sidebar tokens from local state only (no network).
 func sync(cfg config.Config) error {
-	snap, err := herdr.GetSnapshot()
+	snap, err := mux.GetSnapshot()
 	if err != nil {
 		return err
 	}
 	var sources []chantier.Source
 	for _, p := range cfg.Projects {
-		wts, err := herdr.ListWorktrees(p.Repo)
+		wts, err := mux.ListWorktrees(p.Repo)
 		if err != nil {
 			return err
 		}
@@ -223,7 +228,7 @@ func sync(cfg config.Config) error {
 	}
 	list, _ := chantier.Gather(chantier.Input{ChantiersDir: config.ChantiersDir(), Sources: sources, Snapshot: snap})
 	for ws, v := range tui.TokensFor(list, snap) {
-		if err := herdr.ReportToken(ws, v); err != nil {
+		if err := mux.ReportToken(ws, v); err != nil {
 			return err
 		}
 	}

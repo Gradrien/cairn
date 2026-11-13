@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cairn/internal/herdr"
+	"cairn/internal/mux"
 	"cairn/internal/tracker"
 )
 
@@ -52,12 +52,12 @@ func TestBuild(t *testing.T) {
 				{ID: "YAK-900", Title: "nouveau"},
 				{ID: "YAK-770", Title: "CRA"},
 			},
-			Worktrees: []herdr.Worktree{
+			Worktrees: []mux.Worktree{
 				{Branch: "adrien/yak-770-cra", Path: "/r/Yak-App"},
 				{Branch: "adrien/yak-788-modeles", Path: "/r/Yak-App-788", OpenWorkspaceID: "w10"},
 			},
 		}},
-		Snapshot: herdr.Snapshot{Agents: []herdr.Agent{
+		Snapshot: mux.Snapshot{Agents: []mux.Agent{
 			{Kind: "claude", Status: "idle", Cwd: "/r/Yak-App-788/apps", PaneID: "w10:p1", WorkspaceID: "w10"},
 			{Kind: "claude", Status: "working", Cwd: "/r/Yak-App", PaneID: "w1:p1", WorkspaceID: "w1", Title: "Tables activity"},
 			{Kind: "claude", Status: "blocked", Cwd: "/r/Yak-App", PaneID: "w2:p1", WorkspaceID: "w2", Title: "PR YAK-861 conformité"},
@@ -109,9 +109,9 @@ func TestTwoProjects(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "EIDO-3.md"), []byte("---\nticket: EIDO-3\nphase: build\n---\n# EIDO-3 · Export PDF\n"), 0o644)
 	list, _ := Gather(Input{ChantiersDir: dir, Sources: []Source{
 		{Project: "yak", Key: "YAK", Repo: "/r/Yak-App", Issues: []tracker.Issue{{ID: "YAK-1", Title: "a"}},
-			Worktrees: []herdr.Worktree{{Branch: "adrien/eido-3-export", Path: "/r/Yak-App-3"}}},
+			Worktrees: []mux.Worktree{{Branch: "adrien/eido-3-export", Path: "/r/Yak-App-3"}}},
 		{Project: "eido", Key: "EIDO", Repo: "/r/eido",
-			Worktrees: []herdr.Worktree{{Branch: "adrien/eido-3-export", Path: "/r/eido-3"}},
+			Worktrees: []mux.Worktree{{Branch: "adrien/eido-3-export", Path: "/r/eido-3"}},
 			BranchPRs: map[string][]tracker.PullRequest{"adrien/eido-3-export": {{URL: "new", State: "open"}, {URL: "old", State: "closed"}}}},
 	}})
 	by := map[string]*Chantier{}

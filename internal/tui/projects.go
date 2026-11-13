@@ -11,8 +11,8 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/config"
-	"cairn/internal/herdr"
 	"cairn/internal/localtest"
+	"cairn/internal/mux"
 	"cairn/internal/tracker"
 )
 
@@ -24,7 +24,7 @@ type project struct {
 	err       error                            // the tracker's last error
 	issues    []tracker.Issue                  // your tickets, from the tracker
 	extra     map[string]tracker.Issue         // tickets out of that list that have a chantier
-	worktrees []herdr.Worktree                 // the repository's worktrees
+	worktrees []mux.Worktree                   // the repository's worktrees
 	prs       map[string][]tracker.PullRequest // GitHub PRs by branch
 }
 
@@ -62,8 +62,8 @@ func (m Model) projectForKey(key string) *project {
 	return nil
 }
 
-func (m Model) allWorktrees() []herdr.Worktree {
-	var out []herdr.Worktree
+func (m Model) allWorktrees() []mux.Worktree {
+	var out []mux.Worktree
 	for _, p := range m.projects {
 		out = append(out, p.worktrees...)
 	}
@@ -86,9 +86,9 @@ func (m Model) sources() []chantier.Source {
 }
 
 type localMsg struct {
-	worktrees map[string][]herdr.Worktree // by project name
+	worktrees map[string][]mux.Worktree   // by project name
 	tests     map[string]localtest.Status // main checkouts under test, by project name
-	snap      herdr.Snapshot
+	snap      mux.Snapshot
 	err       error
 }
 
@@ -98,18 +98,18 @@ func (m Model) loadLocal() tea.Cmd {
 		repos[p.cfg.Name] = p.cfg.Repo
 	}
 	return func() tea.Msg {
-		snap, err := herdr.GetSnapshot()
+		snap, err := mux.GetSnapshot()
 		if err != nil {
 			return localMsg{err: err}
 		}
-		out := map[string][]herdr.Worktree{}
+		out := map[string][]mux.Worktree{}
 		tests := map[string]localtest.Status{}
 		store := ltStore()
 		for name, repo := range repos {
 			if st, ok := store.Get(repo); ok {
 				tests[name] = st
 			}
-			wts, err := herdr.ListWorktrees(repo)
+			wts, err := mux.ListWorktrees(repo)
 			if err != nil {
 				return localMsg{err: err}
 			}
@@ -187,7 +187,7 @@ func readProject(p *project) (res projectIssues) {
 		known[is.ID] = true
 	}
 	var keys []string
-	if wts, err := herdr.ListWorktrees(p.cfg.Repo); err == nil {
+	if wts, err := mux.ListWorktrees(p.cfg.Repo); err == nil {
 		re := chantier.KeyRe(p.cfg.Key)
 		for _, wt := range wts {
 			if mm := re.FindStringSubmatch(wt.Branch); mm != nil {

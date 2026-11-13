@@ -11,6 +11,7 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/i18n"
+	"cairn/internal/mux"
 	"cairn/internal/state"
 )
 
@@ -136,7 +137,7 @@ func (m Model) paletteEntries() []palEntry {
 		{"r", i18n.T("Rafraîchir", "Refresh"), true},
 		{"U", i18n.T("Mettre à jour cairn", "Update cairn"), m.canCheck()},
 		{"?", i18n.T("Aide : tous les raccourcis", "Help: every key"), true},
-		{"q", i18n.T("Retour à herdr / quitter", "Back to herdr / quit"), true},
+		{"q", mux.Words(i18n.T("Retour à herdr / quitter", "Back to herdr / quit")), true},
 	} {
 		if !g.enabled {
 			continue
@@ -299,7 +300,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 				{"l", i18n.T("English / Français", "Français / English")},
 				{"r", i18n.T("rafraîchir", "refresh")},
 				{"U", i18n.T("mettre à jour cairn", "update cairn")},
-				{"q", i18n.T("retour à herdr", "back to herdr")},
+				{"q", mux.Words(i18n.T("retour à herdr", "back to herdr"))},
 			}),
 		}
 		content = append(content, spread(sTitle.Render(i18n.T("Raccourcis", "Keys")), sKey.Render("esc")+sMuted.Render(i18n.T(" fermer", " close")), inner()), "")
@@ -444,7 +445,7 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 			row("Worktree", tilde(c.Worktree)+sMuted.Render(i18n.T(" : supprimé", ": removed")))
 		}
 		if n := len(c.Agents); n > 0 {
-			row(i18n.T("Agents", "Agents"), plural(n, i18n.T("agent fermé", "agent closed"), i18n.T("agents fermés", "agents closed"))+sMuted.Render(i18n.T(", avec leur espace herdr", ", with their herdr workspace")))
+			row(i18n.T("Agents", "Agents"), plural(n, i18n.T("agent fermé", "agent closed"), i18n.T("agents fermés", "agents closed"))+sMuted.Render(mux.Words(i18n.T(", avec leur espace herdr", ", with their herdr workspace"))))
 		}
 		row("Plan", i18n.T("archivé dans ~/.cairn/archive", "archived in ~/.cairn/archive"))
 		if c.Branch != "" {

@@ -9,9 +9,9 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/config"
-	"cairn/internal/herdr"
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
+	"cairn/internal/mux"
 	"cairn/internal/state"
 )
 
@@ -203,7 +203,7 @@ func (m Model) sendAnswer() (tea.Model, tea.Cmd) {
 	key := c.Key
 	return m, func() tea.Msg {
 		_ = journal.Append(config.ChantiersDir(), key, "réponse envoyée à l'agent")
-		return doneMsg{text: fmt.Sprintf(i18n.T("Réponse envoyée à l'agent de %s.", "Answer sent to %s's agent."), key), err: herdr.Prompt(pane, prompt)}
+		return doneMsg{text: fmt.Sprintf(i18n.T("Réponse envoyée à l'agent de %s.", "Answer sent to %s's agent."), key), err: mux.Prompt(pane, prompt)}
 	}
 }
 

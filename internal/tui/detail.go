@@ -13,6 +13,7 @@ import (
 	"cairn/internal/chantier"
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
+	"cairn/internal/mux"
 	"cairn/internal/progress"
 	"cairn/internal/state"
 )
@@ -158,7 +159,7 @@ func (m Model) cardFor(c *chantier.Chantier) *card {
 			actions: []button{comments}}
 	case c.Phase == chantier.ToPlan:
 		return &card{color: dim, title: i18n.T("› Pas encore commencé", "› Not started yet"),
-			sub:     i18n.T("Planifier crée le worktree et son espace herdr, lance Claude et lui demande un plan à la taille du ticket.", "Plan creates the worktree and its herdr workspace, starts Claude and asks it for a plan sized to the ticket."),
+			sub:     mux.Words(i18n.T("Planifier crée le worktree et son espace herdr, lance Claude et lui demande un plan à la taille du ticket.", "Plan creates the worktree and its herdr workspace, starts Claude and asks it for a plan sized to the ticket.")),
 			primary: true, actions: []button{{"p", i18n.T("Planifier", "Plan"), c.Issue != nil}}}
 	case working:
 		sub := i18n.T("cairn remonte ce chantier en haut dès qu'il attend une décision.", "cairn moves this ticket to the top as soon as it waits for a decision.")

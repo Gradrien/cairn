@@ -13,6 +13,7 @@ import (
 
 	"cairn/internal/config"
 	"cairn/internal/i18n"
+	"cairn/internal/mux"
 	"cairn/internal/tracker"
 )
 
@@ -182,7 +183,7 @@ func fieldHint(r setRow, tracker string) string {
 	case "lang":
 		return i18n.T("fr ou en", "fr or en")
 	case "agent_kind":
-		return i18n.T("le genre d'agent herdr lancé pour un plan (claude, codex…)", "the herdr agent kind started for a plan (claude, codex…)")
+		return mux.Words(i18n.T("le genre d'agent herdr lancé pour un plan (claude, codex…)", "the herdr agent kind started for a plan (claude, codex…)"))
 	case "diff":
 		return i18n.T("lancée dans le worktree par d ; {base} est remplacé. Vide : browsediff s'il est installé, sinon git diff",
 			"run in the worktree by d; {base} is replaced. Empty: browsediff when installed, else git diff")

@@ -11,6 +11,7 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/i18n"
+	"cairn/internal/mux"
 	"cairn/internal/progress"
 	"cairn/internal/state"
 )
@@ -192,7 +193,7 @@ func (m Model) health() string {
 		}
 		return sGood.Render("●") + sMuted.Render(" "+name)
 	}
-	out := dot("herdr", m.localErr)
+	out := dot(mux.Name(), m.localErr)
 	shown := map[string]bool{}
 	for _, p := range m.projects {
 		if p.cfg.Tracker == "local" || p.cfg.Tracker == "" {

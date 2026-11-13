@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"cairn/internal/herdr"
 	"cairn/internal/i18n"
+	"cairn/internal/mux"
 	"cairn/internal/state"
 	"cairn/internal/tracker"
 )
@@ -57,7 +57,7 @@ type Chantier struct {
 	Branch     string
 	Workspaces []string
 	State      *state.State
-	Agents     []herdr.Agent
+	Agents     []mux.Agent
 	Phase      Phase
 }
 
@@ -181,7 +181,7 @@ type Source struct {
 	Repo    string // main checkout
 	// Issues are the tickets to show, may be nil when the tracker is unreachable.
 	Issues    []tracker.Issue
-	Worktrees []herdr.Worktree
+	Worktrees []mux.Worktree
 	// BranchPRs are the pull requests GitHub has for a branch, newest first.
 	BranchPRs map[string][]tracker.PullRequest
 }
@@ -189,14 +189,14 @@ type Source struct {
 type Input struct {
 	ChantiersDir string
 	Sources      []Source
-	Snapshot     herdr.Snapshot
+	Snapshot     mux.Snapshot
 	// GitHubPRs is the state GitHub reports for a PR URL (OPEN, MERGED,
 	// CLOSED). It wins over the tracker's copy, which can lag behind.
 	GitHubPRs map[string]string
 }
 
 // Gather returns the chantiers, most urgent first, and the agents that belong to none.
-func Gather(in Input) ([]*Chantier, []herdr.Agent) {
+func Gather(in Input) ([]*Chantier, []mux.Agent) {
 	byKey := map[string]*Chantier{}
 	get := func(key, project string) *Chantier {
 		key = strings.ToUpper(key)
@@ -256,7 +256,7 @@ func Gather(in Input) ([]*Chantier, []herdr.Agent) {
 		}
 	}
 
-	var others []herdr.Agent
+	var others []mux.Agent
 	for _, a := range in.Snapshot.Agents {
 		if c := owner(a, byKey); c != nil {
 			c.Agents = append(c.Agents, a)
@@ -292,7 +292,7 @@ func rank(p Phase) int {
 
 // owner picks the chantier an agent works on: by worktree, or — in the shared
 // main checkout — only when its name or title names the ticket.
-func owner(a herdr.Agent, byKey map[string]*Chantier) *Chantier {
+func owner(a mux.Agent, byKey map[string]*Chantier) *Chantier {
 	dir := filepath.Clean(a.Dir())
 	var best *Chantier
 	for _, c := range byKey {

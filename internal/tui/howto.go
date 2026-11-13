@@ -14,9 +14,9 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/config"
-	"cairn/internal/herdr"
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
+	"cairn/internal/mux"
 	"cairn/internal/prompted"
 	"cairn/internal/state"
 )
@@ -138,7 +138,7 @@ func (m Model) requestHow() (tea.Model, tea.Cmd) {
 	}
 	pane := h.agent()
 	if pane == "" {
-		why := i18n.T("Aucun agent sur %s pour expliquer : relance-le depuis son espace herdr.", "No agent on %s to explain: restart it from its herdr workspace.")
+		why := mux.Words(i18n.T("Aucun agent sur %s pour expliquer : relance-le depuis son espace herdr.", "No agent on %s to explain: restart it from its herdr workspace."))
 		if !h.archivedAt.IsZero() {
 			why = i18n.T("%s est livré et rangé : plus d'agent pour répondre.", "%s shipped and was put away: no agent left to answer.")
 		}
@@ -149,7 +149,7 @@ func (m Model) requestHow() (tea.Model, tea.Cmd) {
 	text, event := i18n.T("Explication demandée à l'agent de %s.", "Explanation asked from %s's agent."), "explication demandée"
 	return m, func() tea.Msg {
 		_ = journal.Append(config.ChantiersDir(), key, event)
-		return doneMsg{text: fmt.Sprintf(text, key), err: herdr.Prompt(pane, prompt)}
+		return doneMsg{text: fmt.Sprintf(text, key), err: mux.Prompt(pane, prompt)}
 	}
 }
 

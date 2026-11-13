@@ -12,8 +12,8 @@ import (
 
 	"cairn/internal/chantier"
 	"cairn/internal/config"
-	"cairn/internal/herdr"
 	"cairn/internal/journal"
+	"cairn/internal/mux"
 	"cairn/internal/progress"
 	"cairn/internal/state"
 	"cairn/internal/tracker"
@@ -31,8 +31,8 @@ func fixture(t *testing.T, w, h int) Model {
 	issue := func(key, title string) *tracker.Issue {
 		return &tracker.Issue{ID: key, Title: title, Status: "In Progress", Priority: "High", Estimate: "S", Started: true, URL: "https://t/" + key}
 	}
-	agent := func(name, status string) herdr.Agent {
-		return herdr.Agent{Name: name, Status: status, PaneID: "p-" + name, Title: "travaille"}
+	agent := func(name, status string) mux.Agent {
+		return mux.Agent{Name: name, Status: status, PaneID: "p-" + name, Title: "travaille"}
 	}
 	m := Model{
 		width: w, height: h, hoverItem: -1, hoverBtn: -1, watch: newWatch(),
@@ -43,18 +43,18 @@ func fixture(t *testing.T, w, h int) Model {
 	m.chantiers = []*chantier.Chantier{
 		{Key: "YAK-861", Phase: chantier.Plan, Worktree: "/w/861", Branch: "adrien/yak-861",
 			Issue:  issue("YAK-861", "Diffusion d'une opportunité interrompue (504) au-delà de 2000 freelances"),
-			Agents: []herdr.Agent{agent("yak-861", "idle")},
+			Agents: []mux.Agent{agent("yak-861", "idle")},
 			State: plan("YAK-861", "---\nphase: plan\nattente: Valider le plan\n---\nLe correctif passe à triggerBulk.\n\n"+
 				"- [ ] Remplacer forChunks par triggerBulk\n- [ ] Tests unitaires\n\n## Questions\n- Reprendre la PR #3321 ?\n- Garder notification_count ?\n\n"+
 				"## Effets de bord\n- [ ] Autres appelants\n- [ ] Quota Novu\n")},
 		{Key: "YAK-800", Phase: chantier.Build, Worktree: "/w/800", Branch: "adrien/yak-800",
 			Issue:  issue("YAK-800", "Fiche freelance : rendre le Résumé lisible"),
-			Agents: []herdr.Agent{agent("yak-800", "idle")},
+			Agents: []mux.Agent{agent("yak-800", "idle")},
 			State: plan("YAK-800", "---\nphase: build\nattente: Prêt à pousser\n---\nRésumé.\n\n- [x] Lire la synthèse\n- [x] Rendu markdown\n\n"+
 				"## Effets de bord\n- [x] Recherche sémantique\n- [ ] Fiche mobile\n")},
 		{Key: "YAK-712", Phase: chantier.Build, Worktree: "/w/712", Branch: "adrien/yak-712",
 			Issue:  issue("YAK-712", "Sparrow : permissions des fiches"),
-			Agents: []herdr.Agent{agent("yak-712", "working")},
+			Agents: []mux.Agent{agent("yak-712", "working")},
 			State:  plan("YAK-712", "---\nphase: build\n---\n- [x] Une\n- [~] Deux\n- [ ] Trois\n")},
 		{Key: "YAK-788", Phase: chantier.Review, Worktree: "/w/788", Branch: "adrien/yak-788",
 			Issue: issue("YAK-788", "Supprimer « Définir comme modèle »"), PRs: []tracker.PullRequest{{Number: 3323, State: "open", URL: "u788"}}},

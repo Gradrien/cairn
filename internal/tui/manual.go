@@ -8,9 +8,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"cairn/internal/config"
-	"cairn/internal/herdr"
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
+	"cairn/internal/mux"
 	"cairn/internal/state"
 )
 
@@ -158,7 +158,7 @@ func (m Model) sendManualReport() (tea.Model, tea.Cmd) {
 	key := c.Key
 	return m, func() tea.Msg {
 		_ = journal.Append(config.ChantiersDir(), key, fmt.Sprintf("test à la main : étape %d ne marche pas", n+1))
-		return doneMsg{text: fmt.Sprintf(i18n.T("Étape %d signalée à l'agent de %s.", "Step %d reported to %s's agent."), n+1, key), err: herdr.Prompt(pane, prompt)}
+		return doneMsg{text: fmt.Sprintf(i18n.T("Étape %d signalée à l'agent de %s.", "Step %d reported to %s's agent."), n+1, key), err: mux.Prompt(pane, prompt)}
 	}
 }
 
