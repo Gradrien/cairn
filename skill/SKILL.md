@@ -175,9 +175,10 @@ toutes. Ce qu'elles établissent va sous `## Approche`, les tâches en dessous.
   `gh pr create` ni `gh pr ready` sans autorisation, et **jamais** `gh pr merge` : le merge est à l'humain. Un hook
   bloque ce qui n'est pas autorisé : si tu le rencontres, ne le contourne pas, demande.
   - **Le push.** Quand le travail est prêt à partir sur sa branche, mets `attente: Prêt à pousser — <ce qui partira, en
-    une ligne>`, lance `cairn sync` et arrête-toi. L'humain clique sur « Autoriser le push » (cairn écrit
-    `push: autorisé <commit>`), ou te demande simplement de pousser dans le chat (« push », « pousse ») : un hook l'écrit
-    alors pour toi, sans commit, et ton premier push le fixe. L'autorisation vaut pour **ce commit** et ses nouvelles
+    une ligne>`, lance `cairn sync` et arrête-toi. L'humain clique sur « Pousser » : cairn écrit
+    `push: autorisé <commit>` et **pousse lui-même** la branche (hook pre-push compris) ; tu n'as rien à faire, sauf si
+    on te relance sur un échec. Il peut aussi te demander de pousser dans le chat (« push », « pousse ») : un hook
+    l'écrit alors pour toi, sans commit, et ton premier push le fixe. L'autorisation vaut pour **ce commit** et ses nouvelles
     tentatives ; un nouveau commit redemande. **Pousser n'ouvre pas la PR.**
   - **La PR.** Ne l'ouvre que si le plan porte `pr: autorisée`. Quand tu juges le travail prêt pour la relecture, mets
     `attente: Prêt à ouvrir la PR — <ce qu'elle contient>`, lance `cairn sync` et arrête-toi : l'humain clique sur

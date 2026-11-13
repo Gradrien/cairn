@@ -7,8 +7,9 @@
 // code as the TUI's keys and clicks. Every key the TUI knows works here once
 // the panel has the keyboard (a click on it).
 import { View, div, image, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
-import { agents, run, exec, readTextFile, watchFolder, nextCommand, theme, settings, props, openOverlay, closeOverlay } from "herdr";
+import { v_flex, h_flex, InputState, Input, Scrollbar, TextView } from "gpui-base";
+import { agents, run, exec, readTextFile, watchFolder, nextCommand, theme, settings, props, openOverlay, closeOverlay, shared, setShared } from "herdr";
+const FOLDED = "cairn.folded";
 
 const CAIRN = "@CAIRN@";
 const PATH = "@PATH@";
@@ -29,6 +30,26 @@ function showPanel() {
   run("layout.select", { stack: "panel-body", child: "cairn-detail" });
 }
 
+// bar draws the tasks' progress as the TUI does (█ done, ▓ under way, ░ left):
+// the filled parts slide when a task moves. Nothing loops: a looping
+// animation redraws the whole window at every tick, the plan's long markdown
+// included, and kept Herdr at 100 % CPU.
+function bar(id, done, doing, total, width, t) {
+  const d = total > 0 ? Math.round((done * width) / total) : 0;
+  const g = total > 0 ? Math.min(width - d, Math.ceil((doing * width) / total)) : 0;
+  const slide = { duration: 450, easing: "ease-out" };
+  return h_flex()
+    .id(id)
+    .flex_none()
+    .w(width)
+    .h(4)
+    .rounded(2)
+    .overflow_hidden()
+    .bg(t.border)
+    .child(div().id(`${id}-done`).h_full().w(d).bg(t.ansi2).transition("width", slide))
+    .child(div().id(`${id}-doing`).h_full().w(g).bg(t.working).transition("width", slide));
+}
+
 export default class CairnDetail extends View {
   init(_props, cx) {
     this.d = null;
@@ -37,6 +58,8 @@ export default class CairnDetail extends View {
     this.openStep = null; // manual step whose ✓ / ✗ are open
     this.asking = false; // a question for an agent aside, in "how it works"
     this.typing = false;
+    // Sections folded by their id, the same on every chantier, kept across restarts.
+    this.folded = new Set(Array.isArray(shared(FOLDED)) ? shared(FOLDED) : []);
     this.handle = cx.focus_handle();
     // Input state can only be made here or in a handler: one box of each kind
     // and language, shown under the question, step or view it is open for.
@@ -138,8 +161,29 @@ export default class CairnDetail extends View {
     return (this.d?.lang ?? "fr") !== "en";
   }
 
+  saveFolded() {
+    setShared(FOLDED, [...this.folded]);
+  }
+
   box(kind) {
     return this.boxes[this.fr() ? "fr" : "en"][kind];
+  }
+
+  // openBox is the text box shown right now, if any: while one is open the
+  // keyboard belongs to it, never to the shortcuts.
+  openBox() {
+    if (this.freeQ !== null) return this.box("answer");
+    if (this.asking) return this.box("ask");
+    if (this.openStep !== null) return this.box("report");
+    if (this.editRow !== null) return this.box("setting");
+    return null;
+  }
+
+  // write opens a text box empty and gives it the keyboard.
+  write(kind) {
+    const b = this.box(kind);
+    b.set_value("");
+    b.focus();
   }
 
   // ask sends a request to the engine: cairn do KEY ACTION ARGS.
@@ -242,14 +286,14 @@ export default class CairnDetail extends View {
       const q = (d.sections ?? []).find((s) => s.id === "questions")?.questions?.find((q) => !q.answered);
       if (q) {
         this.freeQ = q.index;
-        this.box("answer").set_value("");
+        this.write("answer");
         cx.notify();
       }
       return;
     }
     if (view === "how" && k === "e") {
       this.asking = d.how?.can_ask ?? false;
-      this.box("ask").set_value("");
+      if (this.asking) this.write("ask");
       cx.notify();
       return;
     }
@@ -296,6 +340,14 @@ export default class CairnDetail extends View {
       }
       return;
     }
+    // A box is open but lost the keyboard: give it back rather than run a
+    // shortcut with what was meant as text. Esc still closes it.
+    const open = this.openBox();
+    if (open && e.key !== "escape") {
+      open.focus();
+      cx.stop_propagation();
+      return;
+    }
     const m = e.modifiers ?? {};
     if (m.platform || m.alt) return; // the app's own shortcuts
     let k = KEYS[e.key] ?? (e.key_char && e.key_char.length === 1 ? e.key_char : e.key);
@@ -311,48 +363,30 @@ export default class CairnDetail extends View {
 
   // inline renders one paragraph: `code` in cyan, **bold**, [links](url),
   // word by word so it wraps like text.
+  // inline draws one paragraph as one text element that wraps natively.
+  // Drawing it word by word (one element each) made a plan thousands of
+  // layout nodes, all laid out again at every frame of a scroll.
   inline(id, text, t, color, bold) {
-    const runs = [];
     const re = /(`[^`]+`)|(\*\*[^*]+\*\*|__[^_]+__)|(\[[^\]]+\]\([^)\s]+\))/g;
+    const base = div().min_w(0).text_color(color ?? t.foreground).when(Boolean(bold), (e) => e.font_semibold());
+    if (!re.test(text)) return base.child(text);
+    re.lastIndex = 0;
+    const esc = (x) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    let html = "";
     let last = 0;
     for (const m of text.matchAll(re)) {
-      if (m.index > last) runs.push({ kind: "text", text: text.slice(last, m.index) });
-      if (m[1]) runs.push({ kind: "code", text: m[1].slice(1, -1) });
-      else if (m[2]) runs.push({ kind: "bold", text: m[2].slice(2, -2) });
+      html += esc(text.slice(last, m.index));
+      if (m[1]) html += `<code>${esc(m[1].slice(1, -1))}</code>`;
+      else if (m[2]) html += `<b>${esc(m[2].slice(2, -2))}</b>`;
       else {
         const [, label, url] = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(m[3]);
-        runs.push({ kind: "link", text: label, url });
+        html += `<a href="${esc(url)}">${esc(label)}</a>`;
       }
       last = m.index + m[0].length;
     }
-    if (last < text.length) runs.push({ kind: "text", text: text.slice(last) });
-    const words = [];
-    for (const r of runs) {
-      const parts = r.text.split(/(\s+)/);
-      for (let i = 0; i < parts.length; i += 2) {
-        const word = parts[i];
-        const space = (parts[i + 1] ?? "") !== "";
-        if (word === "") {
-          if (space && words.length) words[words.length - 1].space = true;
-          continue;
-        }
-        words.push({ ...r, text: word, space });
-      }
-    }
-    return h_flex()
-      .flex_wrap()
-      .min_w(0)
-      .text_color(color ?? t.foreground)
-      .children(
-        words.map((w, i) => {
-          const label = w.space ? w.text + "\u00a0" : w.text;
-          let e = div().child(label);
-          if (w.kind === "code") e = e.font_family(this.mono).text_size(12).text_color(t.ansi6);
-          if (w.kind === "bold" || bold) e = e.font_semibold();
-          if (w.kind === "link") e = e.id(`${id}-l${i}`).text_color(t.accent).cursor_pointer().hover((s) => s.opacity(0.8)).on_click(() => open(w.url));
-          return e;
-        }),
-      );
+    html += esc(text.slice(last));
+    if (bold) html = `<b>${html}</b>`;
+    return base.child(TextView.html(id, `<p>${html}</p>`).on_link_click((url) => open(url)));
   }
 
   // md renders the markdown plans and comments are written in: headings,
@@ -471,19 +505,49 @@ export default class CairnDetail extends View {
             .hover((s) => s.bg(t.hover))
             .on_click(() => open(it.image))
             .child(row)
-            .when(Boolean(it.thumb), (e) => e.child(div().pl(pad + 16).child(image(it.thumb).w(260).h(160).rounded(6).border_1().border_color(t.border))));
+            .when(Boolean(it.thumb), (e) => e.child(div().pl(pad + 16).child(this.thumb(it, t))));
         }),
       );
   }
 
+  // thumb shows a screenshot at its own shape, 260 wide at most; it reserves
+  // exactly the room it paints, so the text below never runs under it.
+  thumb(it, t) {
+    let w = 260;
+    let h = 160;
+    if (it.thumb_w > 0 && it.thumb_h > 0) {
+      w = Math.min(260, it.thumb_w);
+      h = Math.round((w * it.thumb_h) / it.thumb_w);
+    }
+    return div().w(w).h(h).flex_none().overflow_hidden().rounded(6).border_1().border_color(t.border).child(image(it.thumb).w(w).h(h));
+  }
+
   header(sec, t) {
+    const foldable = Boolean(sec.id);
+    const folded = foldable && this.folded.has(sec.id);
     return h_flex()
       .pt(18)
       .pb(6)
       .gap(8)
       .items_center()
+      .when(foldable, (e) =>
+        e
+          .id(`fold-${sec.id}`)
+          .cursor_pointer()
+          .on_click((_e, cx) => {
+            if (folded) this.folded.delete(sec.id);
+            else this.folded.add(sec.id);
+            this.saveFolded();
+            cx.notify();
+          })
+          .child(div().w(10).flex_none().text_size(10).text_color(t.dim).child(folded ? "▸" : "▾")),
+      )
       .child(div().text_size(11.5).font_semibold().text_color(t.dim).child(sec.title))
       .when(Boolean(sec.count), (e) => e.child(div().text_size(11).text_color(this.toneColor(sec.tone, t)).child(sec.count)))
+      .when(sec.id === "tasks" && (sec.tasks ?? []).length > 0, (e) => {
+        const ts = sec.tasks;
+        return e.child(bar("tasks-bar", ts.filter((k) => k.state === "done").length, ts.filter((k) => k.state === "doing").length, ts.length, 120, t));
+      })
       .child(div().flex_1())
       .when(Boolean(sec.hint), (e) => e.child(div().text_size(11).text_color(t.dim).truncate().child(sec.hint)));
   }
@@ -567,7 +631,7 @@ export default class CairnDetail extends View {
             e.child(
               this.link(`${id}-write`, fr ? "✎ Répondre dans tes mots" : "✎ Answer in your words", (cx) => {
                 this.freeQ = q.index;
-                this.box("answer").set_value("");
+                this.write("answer");
                 cx.notify();
               }, t, t.dim),
             ),
@@ -578,6 +642,7 @@ export default class CairnDetail extends View {
           div().ml(20).child(
             this.inputRow(`${id}-free`, this.box("answer"), t, (cx) => this.sendFree(cx), (cx) => {
               this.freeQ = null;
+              this.handle.focus();
               cx.notify();
             }),
           ),
@@ -606,9 +671,11 @@ export default class CairnDetail extends View {
                   if (!text) return;
                   report.set_value("");
                   this.openStep = null;
+                  this.handle.focus();
                   this.ask(cx, "manual-ko", "--index", String(k.index), "--text", text);
                 }, (cx) => {
                   this.openStep = null;
+                  this.handle.focus();
                   cx.notify();
                 }),
               )
@@ -617,7 +684,8 @@ export default class CairnDetail extends View {
           this.task(`manual-${k.index}`, k, t, (cx) => {
             if (k.state === "done") return this.ask(cx, "manual-ok", "--index", String(k.index));
             this.openStep = this.openStep === k.index ? null : k.index;
-            this.box("report").set_value("");
+            if (this.openStep !== null) this.write("report");
+            else this.handle.focus();
             cx.notify();
           }, extra),
         );
@@ -682,7 +750,7 @@ export default class CairnDetail extends View {
     else if (sec.hint) return div().pt(14).text_size(12).text_color(this.toneColor(sec.tone, t)).child(`${sec.title} : ${sec.hint}`);
     return v_flex()
       .child(sec.title ? this.header(sec, t) : div().pt(14))
-      .child(v_flex().gap(4).children(kids));
+      .when(!(sec.title && sec.id && this.folded.has(sec.id)), (e) => e.child(v_flex().gap(4).children(kids)));
   }
 
   card(c, t) {
@@ -835,6 +903,7 @@ export default class CairnDetail extends View {
           .child(
             this.inputRow("ask", this.box("ask"), t, (cx) => this.sendAsk(cx), (cx) => {
               this.asking = false;
+              this.handle.focus();
               cx.notify();
             }),
           ),
@@ -1249,7 +1318,7 @@ export default class CairnDetail extends View {
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.onKey(e, cx))
       .on_mouse_down("left", () => {
-        if (!this.typing) this.handle.focus();
+        if (!this.typing && !this.openBox()) this.handle.focus();
       })
       .size_full()
       .min_h(0)

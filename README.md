@@ -74,8 +74,9 @@ merge checklist.
 ### A human go-ahead before every push, and another for the PR.
 
 Agents never push or open a PR on their own. When the work is ready, the agent stops and asks
-(*Prêt à pousser*, "ready to push"). You press **Autoriser le push** ("allow the push"), check what will leave (commits,
-files, side effects still open), and confirm. Or just tell the agent in the chat: "push". A hook reads your message and
+(*Prêt à pousser*, "ready to push"). You press **Pousser** ("push"), check what will leave (commits,
+files, side effects still open), and confirm: cairn pushes that commit itself, the repo's pre-push hook included, so no
+agent (nor Claude Code's auto mode) stands in between. Or just tell the agent in the chat: "push". A hook reads your message and
 allows it the same way (cairn's own messages to the agent never count). The go-ahead covers **the commit you
 reviewed** and its retries.
 
@@ -291,7 +292,7 @@ review from the PR view.
 | `n` | Nouveau ticket | start a ticket outside your list: type its number or pick an unassigned one; without a tracker, type its title (`tab`: other project) |
 | `v` | Valider | approve what is waiting (plan approved → Build) |
 | `e` | Répondre | answer the plan's open questions; the answer goes to the agent |
-| `a` | Autoriser le push | review what will leave, then allow that commit to leave (push, PR, retries; free once the PR is open) |
+| `a` | Pousser | review what will leave, then cairn pushes that commit itself, pre-push hook included (the agent may retry it; free once the PR is open) |
 | `x` | Fermer le chantier / Abandonner | on a shipped ticket: see what would be lost, then remove its worktree and archive its plan. On a ticket you no longer take (not shipped, with a plan or a worktree): the same, its branch, PR and ticket left as they are |
 | `h` | Tester ici | try the chantier in your main checkout, where the env, secrets, packages and running stack already are: it moves to the branch's last commit (detached), your uncommitted changes there are stashed; `h` again catches up with new commits, then puts the checkout back and restores them |
 | `U` | Mettre à jour | see what changed on `main` since your install, then update and restart cairn |

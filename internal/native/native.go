@@ -9,6 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"os"
 	"path/filepath"
 	"sort"
@@ -162,4 +166,19 @@ func Thumb(path string) string {
 		return ""
 	}
 	return rel
+}
+
+// Size is an image's width and height in pixels, read from its header; zero
+// when the format is unknown (the panel then falls back to a fixed box).
+func Size(path string) (w, h int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+	c, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return 0, 0
+	}
+	return c.Width, c.Height
 }

@@ -100,9 +100,9 @@ func (m Model) cardFor(c *chantier.Chantier) *card {
 			return &card{color: warn, title: "⚠ " + i18n.T("À toi : ouvrir la PR", "Your call: open the PR"), since: since,
 				sub: strings.Join(sub, " · "), primary: true, actions: []button{openPR, {"d", i18n.T("Relire le diff", "Review the diff"), hasWT}, agent}}
 		}
-		return &card{color: warn, title: "⚠ " + i18n.T("À toi : autoriser le push", "Your call: allow the push"), since: since,
+		return &card{color: warn, title: "⚠ " + i18n.T("À toi : pousser", "Your call: push"), since: since,
 			sub: strings.Join(sub, " · "), primary: true, actions: []button{
-				{"a", i18n.T("Autoriser le push", "Allow push"), true},
+				{"a", i18n.T("Pousser", "Push"), true},
 				openPR,
 				{"d", i18n.T("Relire le diff", "Review the diff"), hasWT},
 				agent,

@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"cairn/internal/chantier"
 	"cairn/internal/config"
@@ -1210,12 +1211,19 @@ func (m Model) plan() (tea.Model, tea.Cmd) {
 	}
 }
 
-// allowPush lets the agent push the commit the human just reviewed: the push
-// and its retries pass while the branch stays on it. The PR is apart (allowPR).
+// allowPush pushes the commit the human just reviewed, cairn itself: no agent
+// is asked, so nothing stands between the button and the push (Claude Code's
+// auto mode once refused an agent's push the human had allowed here). The
+// allowance stays on the commit, so the agent may retry it. The PR is apart
+// (allowPR).
 func (m Model) allowPush() (tea.Model, tea.Cmd) {
 	c := m.selected()
 	if c == nil || c.State == nil {
 		m.say(i18n.T("Ce chantier n'a pas de plan cairn : ses push ne sont pas bloqués.", "This ticket has no cairn plan: its pushes are not blocked."), nil)
+		return m, nil
+	}
+	if c.Worktree == "" {
+		m.say(i18n.T("Ce chantier n'a pas de worktree : rien à pousser.", "This ticket has no worktree: nothing to push."), nil)
 		return m, nil
 	}
 	s := c.State
@@ -1229,20 +1237,42 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	_ = journal.Append(config.ChantiersDir(), c.Key, "push autorisé")
-	text := fmt.Sprintf(i18n.T("Push autorisé pour %s, commit %s.", "Push allowed for %s, commit %s."), c.Key, shortSHA(head))
-	cmd := m.rebuild()
-	if len(c.Agents) > 0 {
-		pane := c.Agents[0].PaneID
-		prompt := fmt.Sprintf(i18n.T("Push autorisé dans cairn pour %s, sur le commit %s : pousse maintenant (les nouvelles tentatives passent). "+
-			"N'ouvre pas de PR : son ouverture s'autorise à part dans cairn ; si elle est déjà ouverte, rien à faire de plus.",
-			"Push allowed in cairn for %s, on commit %s: push now (retries pass). "+
-				"Do not open a PR: opening it is allowed separately in cairn; if it is already open, nothing more to do."), c.Key, shortSHA(head))
-		cmd = tea.Batch(cmd, func() tea.Msg {
-			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: mux.Prompt(pane, prompt)}
-		})
+	key, dir := c.Key, c.Worktree
+	m.busy = fmt.Sprintf(i18n.T("Push de %s (%s)… le hook pre-push peut prendre quelques minutes", "Pushing %s (%s)… the pre-push hook may take a few minutes"), key, shortSHA(head))
+	return m, tea.Batch(m.rebuild(), func() tea.Msg {
+		out, err := pushBranch(dir)
+		logPath := filepath.Join(config.Dir(), "cache", "push-"+key+".log")
+		_ = os.WriteFile(logPath, out, 0o644)
+		if err != nil {
+			_ = journal.Append(config.ChantiersDir(), key, "push échoué")
+			return doneMsg{err: fmt.Errorf(i18n.T("le push de %s a échoué (%s) : %s · journal complet : %s", "pushing %s failed (%s): %s · full log: %s"),
+				key, shortSHA(head), lastLines(out, 3), tilde(logPath)), refresh: true}
+		}
+		_ = journal.Append(config.ChantiersDir(), key, "poussé "+shortSHA(head))
+		return doneMsg{text: fmt.Sprintf(i18n.T("%s poussé : commit %s.", "%s pushed: commit %s."), key, shortSHA(head)), refresh: true}
+	})
+}
+
+// pushBranch pushes the worktree's branch to origin under its own name, and
+// sets it as upstream; the repo's own hooks (pre-push) run as for anyone.
+func pushBranch(dir string) ([]byte, error) {
+	cmd := exec.Command("git", "-C", dir, "push", "-u", "origin", "HEAD")
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	return cmd.CombinedOutput()
+}
+
+// lastLines is the end of a command's output, on one line.
+func lastLines(out []byte, n int) string {
+	var keep []string
+	for _, l := range strings.Split(xansi.Strip(string(out)), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			keep = append(keep, l)
+		}
 	}
-	m.say(text, nil)
-	return m, cmd
+	if len(keep) > n {
+		keep = keep[len(keep)-n:]
+	}
+	return strings.Join(keep, " / ")
 }
 
 // allowPR lets the agent open the pull request, pushing the reviewed commit
@@ -1352,6 +1382,17 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 	m.say(text, nil)
 	cmd := m.rebuild()
 	key, path := c.Key, s.Path
+	if prompt != "" && agent.PaneID == "" {
+		// No agent here to build (it ended, or runs in a multiplexer this
+		// cairn does not drive): one starts in the chantier's worktree.
+		p := m.projectOf(c)
+		if p == nil || c.Worktree == "" {
+			m.say(text+mux.Words(i18n.T(" Aucun agent sur ce chantier : lance-en un depuis son espace herdr.", " No agent on this ticket: start one from its herdr workspace.")), nil)
+			return m, cmd
+		}
+		m.busy = i18n.T("Nouvel agent pour le build…", "New agent for the build…")
+		return m, tea.Batch(cmd, m.buildAgent(p.cfg, c.Worktree, key, path, text))
+	}
 	if prompt != "" && agent.PaneID != "" {
 		p := m.projectOf(c)
 		if p != nil && agent.Kind == "claude" {
@@ -1407,6 +1448,36 @@ func (m Model) freshAgent(agent mux.Agent, model, prompt, key, event, text strin
 			done = text + fmt.Sprintf(i18n.T(" Un agent neuf prend la suite, sur %s.", " A new agent takes over, on %s."), model)
 		}
 		return doneMsg{text: done, err: mux.Prompt(name, prompt), refresh: true}
+	}
+}
+
+// buildAgent starts the build's agent in a new workspace on the chantier's
+// worktree, for a chantier whose plan was approved with no agent at hand.
+func (m Model) buildAgent(cfg config.Project, worktree, key, path, text string) tea.Cmd {
+	kind := cfg.AgentKind
+	if kind == "" {
+		kind = "claude"
+	}
+	model := ""
+	if kind == "claude" {
+		model = cfg.ModelBuild
+	}
+	agents := m.snap.Agents
+	return func() tea.Msg {
+		_, pane, err := mux.CreateWorkspaceNoFocus(key, worktree)
+		if err != nil {
+			return doneMsg{err: fmt.Errorf(i18n.T("plan validé, mais l'espace du build n'a pas pu s'ouvrir : %w", "plan approved, but the build's workspace did not open: %w"), err), refresh: true}
+		}
+		name := mux.FreeName(strings.ToLower(key), agents)
+		if err := mux.StartAgent(name, kind, pane, modelArgs(kind, model)...); err != nil {
+			return doneMsg{err: fmt.Errorf(i18n.T("plan validé, mais l'agent du build n'a pas démarré : %w", "plan approved, but the build's agent did not start: %w"), err), refresh: true}
+		}
+		ev := "nouvel agent pour le build"
+		if model != "" {
+			ev += " (" + model + ")"
+		}
+		_ = journal.Append(config.ChantiersDir(), key, ev)
+		return doneMsg{text: text + fmt.Sprintf(i18n.T(" L'agent %s lance le build.", " Agent %s starts the build."), name), err: mux.Prompt(name, chantier.FreshBuildPrompt(key, path)), refresh: true}
 	}
 }
 

@@ -658,7 +658,7 @@ func (m Model) chantierButtons(c *chantier.Chantier) []button {
 	push(m.testButton(c))
 	push(button{"p", i18n.T("Planifier", "Plan"), c.Issue != nil && (!hasWT || c.Main)})
 	push(button{"v", i18n.T("Valider", "Approve"), s != nil && s.Waiting != "" && !isPushWait(s.Waiting) && !isPRWait(s.Waiting)})
-	push(button{"a", i18n.T("Autoriser le push", "Allow push"), m.canAllowPush(c)})
+	push(button{"a", i18n.T("Pousser", "Push"), m.canAllowPush(c)})
 	push(button{"P", i18n.T("Ouvrir la PR", "Open the PR"), s != nil && c.OpenPR() == nil && !s.PRAllowed() && c.Phase >= chantier.Build && c.Phase != chantier.Shipped})
 	push(button{"f", i18n.T("Corriger la CI", "Fix CI"), m.ciFailed(c)})
 	if m.heavy(c) || m.handoffAsked(c) {

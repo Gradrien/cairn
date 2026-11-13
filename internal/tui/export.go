@@ -12,6 +12,7 @@ import (
 	"cairn/internal/i18n"
 	"cairn/internal/mux"
 	"cairn/internal/native"
+	"cairn/internal/state"
 )
 
 // The list, as the TUI shows it, is also written to ~/.cairn/cache/board.json
@@ -38,19 +39,20 @@ type exportRef struct {
 }
 
 type exportChantier struct {
-	Key       string        `json:"key"`
-	Project   string        `json:"project"`
-	Title     string        `json:"title"`
-	Phase     string        `json:"phase"`
-	PhaseID   string        `json:"phase_id"`
-	Group     string        `json:"group"` // wait, work, toplan, kept: the TUI's sections
-	Waiting   string        `json:"waiting,omitempty"`
-	CIFailed  bool          `json:"ci_failed,omitempty"`
-	TasksDone int           `json:"tasks_done"`
-	Tasks     int           `json:"tasks"`
-	PR        *exportPR     `json:"pr,omitempty"`
-	Workspace string        `json:"workspace,omitempty"`
-	Agents    []exportAgent `json:"agents"`
+	Key        string        `json:"key"`
+	Project    string        `json:"project"`
+	Title      string        `json:"title"`
+	Phase      string        `json:"phase"`
+	PhaseID    string        `json:"phase_id"`
+	Group      string        `json:"group"` // wait, work, toplan, kept: the TUI's sections
+	Waiting    string        `json:"waiting,omitempty"`
+	CIFailed   bool          `json:"ci_failed,omitempty"`
+	TasksDone  int           `json:"tasks_done"`
+	TasksDoing int           `json:"tasks_doing"`
+	Tasks      int           `json:"tasks"`
+	PR         *exportPR     `json:"pr,omitempty"`
+	Workspace  string        `json:"workspace,omitempty"`
+	Agents     []exportAgent `json:"agents"`
 }
 
 type exportPR struct {
@@ -95,7 +97,7 @@ func (m Model) board() exportBoard {
 			PhaseID: phaseID(c.Phase), Group: m.groupOf(c), Waiting: c.Waiting(), CIFailed: m.ciFailed(c),
 			Agents: []exportAgent{}}
 		if c.State != nil {
-			e.TasksDone, e.Tasks = c.State.DoneCount(), len(c.State.Tasks)
+			e.TasksDone, e.TasksDoing, e.Tasks = c.State.DoneCount(), state.Count(c.State.Tasks, false), len(c.State.Tasks)
 		}
 		if pr := c.LastPR(); pr != nil {
 			e.PR = &exportPR{Number: pr.Number, URL: pr.URL, State: pr.State}

@@ -331,9 +331,9 @@ func (m Model) overlayLayout() (box []string, x0, y0 int, hits []hit, hitRows []
 			content = append(content, wrap(sMuted.Render(i18n.T("L'agent pousse ce commit si besoin, ouvre la PR et la lie au ticket : elle part en relecture et la CI tourne. Ensuite, les correctifs poussent librement. Le merge reste à toi.",
 				"The agent pushes this commit if needed, opens the PR and links it to the ticket: it goes to review and CI runs. Then fixes push freely. Merging stays yours.")), inner(), "")...)
 		} else {
-			content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("Autoriser le push de %s ?", "Allow pushing %s?"), c.Key)))
-			content = append(content, wrap(sMuted.Render(i18n.T("Tu autorises ce commit à partir sur sa branche : le push et ses nouvelles tentatives passent. La PR ne s'ouvre pas : elle a son propre bouton.",
-				"You let this commit leave on its branch: the push and its retries go through. The PR does not open: it has its own button.")), inner(), "")...)
+			content = append(content, sWarn.Render(fmt.Sprintf(i18n.T("Pousser %s ?", "Push %s?"), c.Key)))
+			content = append(content, wrap(sMuted.Render(i18n.T("cairn pousse ce commit sur sa branche maintenant, hook pre-push compris ; l'agent pourra le repousser s'il le faut. La PR ne s'ouvre pas : elle a son propre bouton.",
+				"cairn pushes this commit to its branch now, pre-push hook included; the agent may push it again if needed. The PR does not open: it has its own button.")), inner(), "")...)
 		}
 		content = append(content, "")
 		if c.Branch != "" {
@@ -537,7 +537,7 @@ func helpSections() []helpSection {
 			{"↵", i18n.T("aller à l'agent", "go to the agent")},
 			{"v", i18n.T("valider ce qui attend", "approve what waits")},
 			{"e", i18n.T("répondre aux questions", "answer the questions")},
-			{"a", i18n.T("autoriser le push", "allow the push")},
+			{"a", i18n.T("pousser le commit relu", "push the reviewed commit")},
 			{"P", i18n.T("ouvrir la PR", "open the PR")},
 			{"x", i18n.T("fermer un chantier livré, ou l'abandonner", "close a shipped ticket, or abandon one")},
 			{"h", i18n.T("tester dans le dépôt principal", "test in the main checkout")},
