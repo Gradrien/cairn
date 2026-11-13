@@ -56,13 +56,15 @@ type nativeRow struct {
 }
 
 type nativeItem struct {
-	Text  string `json:"text"`
-	Image string `json:"image,omitempty"` // a proof's screenshot, to open
-	Thumb string `json:"thumb,omitempty"` // its copy the app can show, relative to the app's folder
-	Gone  bool   `json:"gone,omitempty"`  // the screenshot's file no longer exists
-	Depth int    `json:"depth,omitempty"`
-	Plain bool   `json:"plain,omitempty"`
-	Code  bool   `json:"code,omitempty"`
+	Text   string `json:"text"`
+	Image  string `json:"image,omitempty"`   // a proof's screenshot, to open
+	Thumb  string `json:"thumb,omitempty"`   // its copy the app can show, relative to the app's folder
+	Gone   bool   `json:"gone,omitempty"`    // the screenshot's file no longer exists
+	ThumbW int    `json:"thumb_w,omitempty"` // the screenshot's size in pixels, for its shape
+	ThumbH int    `json:"thumb_h,omitempty"`
+	Depth  int    `json:"depth,omitempty"`
+	Plain  bool   `json:"plain,omitempty"`
+	Code   bool   `json:"code,omitempty"`
 }
 
 type nativeTask struct {
@@ -438,6 +440,9 @@ func (m Model) nativeSection(c *chantier.Chantier, id string) *nativeSection {
 			if it.Image != "" {
 				it.Thumb = native.Thumb(it.Image)
 				it.Gone = it.Thumb == ""
+				if !it.Gone {
+					it.ThumbW, it.ThumbH = native.Size(it.Image)
+				}
 			}
 			sec.Items = append(sec.Items, it)
 		}
