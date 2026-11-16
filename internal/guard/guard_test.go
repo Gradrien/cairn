@@ -110,6 +110,41 @@ func TestAllowanceCoversACommit(t *testing.T) {
 	}
 }
 
+// A submodule on the chantier's branch (bruno…) whose own PR was merged
+// pushes freely while the parent repo's PR is open: the TUI says so too.
+func TestSubmoduleFollowsTheParentPR(t *testing.T) {
+	f := newFixture(t)
+	sub := t.TempDir()
+	run := func(dir string, args ...string) {
+		out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	run(sub, "init", "-q", "-b", "adrien/yak-1-api")
+	run(sub, "commit", "-q", "--allow-empty", "-m", "api")
+	run(f.repo, "submodule", "add", "-q", sub, "bruno")
+	run(f.repo+"/bruno", "checkout", "-q", "adrien/yak-1-api")
+	run(f.repo+"/bruno", "commit", "-q", "--allow-empty", "-m", "fix")
+	f.write("push: autorisé " + f.git("rev-parse", "HEAD") + "\n")
+
+	open := ""
+	OpenPR = func(dir string) bool { return dir == open }
+	cmd := "cd " + f.repo + "/bruno && git push"
+	if f.check(cmd) == "" {
+		t.Fatal("no open PR anywhere: the submodule's new commit is blocked")
+	}
+	parent, _ := exec.Command("git", "-C", f.repo+"/bruno", "rev-parse", "--show-superproject-working-tree").Output()
+	open = strings.TrimSpace(string(parent))
+	if reason := f.check(cmd); reason != "" {
+		t.Fatalf("the parent's open PR lets the submodule push, got %q", reason)
+	}
+	f.git("checkout", "-q", "-b", "adrien/yak-2-y")
+	if f.check(cmd) == "" {
+		t.Fatal("a parent on another chantier does not cover the submodule")
+	}
+}
+
 func TestPRIsAllowedApart(t *testing.T) {
 	f := newFixture(t)
 	f.write("pr: autorisée\n")
