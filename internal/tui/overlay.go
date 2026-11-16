@@ -30,8 +30,11 @@ func (m Model) openPush() (tea.Model, tea.Cmd) {
 		m.say(i18n.T("Ce chantier n'a pas de plan cairn : ses push ne sont pas bloqués.", "This ticket has no cairn plan: its pushes are not blocked."), nil)
 		return m, nil
 	}
-	if m.pushValid(c) {
-		m.say(i18n.T("Ce commit est déjà autorisé : push et PR passent.", "This commit is already allowed: pushes and PR go through."), nil)
+	// Allowed (or the PR is open) and nothing left behind locally: nothing to
+	// do. Otherwise the button pushes, even with the PR open: the agent may be
+	// waiting on it, and its submodule commits (bruno…) leave with it.
+	if m.pushValid(c) && !isPushWait(c.State.Waiting) && !hasUnpushed(c.Worktree) && len(unpushedSubmodules(c.Worktree)) == 0 {
+		m.say(i18n.T("Rien à pousser : la branche et ses sous-modules sont à jour sur origin.", "Nothing to push: the branch and its submodules are up to date on origin."), nil)
 		return m, nil
 	}
 	m.overlay, m.pushKey, m.pushLog, m.pushPR = "push", c.Key, nil, false
