@@ -1255,10 +1255,51 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 
 // pushBranch pushes the worktree's branch to origin under its own name, and
 // sets it as upstream; the repo's own hooks (pre-push) run as for anyone.
+// Submodules (bruno…) go first: a submodule on a branch with commits no remote
+// has is pushed the same way, so the parent's bump points at a pushed commit.
 func pushBranch(dir string) ([]byte, error) {
+	var log []byte
+	for _, sub := range unpushedSubmodules(dir) {
+		out, err := gitPush(sub)
+		log = append(log, out...)
+		if err != nil {
+			return log, err
+		}
+	}
+	out, err := gitPush(dir)
+	return append(log, out...), err
+}
+
+func gitPush(dir string) ([]byte, error) {
 	cmd := exec.Command("git", "-C", dir, "push", "-u", "origin", "HEAD")
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	return cmd.CombinedOutput()
+}
+
+// unpushedSubmodules are the submodules of dir checked out on a branch (not
+// detached) that hold commits no remote has.
+func unpushedSubmodules(dir string) []string {
+	out, err := exec.Command("git", "-C", dir, "submodule", "--quiet", "foreach", "--recursive", "echo $displaypath").Output()
+	if err != nil {
+		return nil
+	}
+	var subs []string
+	for _, p := range strings.Fields(string(out)) {
+		sub := filepath.Join(dir, p)
+		if hasUnpushed(sub) {
+			subs = append(subs, sub)
+		}
+	}
+	return subs
+}
+
+// hasUnpushed: dir is on a branch whose HEAD holds commits no remote has.
+func hasUnpushed(dir string) bool {
+	if b, err := exec.Command("git", "-C", dir, "symbolic-ref", "-q", "HEAD").Output(); err != nil || strings.TrimSpace(string(b)) == "" {
+		return false
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-list", "--count", "HEAD", "--not", "--remotes").Output()
+	return err == nil && strings.TrimSpace(string(out)) != "0"
 }
 
 // lastLines is the end of a command's output, on one line.

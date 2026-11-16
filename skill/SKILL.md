@@ -169,7 +169,7 @@ toutes. Ce qu'elles établissent va sous `## Approche`, les tâches en dessous.
 - **Les phases** :
   - `plan` : tu suis « Construire le plan ». Tu termines par `attente: Valider le plan`, puis tu **t'arrêtes**, sans coder.
   - `build` : l'humain a validé. Passe une tâche en `[~]` quand tu la commences, puis en `[x]` dès qu'elle est finie. Ajoute le travail découvert en cours de route et retire ce qui s'est révélé inutile. Si tu changes d'approche, corrige `## Approche` et dis pourquoi en une ligne.
-  - `review` : la PR est ouverte. Si on te demande des changements, fais-les en local, puis redemande le push comme ci-dessous.
+  - `review` : la PR est ouverte. Si on te demande des changements, fais-les, commite et pousse toi-même : avec la PR ouverte, le push passe sans redemander (voir plus bas), et `push:` dans le plan ne compte plus. Pousse les sous-modules (bruno…) avant la branche qui les bumpe. Ne mets pas `attente: Prêt à pousser` pour ça.
   - « Livré » est détecté seul quand la PR est mergée : ne l'écris pas.
 - **Jamais de push ni de PR sans feu vert humain, et deux feux verts distincts.** Ne lance pas `git push`,
   `gh pr create` ni `gh pr ready` sans autorisation, et **jamais** `gh pr merge` : le merge est à l'humain. Un hook
@@ -184,7 +184,8 @@ toutes. Ce qu'elles établissent va sous `## Approche`, les tâches en dessous.
     `attente: Prêt à ouvrir la PR — <ce qu'elle contient>`, lance `cairn sync` et arrête-toi : l'humain clique sur
     « Ouvrir la PR » et te relance. Ouvre-la alors, lie-la au ticket et passe en `phase: review`.
   - **Une fois la PR ouverte**, tes pushes suivants (correctifs de CI, retours de review) passent sans redemander : la
-    relecture se fait sur la PR.
+    relecture se fait sur la PR. Le hook les laisse passer, sous-modules compris, quel que soit le commit inscrit dans
+    `push:` : pousse directement, ne conclus pas d'après le plan que c'est bloqué.
 - **Images dans une PR : jamais de chemin relatif.** `![avant](./before.png)` est résolu par GitHub en `/pull/before.png`, c'est un lien mort. N'utilise que des URLs d'images réellement hébergées, par exemple des pièces jointes GitHub (`https://github.com/user-attachments/assets/…`) téléversées via le navigateur, puis vérifie qu'elles s'affichent. Si tu ne peux pas téléverser, n'insère pas d'image : garde les captures dans `~/.cairn/proofs/<TICKET>/` et cite leur chemin sous `## Preuves`, cairn les affiche.
 - **`attente:`** n'apparaît que quand une décision humaine bloque. Écris-la en quelques mots (« Choisir entre migration et script »), pose la question dans ta réponse, puis attends. Retire la ligne une fois la réponse obtenue.
 - **`## Comment ça marche` explique le code à l'humain.** Il doit pouvoir répondre seul aux questions sur le ticket
