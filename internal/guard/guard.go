@@ -3,7 +3,9 @@
 //   - git push, until a human allowed it: in cairn, or by asking for it in the
 //     chat (CheckPrompt). The allowance covers one commit: the push and its
 //     retries pass while the branch stays on it. Once the PR is open, pushes
-//     pass freely: the PR is where the human reviews from then on;
+//     pass freely: the PR is where the human reviews from then on. That
+//     holds for a submodule on the chantier's branch too (bruno…): its
+//     commits ship with the PR of the repo that bumps it;
 //   - gh pr create / ready, until a human allowed opening the PR in cairn:
 //     pushing no longer opens it;
 //   - gh pr merge, always: merging is the human's.
@@ -103,7 +105,7 @@ func Check(r io.Reader, keys []string, chantiersDir string) string {
 		return ""
 	}
 	// An open PR is reviewed on GitHub: fixes after review or CI push freely.
-	if s.PushCovers(head) && s.PushCommit() != "" || OpenPR(dir) {
+	if s.PushCovers(head) && s.PushCommit() != "" || OpenPR(dir) || parentPROpen(dir, key, keys, chantiersDir) {
 		return ""
 	}
 	if s.PushAllowed() {
@@ -128,6 +130,19 @@ func Check(r io.Reader, keys []string, chantiersDir string) string {
 		"cairn: %s needs a human approval before any push. "+
 			"Do not work around this block. Finish what you are doing, set `attente: Prêt à pousser` in %s"+
 			" with one line on what will ship, run `cairn sync`, then stop: the human allows the push in cairn, or asks you to push in the chat."), key, s.Path)
+}
+
+// parentPROpen: dir is a submodule (bruno…) of a repo whose branch is the
+// same chantier and has an open PR. Its commits ship with that PR, whose
+// submodule bump they are, so they push as freely as the branch itself.
+func parentPROpen(dir, key string, keys []string, chantiersDir string) bool {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-superproject-working-tree").Output()
+	parent := strings.TrimSpace(string(out))
+	if err != nil || parent == "" {
+		return false
+	}
+	pkey, _, _ := chantierAt(parent, keys, chantiersDir)
+	return pkey == key && OpenPR(parent)
 }
 
 // OpenPR reports whether the branch checked out in dir has an open pull
