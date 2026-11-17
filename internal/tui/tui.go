@@ -1362,12 +1362,78 @@ func (m Model) allowPR() (tea.Model, tea.Cmd) {
 		cmd = tea.Batch(cmd, func() tea.Msg {
 			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: mux.Prompt(pane, prompt)}
 		})
-	} else {
-		text += mux.Words(i18n.T(" Aucun agent sur ce chantier pour l'ouvrir : lance-en un depuis son espace herdr.",
-			" No agent on this ticket to open it: start one from its herdr workspace."))
+	} else if c.Worktree != "" && c.OpenPR() == nil {
+		// No agent to ask: cairn pushes and opens the PR itself, as it pushes.
+		base := "origin/main"
+		if p := m.projectOf(c); p != nil && p.cfg.Base != "" {
+			base = p.cfg.Base
+		}
+		key, dir, path := c.Key, c.Worktree, s.Path
+		title, body := prTitle(key, s), prBody(key, s)
+		m.busy = fmt.Sprintf(i18n.T("Ouverture de la PR de %s…", "Opening %s's PR…"), key)
+		cmd = tea.Batch(cmd, func() tea.Msg { return openPR(key, dir, path, base, title, body) })
+	} else if c.OpenPR() == nil {
+		text += i18n.T(" Ni agent ni worktree sur ce chantier : rien à ouvrir d'ici.", " No agent and no worktree on this ticket: nothing to open from here.")
 	}
 	m.say(text, nil)
 	return m, cmd
+}
+
+// openPR pushes the branch (submodules first) and opens its pull request
+// with gh, for a chantier with no agent to do it; the plan moves to review.
+func openPR(key, dir, statePath, base, title, body string) tea.Msg {
+	out, err := pushBranch(dir)
+	if err != nil {
+		logPath := filepath.Join(config.Dir(), "cache", "push-"+key+".log")
+		_ = os.WriteFile(logPath, out, 0o644)
+		_ = journal.Append(config.ChantiersDir(), key, "push échoué")
+		return doneMsg{err: fmt.Errorf(i18n.T("PR autorisée, mais le push de %s a échoué : %s · journal complet : %s", "PR allowed, but pushing %s failed: %s · full log: %s"),
+			key, lastLines(out, 3), tilde(logPath)), refresh: true}
+	}
+	gh := exec.Command("gh", "pr", "create", "--base", strings.TrimPrefix(base, "origin/"), "--title", title, "--body", body)
+	gh.Dir = dir
+	out, err = gh.CombinedOutput()
+	if err != nil {
+		return doneMsg{err: fmt.Errorf(i18n.T("PR autorisée et branche poussée, mais gh n'a pas pu ouvrir la PR : %s", "PR allowed and branch pushed, but gh could not open the PR: %s"), lastLines(out, 3)), refresh: true}
+	}
+	url := lastLines(out, 1)
+	if s, lerr := state.Load(statePath); lerr == nil && s != nil {
+		s.Set("phase", "review")
+		_ = s.Save()
+	}
+	_ = journal.Append(config.ChantiersDir(), key, "PR ouverte par cairn "+url)
+	return doneMsg{text: fmt.Sprintf(i18n.T("%s : PR ouverte par cairn (aucun agent sur le chantier) : %s", "%s: PR opened by cairn (no agent on the ticket): %s"), key, url), refresh: true}
+}
+
+// prTitle is "KEY · title of the plan": the key ties the PR to the ticket.
+func prTitle(key string, s *state.State) string {
+	if s.Title == "" {
+		return key
+	}
+	return key + " · " + s.Title
+}
+
+// prBody is the plan's approach, for a PR cairn opens itself.
+func prBody(key string, s *state.State) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, i18n.T("Ticket : %s\n", "Ticket: %s\n"), key)
+	if len(s.Approach) > 0 {
+		b.WriteString(i18n.T("\n## Approche\n", "\n## Approach\n"))
+		for _, it := range s.Approach {
+			if it.Plain {
+				fmt.Fprintf(&b, "\n%s\n\n", it.Text)
+				continue
+			}
+			fmt.Fprintf(&b, "%s- %s\n", strings.Repeat("  ", it.Depth), it.Text)
+		}
+	}
+	if len(s.Proofs) > 0 {
+		b.WriteString(i18n.T("\n## Preuves\n", "\n## Proofs\n"))
+		for _, p := range s.Proofs {
+			fmt.Fprintf(&b, "- %s\n", p)
+		}
+	}
+	return b.String()
 }
 
 // headOf is the commit checked out in dir, "" if unknown.
