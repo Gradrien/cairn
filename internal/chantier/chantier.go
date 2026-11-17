@@ -394,6 +394,18 @@ func BuildPrompt(statePath string) string {
 			"stop. The human reviews and allows the push in cairn (or asks you in the chat); the PR is allowed separately."), statePath)
 }
 
+// ApprovedPrompt is sent when the human approves what the agent waits for
+// outside the plan phase: a new plan for changes on an open PR, a question…
+// The agent picks up where it stopped, in the phase it is in.
+func ApprovedPrompt(statePath, waiting string) string {
+	return fmt.Sprintf(i18n.T("Validé : « %s ». J'ai vidé `attente:` dans %s. Reprends là où tu t'es arrêté et fais ce qui était validé, "+
+		"en tenant le plan à jour (tâches [~]/[x], preuves, « Comment ça marche ») ; tests, build et lint par cairn-runner, recherches "+
+		"par cairn-explorer. S'il te faut une autre validation, remets `attente:` et arrête-toi.",
+		"Approved: \"%s\". I cleared `attente:` in %s. Pick up where you stopped and do what was approved, "+
+			"keeping the plan up to date (tasks [~]/[x], proofs, \"Comment ça marche\"); tests, build and lint through cairn-runner, "+
+			"searches through cairn-explorer. If you need another approval, set `attente:` again and stop."), waiting, statePath)
+}
+
 // FreshBuildPrompt starts the build with a new agent: the one that planned
 // stopped, everything it established is in the plan.
 func FreshBuildPrompt(key, statePath string) string {

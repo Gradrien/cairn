@@ -1405,7 +1405,8 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 	s.Set("attente", "")
 	text := i18n.T("Validé : ", "Approved: ") + waiting
 	var prompt string
-	if s.Phase == "plan" {
+	planned := s.Phase == "plan"
+	if planned {
 		s.Set("phase", "build")
 		prompt = chantier.BuildPrompt(s.Path)
 		_ = journal.Append(config.ChantiersDir(), c.Key, "plan validé")
@@ -1423,6 +1424,18 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 	m.say(text, nil)
 	cmd := m.rebuild()
 	key, path := c.Key, s.Path
+	if !planned {
+		// Any other wait (a new plan for changes on an open PR, a question…):
+		// the agent that asked carries on.
+		if agent.PaneID == "" {
+			m.say(text+mux.Words(i18n.T(" Aucun agent sur ce chantier : lance-en un depuis son espace herdr.", " No agent on this ticket: start one from its herdr workspace.")), nil)
+			return m, cmd
+		}
+		prompt = chantier.ApprovedPrompt(path, waiting)
+		return m, tea.Batch(cmd, func() tea.Msg {
+			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: mux.Prompt(agent.PaneID, prompt)}
+		})
+	}
 	if prompt != "" && agent.PaneID == "" {
 		// No agent here to build (it ended, or runs in a multiplexer this
 		// cairn does not drive): one starts in the chantier's worktree.
