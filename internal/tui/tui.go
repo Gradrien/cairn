@@ -1237,7 +1237,7 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	_ = journal.Append(config.ChantiersDir(), c.Key, "push autorisé")
-	key, dir := c.Key, c.Worktree
+	key, dir, pane, path := c.Key, c.Worktree, agentPane(c), s.Path
 	m.busy = fmt.Sprintf(i18n.T("Push de %s (%s)… le hook pre-push peut prendre quelques minutes", "Pushing %s (%s)… the pre-push hook may take a few minutes"), key, shortSHA(head))
 	return m, tea.Batch(m.rebuild(), func() tea.Msg {
 		out, err := pushBranch(dir)
@@ -1245,8 +1245,21 @@ func (m Model) allowPush() (tea.Model, tea.Cmd) {
 		_ = os.WriteFile(logPath, out, 0o644)
 		if err != nil {
 			_ = journal.Append(config.ChantiersDir(), key, "push échoué")
-			return doneMsg{err: fmt.Errorf(i18n.T("le push de %s a échoué (%s) : %s · journal complet : %s", "pushing %s failed (%s): %s · full log: %s"),
-				key, shortSHA(head), lastLines(out, 3), tilde(logPath)), refresh: true}
+			err = fmt.Errorf(i18n.T("le push de %s a échoué (%s) : %s · journal complet : %s", "pushing %s failed (%s): %s · full log: %s"),
+				key, shortSHA(head), lastLines(out, 3), tilde(logPath))
+			if pane != "" {
+				// The agent stopped on its wait, which the push cleared: it
+				// must hear that nothing left, and why.
+				prompt := fmt.Sprintf(i18n.T("Le push de la branche par cairn a échoué (commit %s) : %s. Journal complet : %s. "+
+					"Corrige ce qui bloque et commite, puis remets `attente: Prêt à pousser` dans %s avec en une ligne ce qui partira, et arrête-toi.",
+					"cairn's push of the branch failed (commit %s): %s. Full log: %s. "+
+						"Fix what blocks it and commit, then set `attente: Prêt à pousser` again in %s with one line on what will ship, and stop."),
+					shortSHA(head), lastLines(out, 10), logPath, path)
+				if perr := mux.Prompt(pane, prompt); perr == nil {
+					err = fmt.Errorf("%w%s", err, i18n.T(" · envoyé à l'agent", " · sent to the agent"))
+				}
+			}
+			return doneMsg{err: err, refresh: true}
 		}
 		_ = journal.Append(config.ChantiersDir(), key, "poussé "+shortSHA(head))
 		return doneMsg{text: fmt.Sprintf(i18n.T("%s poussé : commit %s.", "%s pushed: commit %s."), key, shortSHA(head)), refresh: true}
@@ -1349,6 +1362,9 @@ func (m Model) allowPR() (tea.Model, tea.Cmd) {
 		cmd = tea.Batch(cmd, func() tea.Msg {
 			return doneMsg{text: text + i18n.T(" Agent relancé.", " Agent resumed."), err: mux.Prompt(pane, prompt)}
 		})
+	} else {
+		text += mux.Words(i18n.T(" Aucun agent sur ce chantier pour l'ouvrir : lance-en un depuis son espace herdr.",
+			" No agent on this ticket to open it: start one from its herdr workspace."))
 	}
 	m.say(text, nil)
 	return m, cmd
@@ -1383,16 +1399,10 @@ func (m Model) pushValid(c *chantier.Chantier) bool {
 	return s != nil && s.PushAllowed() && s.PushCovers(m.gits[c.Key].Head)
 }
 
-func isPushWait(w string) bool {
-	l := strings.ToLower(w)
-	return !isPRWait(w) && (strings.Contains(l, "pousser") || strings.Contains(l, "push"))
-}
+func isPushWait(w string) bool { return state.IsPushWait(w) }
 
 // isPRWait: the agent waits for the go-ahead to open the PR.
-func isPRWait(w string) bool {
-	l := strings.ToLower(w)
-	return (strings.Contains(l, "ouvrir") || strings.Contains(l, "open")) && (strings.Contains(l, "pr") || strings.Contains(l, "pull request"))
-}
+func isPRWait(w string) bool { return state.IsPRWait(w) }
 
 func (m Model) validate() (tea.Model, tea.Cmd) {
 	c := m.selected()
@@ -1402,10 +1412,17 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 	}
 	s := c.State
 	waiting := s.Waiting
+	// Only the plan's own approval moves to Build; any other wait (a question,
+	// a new plan for changes on an open PR…) lets the same agent carry on.
+	planned := s.Phase == "plan" && (state.IsPlanWait(waiting) || strings.Contains(strings.ToLower(waiting), "plan"))
+	if q := len(s.OpenQuestions()); planned && q > 0 {
+		m.say("", fmt.Errorf(i18n.T("%s : le plan a encore %d question(s) ouverte(s) : réponds-y d'abord (Répondre).",
+			"%s: the plan still has %d open question(s): answer them first (Answer)."), c.Key, q))
+		return m, nil
+	}
 	s.Set("attente", "")
 	text := i18n.T("Validé : ", "Approved: ") + waiting
 	var prompt string
-	planned := s.Phase == "plan"
 	if planned {
 		s.Set("phase", "build")
 		prompt = chantier.BuildPrompt(s.Path)
@@ -1416,11 +1433,7 @@ func (m Model) validate() (tea.Model, tea.Cmd) {
 		m.say("", err)
 		return m, nil
 	}
-	var agent mux.Agent
-	for _, a := range c.Agents {
-		agent = a
-		break
-	}
+	agent := agentOf(c)
 	m.say(text, nil)
 	cmd := m.rebuild()
 	key, path := c.Key, s.Path

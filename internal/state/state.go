@@ -447,6 +447,35 @@ func (s *State) PushCovers(head string) bool {
 	return c == "" || head == "" || strings.HasPrefix(head, c) || strings.HasPrefix(c, head)
 }
 
+// The waits cairn asks agents to write. They are recognised by how they
+// start, not by a word found anywhere: "Valider le plan : ouvrir l'écran de
+// profil" waits for an approval, not for the PR.
+var (
+	pushWaits = []string{"prêt à pousser", "pret a pousser", "ready to push", "pousser", "push"}
+	prWaits   = []string{"prêt à ouvrir la pr", "pret a ouvrir la pr", "ready to open the pr", "ouvrir la pr", "open the pr",
+		"prêt à ouvrir la pull request", "pret a ouvrir la pull request", "ready to open the pull request"}
+	planWaits = []string{"valider le plan", "approve the plan", "validate the plan"}
+)
+
+func waitStarts(w string, prefixes []string) bool {
+	l := strings.ToLower(strings.TrimSpace(w))
+	for _, p := range prefixes {
+		if strings.HasPrefix(l, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPRWait: the agent waits for the go-ahead to open the PR.
+func IsPRWait(w string) bool { return waitStarts(w, prWaits) }
+
+// IsPushWait: the agent waits for the go-ahead to push.
+func IsPushWait(w string) bool { return !IsPRWait(w) && waitStarts(w, pushWaits) }
+
+// IsPlanWait: the agent waits for its plan to be approved.
+func IsPlanWait(w string) bool { return waitStarts(w, planWaits) }
+
 func (s *State) Save() error { return os.WriteFile(s.Path, []byte(s.String()), 0o644) }
 
 // New is the file a chantier starts with, before its agent writes the plan.

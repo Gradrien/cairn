@@ -10,6 +10,7 @@ import (
 	"cairn/internal/i18n"
 	"cairn/internal/journal"
 	"cairn/internal/prompted"
+	"cairn/internal/state"
 )
 
 // The chat side of the guard, a Claude Code UserPromptSubmit hook: when the
@@ -67,7 +68,7 @@ func CheckPrompt(r io.Reader, keys []string, chantiersDir, cairnDir string) stri
 	}
 	// No commit yet: the human may ask to commit then push. The first push pins it.
 	s.Set("push", "autorisé")
-	if w := strings.ToLower(s.Waiting); strings.Contains(w, "pousser") || strings.Contains(w, "push") {
+	if state.IsPushWait(s.Waiting) {
 		s.Set("attente", "")
 	}
 	if err := s.Save(); err != nil {
