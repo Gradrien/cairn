@@ -297,9 +297,13 @@ func (m Model) ciFailed(c *chantier.Chantier) bool {
 	return ok && pr.Err == "" && pr.Checks.Failed > 0 && c.OpenPR() != nil
 }
 
-// groupOf is the list section a chantier sits in.
+// groupOf is the list section a chantier sits in. Reviews of someone else's
+// work keep to their own section, apart from what you ship, even when they
+// need you.
 func (m Model) groupOf(c *chantier.Chantier) string {
 	switch {
+	case c.ForReview && c.Phase != chantier.Shipped:
+		return "review"
 	case m.needsYou(c):
 		return "wait"
 	case c.Phase == chantier.ToPlan:
@@ -318,9 +322,15 @@ func groupHeader(g string) string {
 		return sHeader.Render(i18n.T("À planifier", "To plan"))
 	case "kept":
 		return sHeader.Render(i18n.T("Livrés, pas encore rangés", "Shipped, not cleaned up"))
+	case "review":
+		return sHeader.Render(i18n.T("À relire", "To review"))
 	}
 	return sHeader.Render(i18n.T("En cours", "In progress"))
 }
+
+// groupRank orders the list's sections: what you ship first, then the
+// reviews, then what is not started.
+var groupRank = map[string]int{"wait": 0, "work": 1, "review": 2, "toplan": 3, "kept": 4}
 
 // matches reports whether list item i passes the "/" filter.
 func (m Model) matches(i int) bool {
@@ -377,7 +387,7 @@ func (m Model) listInfo(c *chantier.Chantier) string {
 		}
 		return info + icons
 	}
-	info := phaseStyle(c.Phase).Render(c.Phase.Label())
+	info := phaseStyle(c.Phase).Render(c.PhaseLabel())
 	if why := m.watch.keep[c.Key]; why != "" && c.Phase == chantier.Shipped {
 		info += sWarn.Render(" · " + why)
 	}

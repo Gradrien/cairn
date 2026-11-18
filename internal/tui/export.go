@@ -44,7 +44,8 @@ type exportChantier struct {
 	Title      string        `json:"title"`
 	Phase      string        `json:"phase"`
 	PhaseID    string        `json:"phase_id"`
-	Group      string        `json:"group"` // wait, work, toplan, kept: the TUI's sections
+	Group      string        `json:"group"`                // wait, work, review, toplan, kept: the TUI's sections
+	ForReview  bool          `json:"for_review,omitempty"` // someone else's PR, which you review
 	Waiting    string        `json:"waiting,omitempty"`
 	CIFailed   bool          `json:"ci_failed,omitempty"`
 	TasksDone  int           `json:"tasks_done"`
@@ -83,6 +84,7 @@ func (m Model) board() exportBoard {
 		"work":   i18n.T("En cours", "In progress"),
 		"toplan": i18n.T("À planifier", "To plan"),
 		"kept":   i18n.T("Livrés, pas encore rangés", "Shipped, not cleaned up"),
+		"review": i18n.T("À relire", "To review"),
 	}}
 	if ws := m.snap.WorkspaceByLabel(home.Label); ws != nil {
 		b.Home = ws.ID
@@ -93,8 +95,8 @@ func (m Model) board() exportBoard {
 			b.ShippedOf = append(b.ShippedOf, exportRef{c.Key, c.Title()})
 			continue
 		}
-		e := exportChantier{Key: c.Key, Project: c.Project, Title: c.Title(), Phase: c.Phase.Label(),
-			PhaseID: phaseID(c.Phase), Group: m.groupOf(c), Waiting: c.Waiting(), CIFailed: m.ciFailed(c),
+		e := exportChantier{Key: c.Key, Project: c.Project, Title: c.Title(), Phase: c.PhaseLabel(),
+			PhaseID: phaseID(c.Phase), Group: m.groupOf(c), ForReview: c.ForReview, Waiting: c.Waiting(), CIFailed: m.ciFailed(c),
 			Agents: []exportAgent{}}
 		if c.State != nil {
 			e.TasksDone, e.TasksDoing, e.Tasks = c.State.DoneCount(), state.Count(c.State.Tasks, false), len(c.State.Tasks)

@@ -59,6 +59,17 @@ type Chantier struct {
 	State      *state.State
 	Agents     []mux.Agent
 	Phase      Phase
+	// ForReview is someone else's work you review: it has pull requests and
+	// none of them is yours. You do not ship it.
+	ForReview bool
+}
+
+// PhaseLabel is the phase shown on screen; a review says so.
+func (c *Chantier) PhaseLabel() string {
+	if c.ForReview && c.Phase != Shipped {
+		return i18n.T("Relecture", "Reviewing")
+	}
+	return c.Phase.Label()
 }
 
 func (c *Chantier) Title() string {
@@ -110,7 +121,7 @@ func (c *Chantier) Token() string {
 	if w := c.Waiting(); w != "" {
 		return "⚠ " + w
 	}
-	s := c.Key + " · " + c.Phase.Label()
+	s := c.Key + " · " + c.PhaseLabel()
 	if c.State != nil && len(c.State.Tasks) > 0 {
 		s += fmt.Sprintf(" %d/%d", c.State.DoneCount(), len(c.State.Tasks))
 	}
@@ -182,7 +193,8 @@ type Source struct {
 	// Issues are the tickets to show, may be nil when the tracker is unreachable.
 	Issues    []tracker.Issue
 	Worktrees []mux.Worktree
-	// BranchPRs are the pull requests GitHub has for a branch, newest first.
+	// BranchPRs are your pull requests on GitHub, by branch, newest first.
+	// nil when GitHub could not be read.
 	BranchPRs map[string][]tracker.PullRequest
 }
 
@@ -232,6 +244,12 @@ func Gather(in Input) ([]*Chantier, []mux.Agent) {
 				c.Workspaces = append(c.Workspaces, wt.OpenWorkspaceID)
 			}
 		}
+		mine := map[string]bool{}
+		for _, prs := range src.BranchPRs {
+			for _, pr := range prs {
+				mine[pr.URL] = true
+			}
+		}
 		for _, c := range byKey {
 			if c.Project != src.Project {
 				continue
@@ -248,6 +266,7 @@ func Gather(in Input) ([]*Chantier, []mux.Agent) {
 				}
 			}
 			c.PRs = withGitHub(prs, in.GitHubPRs)
+			c.ForReview = src.BranchPRs != nil && len(c.PRs) > 0 && !anyPR(c.PRs, mine)
 		}
 	}
 	for key, c := range byKey {
@@ -316,6 +335,16 @@ func owner(a mux.Agent, byKey map[string]*Chantier) *Chantier {
 		}
 	}
 	return nil
+}
+
+// anyPR reports whether one of prs is in urls.
+func anyPR(prs []tracker.PullRequest, urls map[string]bool) bool {
+	for _, p := range prs {
+		if urls[p.URL] {
+			return true
+		}
+	}
+	return false
 }
 
 func hasPR(prs []tracker.PullRequest, url string) bool {

@@ -18,17 +18,21 @@ import (
 	"cairn/internal/state"
 )
 
-// agentPane is the pane of the agent to talk to for a chantier, "" if none.
-func agentPane(c *chantier.Chantier) string {
+// agentOf is the agent to talk to for a chantier, one waiting first; the
+// zero Agent if none.
+func agentOf(c *chantier.Chantier) mux.Agent {
 	for _, want := range []string{"idle", "done", "blocked", ""} {
 		for _, a := range c.Agents {
 			if want == "" || a.Status == want {
-				return a.PaneID
+				return a
 			}
 		}
 	}
-	return ""
+	return mux.Agent{}
 }
+
+// agentPane is the pane of the agent to talk to for a chantier, "" if none.
+func agentPane(c *chantier.Chantier) string { return agentOf(c).PaneID }
 
 func planPath(c *chantier.Chantier) string {
 	if c.State != nil {

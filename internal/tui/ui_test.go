@@ -462,3 +462,33 @@ func TestAbandonAsksFirst(t *testing.T) {
 		t.Fatal("nothing happens before you confirm")
 	}
 }
+
+func TestReviewsKeepApart(t *testing.T) {
+	m := fixture(t, 160, 45)
+	// A colleague's PR you review, its CI broken: it stays with the reviews.
+	m.chantiers = append(m.chantiers, &chantier.Chantier{Key: "YAK-773", Phase: chantier.Review, Main: true,
+		Branch: "paul/yak-773", ForReview: true, Issue: &tracker.Issue{ID: "YAK-773", Title: "Supprimer un contact client"},
+		PRs: []tracker.PullRequest{{Number: 3377, State: "open", URL: "u773"}}})
+	m.prs["YAK-773"] = progress.PR{URL: "u773", State: "OPEN", Checks: progress.Checks{Failed: 1}}
+	m.rebuildOrder()
+	text := strings.Join(screen(m), "\n")
+	work, review, toplan := strings.Index(text, "En cours"), strings.Index(text, "À relire"), strings.Index(text, "À planifier")
+	key := strings.Index(text, "YAK-773")
+	if work < 0 || review < 0 || toplan < 0 || !(work < review && review < key && key < toplan) {
+		t.Fatalf("reviews must sit in their own section, between in progress and to plan:\n%s", text)
+	}
+	m.prs["YAK-773"] = progress.PR{URL: "u773", State: "OPEN"}
+	if !strings.Contains(strings.Join(screen(m), "\n"), "Relecture") {
+		t.Error("a review must say so instead of its phase")
+	}
+	cols := m.boardCols()
+	last := cols[len(cols)-1]
+	if len(last) != 1 || m.chantiers[last[0]].Key != "YAK-773" {
+		t.Errorf("the board's last column holds the reviews, got %v", last)
+	}
+	for _, i := range cols[3] { // Review: your own PRs only
+		if m.chantiers[i].ForReview {
+			t.Error("a review must leave the Review column")
+		}
+	}
+}

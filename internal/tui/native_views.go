@@ -145,10 +145,10 @@ func (m Model) nativeSettings() []nativeSetting {
 
 func (m Model) nativeBoard() []nativeColumn {
 	var out []nativeColumn
-	for _, p := range boardPhases {
-		col := nativeColumn{Phase: p.Label(), Cards: []nativeCardRef{}}
+	for _, b := range boardColumns {
+		col := nativeColumn{Phase: b.label(), Cards: []nativeCardRef{}}
 		for _, c := range m.chantiers {
-			if c.Phase != p {
+			if !b.holds(c) {
 				continue
 			}
 			ref := nativeCardRef{Key: c.Key, Title: c.Title(), Waiting: c.Waiting()}

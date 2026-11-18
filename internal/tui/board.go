@@ -15,16 +15,38 @@ import (
 // The board (t) lays the chantiers out by phase, to see the flow at a
 // glance. The selection is the list's: enter opens its detail.
 
-var boardPhases = []chantier.Phase{chantier.ToPlan, chantier.Plan, chantier.Build, chantier.Review, chantier.Shipped}
+// boardColumns are the board's columns: one per phase for what you ship,
+// then the reviews of someone else's work, apart.
+var boardColumns = []boardColumn{{phase: chantier.ToPlan}, {phase: chantier.Plan}, {phase: chantier.Build},
+	{phase: chantier.Review}, {phase: chantier.Shipped}, {review: true}}
+
+type boardColumn struct {
+	phase  chantier.Phase
+	review bool
+}
+
+func (b boardColumn) holds(c *chantier.Chantier) bool {
+	if c.ForReview && c.Phase != chantier.Shipped {
+		return b.review
+	}
+	return !b.review && c.Phase == b.phase
+}
+
+func (b boardColumn) label() string {
+	if b.review {
+		return i18n.T("À relire", "To review")
+	}
+	return b.phase.Label()
+}
 
 const cardH = 6 // a card's rows, border included
 
 // boardCols lists the chantier indexes of each column, in list order.
 func (m Model) boardCols() [][]int {
-	cols := make([][]int, len(boardPhases))
+	cols := make([][]int, len(boardColumns))
 	for i, c := range m.chantiers {
-		for j, p := range boardPhases {
-			if c.Phase == p {
+		for j, b := range boardColumns {
+			if b.holds(c) {
 				cols[j] = append(cols[j], i)
 			}
 		}
@@ -130,10 +152,11 @@ func (m Model) boardLayout(h int) (string, []cardHit) {
 	var blocks []string
 	var hits []cardHit
 	for x, col := range cols {
-		p := boardPhases[shown[x]]
-		head := phaseStyle(p).Bold(true).Render(p.Label())
-		if p == chantier.ToPlan || p == chantier.Plan {
-			head = sSoftBold.Render(p.Label())
+		bc := boardColumns[shown[x]]
+		p := bc.phase
+		head := phaseStyle(p).Bold(true).Render(bc.label())
+		if bc.review || p == chantier.ToPlan || p == chantier.Plan {
+			head = sSoftBold.Render(bc.label())
 		}
 		head += " " + sMuted.Render(fmt.Sprint(len(col)))
 		if fill := colW - lipgloss.Width(head) - 1; fill > 0 {
@@ -160,7 +183,7 @@ func (m Model) boardLayout(h int) (string, []cardHit) {
 		if more > 0 {
 			lines = append(lines, sDim.Render(fmt.Sprintf(i18n.T("… %d de plus", "… %d more"), more)))
 		}
-		if p == chantier.Shipped && m.shipped > 0 && !m.showShipped {
+		if !bc.review && p == chantier.Shipped && m.shipped > 0 && !m.showShipped {
 			lines = append(lines, sMuted.Render(fmt.Sprintf(i18n.T("%d livré(s) rangé(s)", "%d shipped, cleaned up"), m.shipped)))
 		}
 		blocks = append(blocks, lipgloss.NewStyle().Width(colW).Height(h).MaxHeight(h).Render(strings.Join(lines, "\n")))
