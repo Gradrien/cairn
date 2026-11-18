@@ -99,7 +99,7 @@ func TestNativeScreens(t *testing.T) {
 		t.Errorf("a palette entry runs as the TUI's, and the palette closes: %q %q", m.overlay, m.selected().Key)
 	}
 	m.view = "board"
-	if d := m.nativeDetail(); len(d.Board) != 5 || d.Board[1].Phase != "Plan" || d.Board[1].Cards[0].Key != "YAK-861" {
+	if d := m.nativeDetail(); len(d.Board) != 6 || d.Board[5].Phase != "À relire" || d.Board[1].Phase != "Plan" || d.Board[1].Cards[0].Key != "YAK-861" {
 		t.Errorf("the board has a column per phase: %+v", d.Board)
 	}
 	m, _ = m.runRequest(native.Request{Key: "YAK-800", Action: "select"})

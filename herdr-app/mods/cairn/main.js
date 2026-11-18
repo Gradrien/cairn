@@ -13,7 +13,7 @@ const CAIRN = "@CAIRN@";
 const PATH = "@PATH@";
 const BOARD = "@BOARD@";
 const DETAIL = "@DETAIL@";
-const GROUPS = ["wait", "work", "toplan", "kept", "shipped", "others"];
+const GROUPS = ["wait", "work", "review", "toplan", "kept", "shipped", "others"];
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 
 function find(node, id) {
@@ -321,7 +321,7 @@ export default class Cairn extends View {
     const fr = this.fr();
     const b = this.board;
     const chantiers = b?.chantiers ?? [];
-    const waiting = chantiers.filter((c) => c.group === "wait").length;
+    const waiting = chantiers.filter((c) => c.group === "wait" || (c.group === "review" && (c.waiting || c.ci_failed))).length;
     const activeSpace = spaces().find((s) => s.active)?.id;
 
     const rows = [];

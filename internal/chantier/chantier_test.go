@@ -129,3 +129,38 @@ func TestTwoProjects(t *testing.T) {
 		t.Fatal("KeyRe prefixes")
 	}
 }
+
+func TestForReview(t *testing.T) {
+	in := Input{
+		ChantiersDir: t.TempDir(),
+		Sources: []Source{{Project: "yak", Key: "YAK", Repo: "/r/Yak-App",
+			Issues: []tracker.Issue{
+				{ID: "YAK-773", PullRequests: []tracker.PullRequest{{URL: "u773", State: "open"}}},
+				{ID: "YAK-885", PullRequests: []tracker.PullRequest{{URL: "u885", State: "open"}}},
+				{ID: "YAK-831"},
+			},
+			Worktrees: []mux.Worktree{
+				{Branch: "paul/yak-773-contact", Path: "/r/Yak-App"},
+				{Branch: "adrien/yak-885-cra", Path: "/r/Yak-App-885"},
+			},
+			// Only yours: gh pr list --author @me.
+			BranchPRs: map[string][]tracker.PullRequest{"adrien/yak-885-cra": {{URL: "u885", State: "open"}}},
+		}},
+	}
+	list, _ := Gather(in)
+	got := map[string]bool{}
+	for _, c := range list {
+		got[c.Key] = c.ForReview
+	}
+	if !got["YAK-773"] || got["YAK-885"] || got["YAK-831"] {
+		t.Fatalf("only someone else's PR is a review: %v", got)
+	}
+	// GitHub unread: nothing is called a review.
+	in.Sources[0].BranchPRs = nil
+	list, _ = Gather(in)
+	for _, c := range list {
+		if c.ForReview {
+			t.Fatalf("%s called a review without GitHub", c.Key)
+		}
+	}
+}

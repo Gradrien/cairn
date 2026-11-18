@@ -373,6 +373,9 @@ form. If a `repo` is wrong, cairn says so on startup and points to the file.
   project whose repository it is. An agent belongs to it when it works in that worktree, or when its name or title
   mentions the ticket. A PR belongs to it when the tracker links them, or when it comes from the chantier's branch.
 - **Phase.** Read from the plan file. Without one, an open PR means Review and a worktree means Build. Merged PRs mean Shipped.
+- **Reviews.** A chantier whose PRs are all someone else's (none in `gh pr list --author @me`) is a review, not
+  something you ship: it sits in its own *À relire* section of the list, in the Herdr app's panel and in its own
+  board column, and says *Relecture* instead of its phase.
 - **Data.** herdr's socket API for agents and workspaces, the tracker's API for tickets (Linear's GraphQL API,
   another tracker's API, or the chantier files themselves), `gh` for PRs, CI and images.
   Claude Code's transcripts for what the agents consumed (read incrementally, never written).

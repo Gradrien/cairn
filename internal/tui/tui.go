@@ -247,10 +247,15 @@ func (m *Model) rebuild() tea.Cmd {
 	return tea.Batch(m.pushTokens(), m.observe())
 }
 
-// rebuildOrder puts what needs you first: a decision, or a broken CI.
+// rebuildOrder keeps each list section together (see groupOf) and, inside
+// one, puts what needs you first: a decision, or a broken CI.
 func (m *Model) rebuildOrder() {
 	sort.SliceStable(m.chantiers, func(i, j int) bool {
-		return m.needsYou(m.chantiers[i]) && !m.needsYou(m.chantiers[j])
+		a, b := m.chantiers[i], m.chantiers[j]
+		if ga, gb := groupRank[m.groupOf(a)], groupRank[m.groupOf(b)]; ga != gb {
+			return ga < gb
+		}
+		return m.needsYou(a) && !m.needsYou(b)
 	})
 }
 
